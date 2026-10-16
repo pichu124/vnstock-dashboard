@@ -14,7 +14,13 @@ một mảng nhánh chưa từng ai kiểm:
 Đây mới là phần trả lại giá trị thật của việc gỡ replica: không phải "test
 xanh", mà là "test cuối cùng cũng SOI đúng đồ đang chạy".
 """
+import ast
+import copy
 import json
+import logging
+import sys
+import types
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -321,3 +327,368 @@ class TestSectorTaxonomy:
         assert get_sector("Ngành trên trời") == "Khác"
         assert get_sector("") == "Khác"
         assert get_sector(None) == "Khác"
+
+
+# ── vnstock_dashboard: chạy ĐÚNG hàm trong source, không import module ──────
+# `vnstock_dashboard` gọi st.set_page_config + nạp .env + dựng UI ngay khi
+# import nên pytest không import nổi. Trích hàm từ AST (bỏ decorator cache)
+# rồi exec với globals tiêm vào: vẫn là code đang chạy, không phải bản chép tay.
+
+_ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_source_fns(relpath: str, *names: str, **globs) -> dict:
+    """Namespace chứa các hàm (kể cả hàm lồng) / hằng cấp module `names`."""
+    tree = ast.parse((_ROOT / relpath).read_text(encoding="utf-8"))
+    nodes: dict = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.FunctionDef):
+            nodes.setdefault(n.name, n)
+    for n in tree.body:
+        if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name):
+            nodes.setdefault(n.targets[0].id, n)
+    ns = dict(globs)
+    for name in names:
+        node = nodes[name]
+        if isinstance(node, ast.FunctionDef):
+            node.decorator_list = []
+        exec(compile(ast.Module([node], []), str(_ROOT / relpath), "exec"), ns)
+    return ns
+
+
+# ── Price alert: bắn MỘT lần, không lặp mỗi 10s ─────────────────────────────
+
+@pytest.fixture()
+def alert_env(tmp_path):
+    sent: list = []
+
+    def _send(token, chat, msg):
+        sent.append(msg)
+        return True
+
+    ns = load_source_fns(
+        "vnstock_dashboard.py",
+        "load_alerts", "save_alerts", "check_and_fire_alerts",
+        json=json, log=logging.getLogger("vnstock_dashboard"),
+        ALERTS_PATH=tmp_path / "_meta" / "price_alerts.json",
+        load_live_quote=lambda t: {"price": 25.5, "chg_pct": 1.0, "volume": 1e6},
+        send_telegram_alert=_send,
+    )
+    ns["sent"] = sent
+    return ns
+
+
+def test_check_and_fire_alerts_returns_copies_and_leaves_input_alone(alert_env):
+    alerts = [{"ticker": "VCB", "condition": "above", "target": 25.0, "fired": False}]
+    before = copy.deepcopy(alerts)
+    out = alert_env["check_and_fire_alerts"](alerts, "tok", "chat")
+    assert alerts == before
+    assert out[0]["fired"] is True
+    assert out[0]["fired_price"] == 25.5
+
+
+def test_alert_checker_fragment_sends_telegram_once_across_runs(alert_env):
+    """Fragment chạy mỗi 10s: lượt 1 bắn + LƯU, lượt 2 đọc lại thấy đã bắn."""
+    alert_env["save_alerts"](
+        [{"ticker": "VCB", "condition": "above", "target": 25.0, "fired": False}])
+    toasts: list = []
+    st = types.SimpleNamespace(
+        session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=toasts.append)
+    frag = load_source_fns(
+        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
+        check_and_fire_alerts=alert_env["check_and_fire_alerts"],
+    )["_alert_checker"]
+    frag()
+    frag()
+    assert len(alert_env["sent"]) == 1
+    assert len(toasts) == 1
+    assert alert_env["load_alerts"]()[0]["fired"] is True
+
+
+def test_alerts_roundtrip_utf8_message(alert_env):
+    """Máy cp1252: không ghi utf-8 thì 🔔/tiếng Việt ném UnicodeEncodeError."""
+    al = [{"ticker": "VCB", "fired": True, "message": "🔔 <b>ALERT</b>\nĐiều kiện: giá >= 25"}]
+    alert_env["save_alerts"](al)
+    assert alert_env["load_alerts"]() == al
+
+
+def test_failed_telegram_send_is_logged(alert_env, caplog):
+    alert_env["send_telegram_alert"] = lambda *a: False
+    with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):
+        alert_env["check_and_fire_alerts"](
+            [{"ticker": "VCB", "condition": "above", "target": 25.0}], "tok", "chat")
+    assert "VCB" in caplog.text
+
+
+# ── df_from_preset: cột % ────────────────────────────────────────────────────
+
+def test_preset_pct_columns_show_zero_and_hide_nan():
+    """0.0 là số thật (đứng giá) ⇒ "0.0%"; NaN/None là thiếu data ⇒ "—"."""
+    df_from_preset = load_source_fns("vnstock_dashboard.py", "df_from_preset",
+                                     pd=pd)["df_from_preset"]
+    out = df_from_preset({"results": [
+        {"ticker": "AAA", "chg_1d_pct": 0.0, "chg_5d_pct": float("nan"),
+         "chg_20d_pct": None, "bb_pct": 1.24, "52w_pct": -2.0, "rsi_14": 55.0},
+        {"ticker": "BBB", "chg_1d_pct": -0.5, "chg_5d_pct": 3.0,
+         "chg_20d_pct": 4.0, "bb_pct": None, "52w_pct": 0.0, "rsi_14": 0.0},
+    ]})
+    assert out["1D%"].tolist() == ["0.0%", "-0.5%"]
+    assert out["5D%"].tolist() == ["—", "+3.0%"]
+    assert out["20D%"].tolist() == ["—", "+4.0%"]
+    assert out["BB%"].tolist() == ["+1.2%", "—"]
+    assert out["52W%"].tolist() == ["-2.0%", "0.0%"]
+    assert out["RSI"].tolist() == ["55.0", "—"]   # cột khác giữ nguyên format
+
+
+# ── Điều hướng tab bằng st.pills ─────────────────────────────────────────────
+
+_DASH_SRC = (_ROOT / "vnstock_dashboard.py").read_text(encoding="utf-8")
+
+
+def _run_nav(clicks: list) -> tuple:
+    """Chạy ĐÚNG khối nav (trích từ source) qua nhiều lượt rerun với st giả."""
+    start = _DASH_SRC.index("_TAB_OPTIONS = [")
+    block = _DASH_SRC[start:_DASH_SRC.index("if _active_tab ==", start)]
+    calls: list = []
+    session: dict = {}
+    tabs = []
+    for value in clicks:
+        def pills(label, options, **kw):
+            calls.append((label, kw))
+            return value
+        ns = {"st": types.SimpleNamespace(pills=pills, session_state=session)}
+        exec(block, ns)
+        tabs.append(ns["_active_tab"])
+    return tabs, calls
+
+
+def test_reclicking_selected_pill_keeps_previous_tab():
+    """Bấm lại pill đang chọn ⇒ st.pills trả None ⇒ vùng chính TRẮNG."""
+    assert _run_nav(["💰 Dòng Tiền", None, None])[0] == ["💰 Dòng Tiền"] * 3
+
+
+def test_first_run_with_no_selection_falls_back_to_screener():
+    assert _run_nav([None])[0] == ["📊 Screener"]
+
+
+def test_nav_pills_have_a_real_but_hidden_label():
+    """label rỗng ⇒ Streamlit cảnh báo accessibility mỗi lượt."""
+    label, kw = _run_nav(["📊 Screener"])[1][0]
+    assert label.strip()
+    assert kw.get("label_visibility") == "collapsed"
+
+
+# ── _fetch_order_stats_batch: cache đĩa theo TỪNG mã ────────────────────────
+
+@pytest.fixture()
+def order_env(tmp_path, monkeypatch):
+    import os
+    from datetime import datetime
+
+    fetched: list = []
+
+    class _Trading:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def order_stats(self):
+            fetched.append(self.symbol)
+            return pd.DataFrame({
+                "trading_date": pd.bdate_range("2026-10-05", periods=5),
+                "total_buy_trade_volume": [1000.0] * 5,
+                "total_buy_trade": [10.0] * 5,
+                "total_sell_trade_volume": [1000.0] * 5,
+                "total_sell_trade": [10.0] * 5,
+            })
+
+    monkeypatch.setitem(sys.modules, "vnstock_data",
+                        types.SimpleNamespace(Trading=_Trading))
+    path = tmp_path / "order_stats_cache.json"
+    ns = load_source_fns(
+        "vnstock_dashboard.py", "_fetch_order_stats_batch",
+        _ORDER_CACHE_PATH=path, _ORDER_CACHE_MAX_AGE=1800,
+        datetime=datetime, json=json, log=logging.getLogger("t"),
+        np=np, pd=pd, os=os,
+    )
+    return ns["_fetch_order_stats_batch"], path, fetched
+
+
+_CACHED = {tk: {"big_order_score": 50.0, "buy_sell_ratio": 0.7}
+           for tk in ("AAA", "BBB", "CCC", "DDD")}
+
+
+def test_order_stats_fetches_tickers_missing_from_fresh_cache(order_env):
+    fetch, path, fetched = order_env
+    path.write_text(json.dumps(_CACHED), encoding="utf-8")
+    out = fetch(("AAA", "EEE"))
+    assert fetched == ["EEE"]                       # AAA lấy từ cache
+    assert set(out) == {"AAA", "EEE"}
+    assert out["AAA"] == _CACHED["AAA"]
+    assert out["EEE"]["buy_sell_ratio"] == 0.5
+    assert set(json.loads(path.read_text(encoding="utf-8"))) == {*_CACHED, "EEE"}
+
+
+def test_order_stats_merge_does_not_extend_cache_age(order_env):
+    """Gộp mã mới vào file KHÔNG được làm mới mtime: mã cũ trong file sẽ sống
+    quá 30 phút mãi mãi nếu lượt nào cũng thiếu một mã."""
+    import os
+    import time
+
+    fetch, path, _ = order_env
+    path.write_text(json.dumps(_CACHED), encoding="utf-8")
+    old = time.time() - 1000
+    os.utime(path, (old, old))
+    fetch(("AAA", "EEE"))
+    assert abs(path.stat().st_mtime - old) < 2
+
+
+def test_order_stats_full_cache_hit_makes_no_api_call(order_env):
+    fetch, path, fetched = order_env
+    path.write_text(json.dumps(_CACHED), encoding="utf-8")
+    assert fetch(("BBB", "CCC")) == {tk: _CACHED[tk] for tk in ("BBB", "CCC")}
+    assert fetched == []
+
+
+# ── Screener cũ: so PHIÊN PHỦ, không so ngày lịch ───────────────────────────
+
+@pytest.mark.parametrize("generated_at, now, stale", [
+    ("2026-10-16 21:00:00", "2026-10-17 10:00", False),  # T7, kết quả T6 tối
+    ("2026-10-16 21:00:00", "2026-10-18 20:00", False),  # CN
+    ("2026-10-12 21:00:00", "2026-10-13 08:00", False),  # T3 sáng, kết quả T2 tối
+    ("2026-10-12 21:00:00", "2026-10-13 16:00", True),   # T3 sau 15:05: có phiên mới
+    ("2026-10-16 10:00:00", "2026-10-16 16:00", True),   # chạy giữa phiên T6
+    ("—", "2026-10-13 16:00", False),                    # không đọc được ⇒ im
+])
+def test_screener_stale_compares_covered_sessions(generated_at, now, stale):
+    from datetime import datetime
+    fn = load_source_fns("vnstock_dashboard.py", "_screener_is_stale",
+                         datetime=datetime)["_screener_is_stale"]
+    assert fn(generated_at, datetime.fromisoformat(now)) is stale
+
+
+def test_stale_warning_points_to_a_button_that_exists():
+    """Nút "Cập nhật Screener" không tồn tại — chỉ đường phải trỏ nút thật."""
+    start = _DASH_SRC.index("if _screener_stale:")
+    warn = _DASH_SRC[start:_DASH_SRC.index("else:", start)]
+    assert "Cập nhật Screener" not in warn
+    assert "📥 Cập nhật giá" in warn and '"📥 Cập nhật giá"' in _DASH_SRC
+
+
+# ── NN ròng theo cửa sổ: đếm PHIÊN có trong data, không đếm ngày lịch ───────
+
+def _nn_df():
+    # 6 phiên T6 09/10 → T6 16/10; phiên thứ i ròng (i+1) tỷ, mua 2×, bán 1×
+    days = pd.bdate_range("2026-10-09", "2026-10-16")
+    return pd.DataFrame({
+        "symbol": ["AAA"] * len(days), "date": days,
+        "net_value": [(i + 1) * 1e9 for i in range(len(days))],
+        "buy_value": [(i + 1) * 2e9 for i in range(len(days))],
+        "sell_value": [(i + 1) * 1e9 for i in range(len(days))],
+    })
+
+
+@pytest.fixture()
+def nn_fns():
+    ns = load_source_fns("vnstock_dashboard.py", "_NN_WINDOW_SESSIONS", "_nn_window",
+                         "_aggregate_nn_by_window", "_aggregate_nn_buy_sell_by_window",
+                         pd=pd)
+    return ns["_aggregate_nn_by_window"], ns["_aggregate_nn_buy_sell_by_window"]
+
+
+def test_nn_5d_window_sums_the_five_latest_sessions(nn_fns):
+    """Tab Dòng Tiền gửi 5D = 7 (ngày lịch): phải ra đúng 5 phiên mới nhất,
+    không 6 phiên khi đã có data hôm nay, không lệch theo giờ mở dashboard."""
+    net, buy_sell = nn_fns
+    assert net(_nn_df(), 7) == {"AAA": 2.0 + 3 + 4 + 5 + 6}
+    assert buy_sell(_nn_df(), 7) == {"AAA": {"buy": 40.0, "sell": 20.0}}
+
+
+def test_nn_1d_and_long_windows(nn_fns):
+    net, _ = nn_fns
+    assert net(_nn_df(), 0) == {"AAA": 6.0}
+    assert net(_nn_df(), 30) == {"AAA": 21.0}   # data chỉ có 6 phiên
+
+
+# ── Lỗi không được nuốt im: dispatch tab + badge sidebar ────────────────────
+
+_DASH_TREE = ast.parse(_DASH_SRC)
+
+
+def test_every_tab_dispatch_logs_the_traceback():
+    """st.error chỉ in 1 dòng — không log thì không ai lần ra lỗi gốc."""
+    branches = [n for n in _DASH_TREE.body if isinstance(n, ast.If)
+                and "_active_tab ==" in ast.unparse(n.test)]
+    assert len(branches) >= 8
+    for br in branches:
+        for tr in (n for n in br.body if isinstance(n, ast.Try)):
+            for h in tr.handlers:
+                assert "log.exception(" in ast.unparse(h), ast.unparse(br.test)
+
+
+@pytest.mark.parametrize("fname", ["test_status.json", "doctor_status.json",
+                                   "model_status.json"])
+def test_unreadable_sidebar_badge_says_so(fname, tmp_path, monkeypatch):
+    """Badge biến mất khi file hỏng = user tưởng mọi thứ ổn."""
+    tr = next(n for n in ast.walk(_DASH_TREE) if isinstance(n, ast.Try)
+              and f"_meta/{fname}" in ast.unparse(n.body[0]))
+    (tmp_path / "data_warehouse" / "_meta").mkdir(parents=True)
+    (tmp_path / "data_warehouse" / "_meta" / fname).write_text("{hỏng", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    captions: list = []
+    st = types.SimpleNamespace(caption=captions.append, markdown=lambda *a, **k: None)
+    from datetime import datetime
+    exec(compile(ast.Module([tr], []), "vnstock_dashboard.py", "exec"),
+         {"st": st, "json": json, "Path": Path, "datetime": datetime})
+    assert captions == [f"⚠ không đọc được {fname}"]
+
+
+# ── load_fundamental: khối lỗi phải có log và KHÔNG vào cache đĩa 24h ───────
+
+def _fund_env(tmp_path, monkeypatch, overview_ok=True, ratio_ok=True):
+    from datetime import datetime
+
+    def _overview():
+        if not overview_ok:
+            raise RuntimeError("overview sập")
+        return pd.DataFrame({"pe": [12.0], "pb": [1.5]})
+
+    def _ratio(**kw):
+        if not ratio_ok:
+            raise ConnectionError("ratio sập")
+        return pd.DataFrame({"roe": [0.18], "roa": [0.02]})
+
+    monkeypatch.setitem(sys.modules, "vnstock_auth",
+                        types.SimpleNamespace(ensure_api_key=lambda: None))
+    monkeypatch.setitem(sys.modules, "vnstock_data", types.SimpleNamespace(
+        Company=lambda symbol: types.SimpleNamespace(overview=_overview),
+        Finance=lambda symbol, source=None: types.SimpleNamespace(ratio=_ratio),
+    ))
+    fn = load_source_fns(
+        "vnstock_dashboard.py", "load_fundamental",
+        _FUND_CACHE_DIR=tmp_path, _FUND_CACHE_VER=4, datetime=datetime, json=json,
+        pd=pd, log=logging.getLogger("vnstock_dashboard"),
+        _get_warehouse_last_close=lambda t: None,
+    )["load_fundamental"]
+    return fn, tmp_path / "AAA.json"
+
+
+@pytest.mark.parametrize("overview_ok, ratio_ok, block, kept", [
+    (False, True, "overview", ("roe", 18.0)),
+    (True, False, "ratio", ("pe", 12.0)),
+])
+def test_partial_fundamental_is_logged_and_not_disk_cached(
+        tmp_path, monkeypatch, caplog, overview_ok, ratio_ok, block, kept):
+    fn, cache = _fund_env(tmp_path, monkeypatch, overview_ok, ratio_ok)
+    with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):
+        out = fn("AAA")
+    assert out[kept[0]] == kept[1]          # nửa còn lại vẫn hiện
+    assert not cache.exists(), "kết quả thiếu một nửa bị khoá 24h trong cache đĩa"
+    assert "AAA" in caplog.text and block in caplog.text
+
+
+def test_complete_fundamental_is_disk_cached(tmp_path, monkeypatch):
+    fn, cache = _fund_env(tmp_path, monkeypatch)
+    out = fn("AAA")
+    assert out["pe"] == 12.0 and out["roe"] == 18.0
+    assert json.loads(cache.read_text(encoding="utf-8"))["roe"] == 18.0

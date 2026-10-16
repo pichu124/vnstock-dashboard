@@ -336,25 +336,30 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
     return result
 
 
+# Nhãn cửa sổ của bên gọi (0/7/30/90 = 1D/1 tuần/1 tháng/3 tháng) → số PHIÊN
+_NN_WINDOW_SESSIONS = {0: 1, 7: 5, 30: 20, 90: 60}
+
+
+def _nn_window(nn_df: pd.DataFrame, days: int) -> pd.DataFrame:
+    """Dòng của N phiên gần nhất CÓ trong dữ liệu (1D/5D/20D = 1/5/20 phiên).
+
+    Đếm ngày lịch từ đồng hồ thì 5D thành 6 phiên khi đã có data hôm nay, và
+    lệch nhau theo giờ mở dashboard / cuối tuần."""
+    n = _NN_WINDOW_SESSIONS.get(days, max(1, days))
+    dates = pd.to_datetime(nn_df["date"]).dt.normalize()
+    return nn_df[dates.isin(dates.drop_duplicates().nlargest(n))]
+
+
 def _aggregate_nn_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     """
     Aggregate net_value per symbol over time window.
-    days=0 → most recent trading day only (1D view).
-    days>0 → last N calendar days (5D, 20D views).
+    days: nhãn cửa sổ (0=1D, 7=5D, 30=20D, 90=3 tháng) — xem `_nn_window`.
     Return {symbol: net_value_in_ty_VND}.
     """
     if nn_df.empty:
         return {}
 
-    if days == 0:
-        # 1D: lấy ngày giao dịch gần nhất trong dataset (không phải "hôm nay"
-        # vì có thể hôm nay là cuối tuần, hoặc thị trường chưa mở)
-        latest = pd.to_datetime(nn_df["date"]).max().normalize()
-        filtered = nn_df[pd.to_datetime(nn_df["date"]) >= latest]
-    else:
-        cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
-        filtered = nn_df[nn_df["date"] >= cutoff]
-
+    filtered = _nn_window(nn_df, days)
     if filtered.empty:
         return {}
     agg = filtered.groupby("symbol")["net_value"].sum()
@@ -366,16 +371,11 @@ def _aggregate_nn_buy_sell_by_window(nn_df: pd.DataFrame, days: int) -> dict:
     """
     Aggregate NN buy_value and sell_value per symbol over the window.
     Returns {symbol: {"buy": tỷ_VND, "sell": tỷ_VND}}.
-    Mirrors _aggregate_nn_by_window semantics for days=0 (latest-day-only).
+    Cùng cửa sổ phiên với _aggregate_nn_by_window (`_nn_window`).
     """
     if nn_df.empty or "buy_value" not in nn_df.columns:
         return {}
-    if days == 0:
-        latest = pd.to_datetime(nn_df["date"]).max().normalize()
-        filtered = nn_df[pd.to_datetime(nn_df["date"]) >= latest]
-    else:
-        cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
-        filtered = nn_df[nn_df["date"] >= cutoff]
+    filtered = _nn_window(nn_df, days)
     if filtered.empty:
         return {}
     grp = filtered.groupby("symbol")[["buy_value", "sell_value"]].sum()
@@ -450,25 +450,29 @@ def _fetch_order_stats_batch(tickers: tuple) -> dict:
     Return {ticker: {"big_order_score": float, "buy_sell_ratio": float}}.
     Disk cache 30 phút, Streamlit cache 30 phút.
     """
-    # Disk cache
+    # Disk cache — chỉ dùng cho mã ĐÃ có, mã thiếu thì fetch rồi gộp
+    cached, cache_mtime = {}, None
     if _ORDER_CACHE_PATH.exists():
         try:
-            age = datetime.now().timestamp() - _ORDER_CACHE_PATH.stat().st_mtime
-            if age < _ORDER_CACHE_MAX_AGE:
+            cache_mtime = _ORDER_CACHE_PATH.stat().st_mtime
+            if datetime.now().timestamp() - cache_mtime < _ORDER_CACHE_MAX_AGE:
                 cached = json.loads(_ORDER_CACHE_PATH.read_text(encoding="utf-8"))
-                if len(cached) > 3:
-                    log.info("Order stats: loaded %d tickers from disk", len(cached))
-                    return cached
         except (OSError, json.JSONDecodeError) as e:
             log.warning("Order stats cache corrupt: %s", e)
+    hits = {tk: cached[tk] for tk in tickers if tk in cached}
+    missing = [tk for tk in tickers if tk not in cached]
+    if hits:
+        log.info("Order stats: loaded %d tickers from disk", len(hits))
+    if not missing:
+        return hits
 
     try:
         from vnstock_data import Trading
     except ImportError:
-        return {}
+        return hits
 
     result = {}
-    for tk in tickers:
+    for tk in missing:
         try:
             t = Trading(symbol=tk)
 
@@ -508,18 +512,22 @@ def _fetch_order_stats_batch(tickers: tuple) -> dict:
         except Exception:
             continue
 
-    # Save to disk
-    if len(result) > 3:
+    # Save to disk (gộp với cache còn hạn)
+    if result:
         try:
             _ORDER_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
             _ORDER_CACHE_PATH.write_text(
-                json.dumps(result, ensure_ascii=False), encoding="utf-8",
+                json.dumps({**cached, **result}, ensure_ascii=False), encoding="utf-8",
             )
+            # Giữ mtime của mã CŨ NHẤT trong file: không thì mỗi lần gộp lại
+            # gia hạn 30 phút cho mã cũ, cache sống mãi.
+            if cached:
+                os.utime(_ORDER_CACHE_PATH, (cache_mtime, cache_mtime))
             log.info("Order stats: saved %d tickers to disk", len(result))
         except (OSError, ValueError):
             pass
 
-    return result
+    return {**hits, **result}
 
 
 def _batch_load_live_quotes(tickers: list) -> dict:
@@ -766,7 +774,10 @@ def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
     frames = []
     for yd in sorted(ticker_dir.glob("year=*")):
         try:
-            for pf in yd.glob("*.parquet"):
+            # mtime CŨ→MỚI + khử trùng giữ bản MỚI: year-dir có thể tạm có
+            # "(… conflicted copy …).parquet" của Dropbox — cùng ngữ nghĩa
+            # `vnstock_strategy._read_ticker_dir`, không thì bar bị đếm 2 lần.
+            for pf in sorted(yd.glob("*.parquet"), key=lambda f: f.stat().st_mtime):
                 frames.append(pq.read_table(str(pf),
                     columns=["time","open","high","low","close","volume"]).to_pandas())
         except Exception:
@@ -775,6 +786,7 @@ def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True)
     df["time"] = pd.to_datetime(df["time"])
+    df = df.drop_duplicates(subset=["time"], keep="last")
     if days > 0:
         cutoff = datetime.now() - timedelta(days=days)
         df = df[df["time"] >= cutoff]
@@ -951,8 +963,8 @@ def load_alerts() -> list[dict]:
     if not ALERTS_PATH.exists():
         return []
     try:
-        return json.loads(ALERTS_PATH.read_text())
-    except (OSError, json.JSONDecodeError) as e:
+        return json.loads(ALERTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
         log.warning("Alerts file corrupt: %s", e)
         return []
 
@@ -963,9 +975,11 @@ def save_alerts(alerts: list[dict]):
     import os
     tmp = ALERTS_PATH.with_suffix(f".{os.getpid()}.tmp")
     try:
-        tmp.write_text(json.dumps(alerts, indent=2, ensure_ascii=False))
+        tmp.write_text(json.dumps(alerts, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
         os.replace(str(tmp), str(ALERTS_PATH))
     except Exception:
+        log.exception("Không lưu được price alerts vào %s", ALERTS_PATH)
         if tmp.exists():
             try:
                 tmp.unlink()
@@ -992,13 +1006,15 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
                           chat_id: str = "") -> list[dict]:
     """
     Check tất cả alerts, fire những cái triggered.
-    Returns: list alerts đã update (triggered ones marked).
+    Returns: list BẢN SAO đã update (triggered ones marked) — input giữ nguyên
+    để bên gọi so ra alert nào VỪA bắn mà lưu lại.
     """
     from datetime import datetime
     updated = []
     fired_messages = []
 
     for alert in alerts:
+        alert = dict(alert)
         ticker = alert.get("ticker", "")
         if not ticker or alert.get("fired"):
             updated.append(alert)
@@ -1054,15 +1070,16 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
                 f"Giá hiện tại: {price:,.2f}\n"
                 f"Thời gian: {alert['fired_at']}"
             )
-            fired_messages.append(msg)
+            fired_messages.append((ticker, msg))
             alert["message"] = msg
 
         updated.append(alert)
 
     # Gửi Telegram nếu có config
     if fired_messages and bot_token and chat_id:
-        for msg in fired_messages:
-            send_telegram_alert(bot_token, chat_id, msg)
+        for tk, msg in fired_messages:
+            if not send_telegram_alert(bot_token, chat_id, msg):
+                log.warning("Gửi Telegram alert %s thất bại", tk)
 
     return updated
 
@@ -1654,6 +1671,7 @@ def load_fundamental(ticker: str) -> dict:
             pass
 
     result = {}
+    failed = []  # khối lỗi ⇒ kết quả thiếu, KHÔNG khoá 24h vào cache đĩa
     try:
         from vnstock_auth import ensure_api_key
         ensure_api_key()
@@ -1752,19 +1770,22 @@ def load_fundamental(ticker: str) -> dict:
                         result["eps"] = None
 
                     result["_overview_cols"] = [str(c) for c in overview.columns[:30]]
-        except Exception:
-            pass
+        except Exception as e:
+            failed.append("overview")
+            log.warning("load_fundamental %s: khối overview lỗi: %s", ticker, e)
 
         # ── 2. Finance Ratios — ROE, ROA, margins, growth, etc. ──────────
         try:
             ratios = None
-            for _kw in [
+            _ratio_errs = []
+            _ratio_kws = [
                 {"period": "year", "lang": "vi"},
                 {"period": "year", "lang": "en"},
                 {"period": "year"},
                 {"period": "annual"},
                 {"period": "quarter", "lang": "vi"},
-            ]:
+            ]
+            for _kw in _ratio_kws:
                 try:
                     if _use_sponsor:
                         ratios = _finance.ratio(**_kw)
@@ -1772,8 +1793,11 @@ def load_fundamental(ticker: str) -> dict:
                         ratios = _stock.finance.ratio(**_kw)
                     if ratios is not None and not ratios.empty:
                         break
-                except Exception:
+                except Exception as e:
+                    _ratio_errs.append(e)
                     continue
+            if len(_ratio_errs) == len(_ratio_kws):  # mọi kiểu gọi đều ném ≠ mã không có data
+                raise _ratio_errs[-1]
 
             if ratios is not None and not ratios.empty:
                 # Flatten MultiIndex columns to strings for reliable matching.
@@ -1912,14 +1936,15 @@ def load_fundamental(ticker: str) -> dict:
                     result["earnings_yield"] = round(100.0 / result["pe"], 2)
 
                 result["_ratio_cols"] = [str(c) for c in ratios.columns[:30]]
-        except Exception:
-            pass
+        except Exception as e:
+            failed.append("ratio")
+            log.warning("load_fundamental %s: khối ratio lỗi: %s", ticker, e)
 
     except Exception as e:
         result["error"] = str(e)[:120]
 
     # Persist to disk (24h cache)
-    if result and "error" not in result:
+    if result and "error" not in result and not failed:
         try:
             result["_cache_ver"] = _FUND_CACHE_VER
             _FUND_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -2708,7 +2733,7 @@ def df_from_preset(preset_data: dict) -> pd.DataFrame:
     for col in ["1D%", "5D%", "20D%", "BB%", "52W%"]:
         if col in df.columns:
             df[col] = df[col].apply(
-                lambda v: f"+{v:.1f}%" if v and v > 0 else (f"{v:.1f}%" if v else "—")
+                lambda v: "—" if pd.isna(v) else (f"+{v:.1f}%" if v > 0 else f"{v:.1f}%")
             )
     for col in ["RSI", "Vol×"]:
         if col in df.columns:
@@ -3339,18 +3364,26 @@ if data is None:
     st.stop()
 
 gen_time = data.get("generated_at", "—")
-# Kiểm tra dữ liệu screener có cũ không
-_screener_stale = False
-try:
-    _gen_dt = datetime.strptime(gen_time[:10], "%Y-%m-%d")
-    _screener_stale = (datetime.now() - _gen_dt).days >= 1
-except (ValueError, TypeError, IndexError):
-    pass
+
+
+def _screener_is_stale(generated_at: str, now: datetime) -> bool:
+    """Cũ khi PHIÊN PHỦ lúc chạy screener < phiên phủ bây giờ (cutoff 15:05).
+
+    So ngày lịch thì sáng nào và cả T7/CN cũng báo cũ giả."""
+    from vnstock_rollup import session_covered_at
+    try:
+        gen = datetime.fromisoformat(str(generated_at)[:19])
+    except ValueError:
+        return False
+    return session_covered_at(gen) < session_covered_at(now)
+
+
+_screener_stale = _screener_is_stale(gen_time, datetime.now())
 
 _info_col, _update_col = st.columns([5, 3])
 with _info_col:
     if _screener_stale:
-        st.markdown(f'<p class="updated-at" style="color:#f59e0b">⚠️ Screener cũ: {gen_time} — Bấm "Cập nhật Screener" để refresh</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="updated-at" style="color:#f59e0b">⚠️ Screener cũ: {gen_time} — Bấm "📥 Cập nhật giá" để làm mới</p>', unsafe_allow_html=True)
     else:
         st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
 with _update_col:
@@ -3536,7 +3569,7 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
     except Exception:
-        pass
+        st.caption("⚠ không đọc được test_status.json")
 
     # ── Doctor badge (sức khỏe nguồn dữ liệu — run.py doctor) ──────────
     try:
@@ -3570,7 +3603,7 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
     except Exception:
-        pass
+        st.caption("⚠ không đọc được doctor_status.json")
 
     # ── Model watch badge (ladder LLM — run.py models, chạy T7 hàng tuần) ──
     try:
@@ -3607,7 +3640,7 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
     except Exception:
-        pass
+        st.caption("⚠ không đọc được model_status.json")
 
     # ── 🔴 Live Mode — công tắc ĐỘNG CƠ WSS, đặt ở sidebar CHUNG ─────────────
     # Phải nằm đây (render mọi lượt, mọi tab) chứ không trong tab Phân tích:
@@ -3711,7 +3744,12 @@ sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
 _TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền",
                 "💱 Hàng hoá & Tiền tệ", "💼 Portfolio", "⚕️ Sức khỏe"]
-_active_tab = st.pills("", _TAB_OPTIONS, default="📊 Screener", key="nav_tab")
+_active_tab = st.pills("Điều hướng", _TAB_OPTIONS, default="📊 Screener", key="nav_tab",
+                       label_visibility="collapsed")
+# Bấm lại pill đang chọn ⇒ pills trả None ⇒ không tab nào render: giữ tab trước.
+if _active_tab is None:
+    _active_tab = st.session_state.get("_nav_tab_last", "📊 Screener")
+st.session_state["_nav_tab_last"] = _active_tab
 
 # ══════════════════════════════════════════════════════
 # TAB 1: SCREENER
@@ -3729,6 +3767,7 @@ if _active_tab == "📊 Screener":
             top_preset=top_preset,
         )
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Screener tab: {_e}")
         st.caption("Kiểm tra `dashboard/screener_tab.py` và các preset JSON.")
 
@@ -3741,6 +3780,7 @@ if _active_tab == "🔬 Phân tích":
         from dashboard.analysis_tab import render_analysis_tab
         render_analysis_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Phân tích tab: {_e}")
         st.caption("Kiểm tra `dashboard/analysis_tab.py` và các cache trong `data_warehouse/`.")
 
@@ -3754,6 +3794,7 @@ if _active_tab == "🌏 Thị trường":
         from dashboard.market_tab import render_market_tab
         render_market_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Thị trường tab: {_e}")
         st.caption("Kiểm tra `dashboard/market_tab.py` và cache `data_warehouse/_meta/`.")
 
@@ -3769,6 +3810,7 @@ if _active_tab == "💰 Dòng Tiền":
         from dashboard.money_flow_tab import render_money_flow_tab
         render_money_flow_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Dòng Tiền tab: {_e}")
         st.caption("Kiểm tra `dashboard/money_flow_tab.py` và các cache trong `data_warehouse/_meta/`.")
 
@@ -3787,6 +3829,7 @@ if _active_tab == "💱 Hàng hoá & Tiền tệ":
         from dashboard.assets_tab import render_assets_tab
         render_assets_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được tab Hàng hoá & Tiền tệ: {_e}")
         st.caption("Kiểm tra `dashboard/assets_tab.py`, `vnstock_assets_view.py` và kho `data_warehouse/assets/`.")
 
@@ -3795,6 +3838,7 @@ if _active_tab == "🗞️ Tin tức":
         from dashboard.news_tab import render_news_tab
         render_news_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Tin tức tab: {_e}")
         st.caption("Kiểm tra `dashboard/news_tab.py` và `vnstock_news.py`.")
 
@@ -3803,6 +3847,7 @@ if _active_tab == "💼 Portfolio":
         from dashboard.portfolio_tab import render_portfolio_tab
         render_portfolio_tab(Path("data_warehouse"))
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Portfolio tab: {_e}")
         st.caption("Kiểm tra `dashboard/portfolio_tab.py` và `data_warehouse/_meta/portfolio.json`.")
 
@@ -3815,5 +3860,6 @@ if _active_tab == "⚕️ Sức khỏe":
         from vnstock_health import render_health_tab
         render_health_tab()
     except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
         st.error(f"Không render được Health tab: {_e}")
         st.caption("Kiểm tra `vnstock_health.py` và các file metadata trong `data_warehouse/_meta/`.")

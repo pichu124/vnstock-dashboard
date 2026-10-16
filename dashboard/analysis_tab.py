@@ -333,7 +333,6 @@ def render_analysis_tab() -> None:
                          type="primary" if _active else "secondary",
                          use_container_width=True):
                 st.session_state["tf"] = _val
-                st.cache_data.clear()
                 st.rerun()
     tf = st.session_state["tf"]
 
@@ -564,20 +563,15 @@ def render_analysis_tab() -> None:
                 return
             _tg_t = st.session_state.get("_tg_token", "")
             _tg_c = st.session_state.get("_tg_chat", "")
+            _was_fired = [bool(a.get("fired")) for a in _al]
             updated = check_and_fire_alerts(_al, _tg_t, _tg_c)
-            _newly_fired = [a for a in updated
-                            if a.get("fired") and a.get("fired_at")
-                            and a not in _al]
-            # Chỉ save nếu có alert mới triggered
-            if any(a.get("fired") and not _al[i].get("fired")
-                   for i, a in enumerate(updated) if i < len(_al)):
+            _fresh = [a for a, was in zip(updated, _was_fired)
+                      if a.get("fired") and not was]
+            # Không lưu thì lượt sau đọc lại thấy chưa bắn ⇒ Telegram lặp mỗi 10s
+            if _fresh:
                 save_alerts(updated)
-                for a in updated:
-                    if a.get("fired") and a.get("message"):
-                        if not any(old.get("fired") and old.get("ticker") == a["ticker"]
-                                   and old.get("condition") == a["condition"]
-                                   for old in _al):
-                            st.toast(f"🔔 {a['ticker']}: {a.get('message', 'Alert triggered!')[:100]}")
+                for a in _fresh:
+                    st.toast(f"🔔 {a['ticker']}: {a.get('message', 'Alert triggered!')[:100]}")
 
         _alert_checker()
 
@@ -1136,13 +1130,13 @@ def render_analysis_tab() -> None:
                     _tp = _r.get("tp")
                     _sl = _r.get("sl")
                     _mc1, _mc2, _mc3 = st.columns(3)
-                    _mc1.metric("📍 Entry", f"{_e:,.0f}" if _e else "—")
+                    _mc1.metric("📍 Entry", f"{_e:,.2f}" if _e else "—")
                     _mc2.metric(
-                        "🎯 Take Profit", f"{_tp:,.0f}" if _tp else "—",
+                        "🎯 Take Profit", f"{_tp:,.2f}" if _tp else "—",
                         delta=f"{(_tp / _e - 1)*100:+.1f}%" if _tp and _e else None,
                     )
                     _mc3.metric(
-                        "🛑 Cut Loss", f"{_sl:,.0f}" if _sl else "—",
+                        "🛑 Cut Loss", f"{_sl:,.2f}" if _sl else "—",
                         delta=f"{(_sl / _e - 1)*100:+.1f}%" if _sl and _e else None,
                         delta_color="inverse",
                     )
