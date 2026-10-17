@@ -621,6 +621,39 @@ def test_failed_telegram_send_is_logged(alert_env, caplog):
     assert "VCB" in caplog.text
 
 
+# ── render_chart: thư viện chart + live bar ──────────────────────────────────
+
+def _render_chart_html(**globs) -> tuple[list, list]:
+    """Chạy render_chart THẬT với st/_stc giả; trả (html đã vẽ, lời báo st.error/warning)."""
+    html, said = [], []
+    st = types.SimpleNamespace(warning=said.append, error=said.append)
+    stc = types.SimpleNamespace(html=lambda h, **k: html.append(h))
+    ns = load_source_fns("vnstock_dashboard.py", "_lwc_js", "render_chart",
+                         st=st, _stc=stc, pd=pd, compute_indicators=compute_indicators, **globs)
+    ns["render_chart"](_rising(), "VCB")
+    return html, said
+
+
+def test_render_chart_without_lwc_file_reports_instead_of_blank_chart(tmp_path):
+    """Clone mới không có lwc.min.js ⇒ `<script></script>` rỗng, chart trắng không báo gì."""
+    html, said = _render_chart_html(LWC_JS_PATH=tmp_path / "lwc.min.js")
+    assert html == []
+    assert "Thiếu lwc.min.js" in said[0] and str(tmp_path / "lwc.min.js") in said[0]
+
+
+def test_render_chart_inlines_lwc_library(tmp_path):
+    lib = tmp_path / "lwc.min.js"
+    lib.write_text("/* LWC giả */", encoding="utf-8")
+    html, said = _render_chart_html(LWC_JS_PATH=lib)
+    assert said == []
+    assert "<script>/* LWC giả */</script>" in html[0]
+
+
+def test_repo_ships_lwc_library_with_license_header():
+    head = (_ROOT / "lwc.min.js").read_text(encoding="utf-8")[:300]
+    assert "TradingView Lightweight Charts" in head and "Apache License 2.0" in head
+
+
 # ── df_from_preset: cột % ────────────────────────────────────────────────────
 
 def test_preset_pct_columns_show_zero_and_hide_nan():

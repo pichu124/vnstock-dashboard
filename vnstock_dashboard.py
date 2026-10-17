@@ -2161,6 +2161,18 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
     )
 
 
+from functools import lru_cache  # noqa: E402
+
+LWC_JS_PATH = Path(__file__).parent / "lwc.min.js"
+
+
+@lru_cache(maxsize=1)
+def _lwc_js() -> str:
+    """Lightweight Charts (~160 KB) đọc một lần mỗi process. Lỗi đọc thì ném ra:
+    lru_cache không nhớ lỗi, nên chép file vào là lượt render sau vẽ được."""
+    return LWC_JS_PATH.read_text(encoding="utf-8")
+
+
 def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
                  volume_profile: list = None, live_url: str | None = None,
                  live_poll_ms: int = 30000):
@@ -2252,11 +2264,12 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
         return
 
     last_price = candles[-1]["close"]
-    LWC_JS = __import__("pathlib").Path(__file__).parent / "lwc.min.js"
     try:
-        lwc_code = LWC_JS.read_text(encoding="utf-8")
-    except Exception:
-        lwc_code = ""
+        lwc_code = _lwc_js()
+    except (OSError, ValueError) as e:
+        st.error(f"Thiếu lwc.min.js — không vẽ được chart. Lấy lại file `{LWC_JS_PATH}` "
+                 f"từ git ({e}).")
+        return
 
     # VP overlay data for JS
     vp_js = "[]"
