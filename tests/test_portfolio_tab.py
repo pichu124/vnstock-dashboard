@@ -147,10 +147,12 @@ class _Rerun(Exception):
     """st.rerun thật dừng script bằng exception — giả lập đúng như vậy."""
 
 
-def _render_clicking_add(monkeypatch, warehouse: Path):
+def _render_clicking(monkeypatch, warehouse: Path, click: str = "pf_add",
+                     confirm_clear: bool = False):
     from tests.test_tab_render_smoke import _fake_streamlit
     st = _fake_streamlit()
-    st.button = lambda label, key=None, **k: key == "pf_add" and not k.get("disabled")
+    st.button = lambda label, key=None, **k: key == click and not k.get("disabled")
+    st.checkbox = lambda label, key=None, **k: confirm_clear and key == "pf_clear_confirm"
     st.text_input = lambda label, **k: "VCB" if k.get("key") == "pf_ticker" else ""
     st.number_input = lambda label, min_value=0, max_value=None, value=0, **k: (
         25_000.0 if k.get("key") == "pf_price" else value)
@@ -175,7 +177,7 @@ def test_corrupt_portfolio_blocks_writes_and_keeps_bytes(tmp_path: Path, monkeyp
     truncated = b'[\n  {\n    "ticker": "HPG",\n    "quantity": 1000,\n    "buy_pr'
     path.write_bytes(truncated)
 
-    st = _render_clicking_add(monkeypatch, tmp_path)
+    st = _render_clicking(monkeypatch, tmp_path)
 
     assert path.read_bytes() == truncated                    # không ghi đè bằng [] + 1 vị thế
     assert sorted(p.name for p in path.parent.iterdir()) == ["portfolio.json"]   # không đổi tên/xoá
@@ -192,11 +194,22 @@ def test_portfolio_save_failure_is_reported(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(pio, "_REPLACE_BACKOFF", 0)
     monkeypatch.setattr(_os, "replace", _fail)
-    st = _render_clicking_add(monkeypatch, tmp_path)
+    st = _render_clicking(monkeypatch, tmp_path)
 
     assert not _portfolio_path(tmp_path).exists()
     msg = st.error.call_args.args[0]
     assert str(_portfolio_path(tmp_path)) in msg and "file đang bị khoá" in msg
+
+
+@pytest.mark.parametrize("confirm", [False, True])
+def test_clear_all_requires_confirmation(tmp_path: Path, monkeypatch, confirm: bool):
+    """"🗑 Xoá tất cả" từng xoá sạch ngay cú bấm đầu: chưa tick xác nhận thì không ghi."""
+    from dashboard.portfolio_tab import _load_portfolio, _save_portfolio
+    _save_portfolio(tmp_path, [_LOT_A, _LOT_B])
+
+    _render_clicking(monkeypatch, tmp_path, click="pf_clear", confirm_clear=confirm)
+
+    assert _load_portfolio(tmp_path) == ([] if confirm else [_LOT_A, _LOT_B])
 
 
 # ── Xoá vị thế: theo VỊ TRÍ dòng, không theo nhãn ───────────────────────────
@@ -330,14 +343,16 @@ def test_delete_double_click_does_not_drop_next_lot(tmp_path: Path, monkeypatch)
 
 def test_delete_keeps_lot_added_on_disk_after_render(tmp_path: Path, monkeypatch):
     """Lúc bấm Xoá phải đọc LẠI file: lô D máy kia vừa thêm (Dropbox) sau lượt vẽ
-    vẫn còn, không bị bản chụp lúc vẽ ghi đè."""
+    vẫn còn, không bị bản chụp lúc vẽ ghi đè. Danh mục đã khác bản chụp ⇒ từ chối,
+    user chọn lại (user chấp nhận, đổi lấy việc so CẢ danh sách)."""
     from dashboard.portfolio_tab import _load_portfolio, _save_portfolio
     flow = _flow_with_b_selected(monkeypatch, tmp_path)
     _save_portfolio(tmp_path, [_LOT_A, _LOT_B, _LOT_C, _LOT_D])
 
     flow.run(click="pf_del_btn")
 
-    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_C, _LOT_D]
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_B, _LOT_C, _LOT_D]
+    _assert_refused(flow)
 
 
 @pytest.mark.parametrize("failure", ["ghi", "đọc lại"])
@@ -409,6 +424,26 @@ def test_delete_callback_replayed_does_not_drop_next_lot(tmp_path: Path, monkeyp
     callback(*args, **kwargs)
 
     assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_C]
+    _assert_refused(flow)
+
+
+def test_delete_callback_replayed_on_identical_lots_drops_only_one(tmp_path: Path, monkeypatch):
+    """[A, B, B'] với B' giống hệt B, nằm liền sau. Bấm đúp ⇒ Streamlit gọi lại callback cũ:
+    so riêng dòng 1 thì B' (giờ ở chỉ số 1) == B nên bị xoá luôn. Phải so CẢ danh sách."""
+    from dashboard.portfolio_tab import _load_portfolio, _save_portfolio
+    _save_portfolio(tmp_path, [_LOT_A, _LOT_B, dict(_LOT_B)])
+    flow = _DeleteFlow(monkeypatch, tmp_path)
+    flow.run()
+    flow.pick(1)                                                # B (#2)
+    flow.run()
+    callback, args, kwargs = flow.shown["pf_del_btn"]
+    flow.st.session_state.drawn.clear()                         # callback chạy trước script
+
+    callback(*args, **kwargs)
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_B]
+    callback(*args, **kwargs)
+
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_B]
     _assert_refused(flow)
 
 
@@ -484,6 +519,74 @@ def test_delete_options_round_trip_through_real_streamlit_serde(tmp_path: Path, 
     assert json.loads(run.stdout.strip().splitlines()[-1]) == opts
 
 
+# ── Vị thế chưa có giá (gõ sai mã, mã chưa có bar): không phải lỗ −100% ─────
+
+def test_position_without_price_is_left_out_of_totals(tmp_path: Path, monkeypatch):
+    """Danh mục 500 triệu: AAA 450 triệu có giá (+10%), ZZZ 50 triệu không nguồn giá nào.
+    Trước đây ZZZ tính giá trị 0 ⇒ dòng −100% và tổng Lãi/Lỗ −5 triệu thay vì +45 triệu."""
+    import re
+    from tests.test_tab_render_smoke import _fake_streamlit
+    from dashboard.portfolio_tab import _save_portfolio, render_portfolio_tab
+    _save_portfolio(tmp_path, [
+        {"ticker": "AAA", "quantity": 45_000, "buy_price": 10_000, "buy_date": "2026-01-02"},
+        {"ticker": "ZZZ", "quantity": 5_000, "buy_price": 10_000, "buy_date": "2026-01-02"}])
+    (tmp_path / "_live").mkdir()
+    (tmp_path / "_live" / "quote_AAA.json").write_text(
+        json.dumps({"price": 11_000, "time": "2026-10-16T14:45:00"}))
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+
+    render_portfolio_tab(tmp_path)
+
+    html = " ".join(str(c.args[0]) for c in st.markdown.call_args_list)
+    cards = dict(re.findall(r'<div class="label">(.*?)</div><div class="value"[^>]*>(.*?)</div>',
+                            html))
+    assert cards == {"Vốn đầu tư": "450,000,000", "Giá trị hiện tại": "495,000,000",
+                     "Lãi/Lỗ": "+45,000,000", "% Lãi/Lỗ": "+10.00%"}
+    zzz = next(r for r in re.findall(r"<tr[^>]*>(.*?)</tr>", html) if ">ZZZ<" in r)
+    assert re.findall(r"<td[^>]*>(.*?)</td>", zzz) == [
+        "ZZZ", "5,000", "10,000", "—", "50,000,000", "—", "—", "—", "2026-01-02"]
+    captions = [c.args[0] for c in st.caption.call_args_list]
+    assert any("1 vị thế chưa có giá" in c and "ZZZ" in c for c in captions), captions
+
+
+# ── Benchmark ngành VN30: cache nằm trong kho TAB nhận, không phải kho cạnh module ──
+
+@needs("plotly")  # khối Phân bổ theo ngành import plotly trước khi tính benchmark
+def test_sector_benchmark_cache_written_under_tab_warehouse(tmp_path: Path, monkeypatch):
+    """`compute_vn30_sector_weights` từng ghi `data_warehouse/_meta/vn30_sector_weights.json`
+    cạnh module bất kể `warehouse` của tab — vẽ tab với kho tạm là ghi vào kho thật."""
+    import types
+    import vnstock_vn30_weights as vw
+    from tests.test_tab_render_smoke import _fake_streamlit
+    from dashboard.portfolio_tab import _save_portfolio, render_portfolio_tab
+    default_cache = tmp_path / "kho_canh_module" / "vn30_sector_weights.json"
+    monkeypatch.setattr(vw, "_CACHE_PATH", default_cache)
+    monkeypatch.setattr(vw, "_vn30_tickers", lambda: ["VCB", "FPT"])
+    monkeypatch.setattr(vw, "_industry_map", lambda: {})
+    monkeypatch.setattr(vw, "_ticker_market_caps", lambda _: {})
+    stub = types.ModuleType("vnstock_dashboard")
+    stub._load_industry_map = lambda: {}
+    stub._get_sector = lambda ind: ind or "Khác"
+    stub.SECTOR_ICONS = {}
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    warehouse, cwd = tmp_path / "kho", tmp_path / "cwd"
+    _save_portfolio(warehouse, [_LOT_A])
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    render_portfolio_tab(warehouse)
+
+    cache = json.loads((warehouse / "_meta" / "vn30_sector_weights.json").read_text(
+        encoding="utf-8"))
+    assert (cache["weights"], cache["mode"], cache["n_tickers"]) == ({"Khác": 100.0}, "equal", 2)
+    assert not default_cache.exists() and list(cwd.iterdir()) == []
+    captions = [c.args[0] for c in st.caption.call_args_list]
+    assert any("equal-weight" in c and "2 mã" in c for c in captions), captions
+
+
 # ── JSON hợp lệ nhưng SAI DẠNG: cũng là file hỏng, không phải danh mục ──────
 
 _WRONG_SHAPE = ["null",                                          # gốc không phải list
@@ -511,7 +614,7 @@ def test_wrong_shape_portfolio_blocks_writes(tmp_path: Path, monkeypatch, payloa
     path.write_text(payload, encoding="utf-8")
     before = path.read_bytes()
 
-    st = _render_clicking_add(monkeypatch, tmp_path)
+    st = _render_clicking(monkeypatch, tmp_path)
 
     assert path.read_bytes() == before
     assert str(path) in st.error.call_args.args[0]

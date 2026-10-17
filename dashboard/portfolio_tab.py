@@ -31,9 +31,11 @@ close ≤ buy_date, quote neo qua close kho. Bảng hiện ngày·nguồn cạnh
 + tripwire ⚠ khi %L/L ngay trong ngày mua vượt xa mọi biên độ phiên hợp
 lệ (nghi lệch đơn vị 1000× — ``_unit_suspect``).
 
-If neither yields a price > 0, the row still renders but shows ``—`` for
-current price and contributes 0 to the portfolio total — intentional
-so a missing live feed doesn't silently zero-out the P&L.
+If neither yields a price > 0 (mistyped ticker, no bar yet, ``vnstock_networth``
+import failed), the row still renders but shows ``—`` for current price, value
+and P&L, and is left out of BOTH totals (capital and value) with a caption
+"N vị thế chưa có giá" — counting it as value 0 showed a fake −100% row and
+dragged the total P&L down.
 """
 
 from __future__ import annotations
@@ -83,21 +85,21 @@ def _save_and_rerun(st, warehouse: Path, positions: list[dict]) -> None:
         st.rerun()
 
 
-def _delete_position(st, warehouse: Path, idx: int, expected: dict) -> None:
+def _delete_position(st, warehouse: Path, idx: int, expected: list[dict]) -> None:
     """``on_click`` của nút Xoá: chạy TRƯỚC lượt vẽ kế tiếp nên còn được trả selectbox
     ``pf_del_select`` về None — không thì nó giữ chỉ số cũ, giờ là lô KẾ TIẾP, và nút
-    vẫn hiện: bấm đúp xoá luôn lô đó. Đọc LẠI file, không dùng bản chụp lúc vẽ (máy
-    kia có thể vừa thêm lô); lỗi đọc/ghi ⇒ không ghi, giữ lựa chọn để bấm lại.
-    Chỉ xoá khi dòng ``idx`` trên đĩa vẫn đúng là ``expected`` (bản chụp lúc vẽ): máy
-    kia/tab khác vừa xoá bớt, hoặc Streamlit gọi lại callback cũ khi bấm đúp, thì chỉ
-    số đó đã là lô KHÁC ⇒ từ chối. Không dò ``expected`` ở vị trí khác: hai lô giống
-    hệt thì không biết user muốn xoá lô nào."""
+    vẫn hiện: bấm đúp xoá luôn lô đó. Đọc LẠI file; lỗi đọc/ghi ⇒ không ghi, giữ lựa
+    chọn để bấm lại.
+    Chỉ xoá khi CẢ danh mục trên đĩa vẫn đúng là ``expected`` (bản chụp lúc vẽ): máy
+    kia/tab khác vừa thêm/xoá, hoặc Streamlit gọi lại callback cũ khi bấm đúp, thì
+    dòng ``idx`` có thể đã là lô KHÁC ⇒ từ chối, user chọn lại. So riêng dòng ``idx``
+    không đủ: [A, B, B'] với B' giống hệt B, xoá B xong thì B' về đúng chỉ số đó."""
     try:
         positions = _load_portfolio(warehouse)
     except (OSError, ValueError) as e:
         st.error(f"Không đọc lại được `{_portfolio_path(warehouse)}` ({e}) — chưa xoá gì.")
         return
-    if idx >= len(positions) or positions[idx] != expected:
+    if positions != expected:
         st.error("Danh mục vừa thay đổi (máy khác / tab khác) — chưa xoá gì, hãy chọn lại "
                  "lô cần xoá.")
         st.session_state["pf_del_select"] = None
@@ -296,8 +298,10 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
 
         if positions:
             st.caption(f"{len(positions)} vị thế")
-            if st.button("🗑 Xoá tất cả", key="pf_clear",
-                          use_container_width=True):
+            _confirm_clear = st.checkbox("Tôi chắc chắn muốn xoá TẤT CẢ vị thế",
+                                         key="pf_clear_confirm")
+            if st.button("🗑 Xoá tất cả", key="pf_clear", use_container_width=True,
+                         disabled=not _confirm_clear):
                 _save_and_rerun(st, warehouse, [])
 
     if not positions:
@@ -307,6 +311,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     total_invested = 0.0
     total_current = 0.0
     rows: list[dict] = []
+    no_price: list[str] = []
 
     for i, pos in enumerate(positions):
         ticker = pos["ticker"]
@@ -315,15 +320,19 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
         buy_date = pos.get("buy_date", "")
 
         invested = qty * buy_price
-        total_invested += invested
-
         current_price, price_date, price_src = _resolve_price(
             ticker, buy_price, buy_date, warehouse)
 
-        current_val = qty * current_price if current_price > 0 else 0
-        total_current += current_val
-        pnl = current_val - invested
-        pnl_pct = (pnl / invested * 100) if invested > 0 else 0
+        # Chưa có giá ⇒ không biết lãi/lỗ: bỏ khỏi CẢ HAI tổng, không tính GT 0 (−100% giả).
+        has_price = current_price > 0
+        current_val = qty * current_price if has_price else 0
+        pnl = current_val - invested if has_price else 0.0
+        pnl_pct = (pnl / invested * 100) if has_price and invested > 0 else 0
+        if has_price:
+            total_invested += invested
+            total_current += current_val
+        else:
+            no_price.append(ticker)
 
         rows.append({
             "ticker": ticker,
@@ -337,6 +346,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
             "current_val": current_val,
             "pnl": pnl,
             "pnl_pct": pnl_pct,
+            "has_price": has_price,
             "idx": i,
         })
 
@@ -373,6 +383,9 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
             f'{_pnl_sign}{total_pnl_pct:.2f}%</div>'
             f'<div class="sub">tổng danh mục</div></div>',
             unsafe_allow_html=True)
+    if no_price:
+        st.caption(f"{len(no_price)} vị thế chưa có giá ({', '.join(no_price)}) — không tính "
+                   "vào Vốn / Giá trị / Lãi-Lỗ tổng. Soi lại mã hoặc chờ kho có bar.")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -385,8 +398,9 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
 
     _rows_html = ""
     _any_band_warn = False
-    for r in sorted(rows, key=lambda x: x["pnl"], reverse=True):
-        _pc = "#10b981" if r["pnl"] >= 0 else "#ef4444"
+    for r in sorted(rows, key=lambda x: (x["has_price"], x["pnl"]), reverse=True):
+        _pc = ("#6b7280" if not r["has_price"]
+               else "#10b981" if r["pnl"] >= 0 else "#ef4444")
         _ps = "+" if r["pnl"] >= 0 else ""
         _bg = "#0d1117"
         _cur_cell = "—"
@@ -401,6 +415,10 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
             r.get("buy_date", ""), r.get("price_date", ""), r["pnl_pct"])
         _any_band_warn = _any_band_warn or _band_warn
         _warn_mark = "⚠ " if _band_warn else ""
+        _val_cell, _pnl_cell, _pct_cell = (
+            (f"{r['current_val']:,.0f}", f"{_ps}{r['pnl']:,.0f}",
+             f"{_warn_mark}{_ps}{r['pnl_pct']:.2f}%")
+            if r["has_price"] else ("—", "—", "—"))
         _rows_html += (
             f"<tr style='background:{_bg}'>"
             f"<td style='{_td}text-align:left;color:#60a5fa;font-weight:600'>{r['ticker']}</td>"
@@ -408,9 +426,9 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
             f"<td style='{_td}color:#9ca3af'>{r['buy_price']:,.0f}</td>"
             f"<td style='{_td}color:#e5e7eb'>{_cur_cell}</td>"
             f"<td style='{_td}color:#9ca3af'>{r['invested']:,.0f}</td>"
-            f"<td style='{_td}color:#e5e7eb'>{r['current_val']:,.0f}</td>"
-            f"<td style='{_td}color:{_pc};font-weight:600'>{_ps}{r['pnl']:,.0f}</td>"
-            f"<td style='{_td}color:{_pc};font-weight:600'>{_warn_mark}{_ps}{r['pnl_pct']:.2f}%</td>"
+            f"<td style='{_td}color:#e5e7eb'>{_val_cell}</td>"
+            f"<td style='{_td}color:{_pc};font-weight:600'>{_pnl_cell}</td>"
+            f"<td style='{_td}color:{_pc};font-weight:600'>{_pct_cell}</td>"
             f"<td style='{_td}color:#9ca3af;font-size:10px'>{r['buy_date']}</td>"
             f"</tr>"
         )
@@ -513,8 +531,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
 
         # Dynamic VN30 benchmark — market-cap weighted if data available,
         # else equal-weight by ticker count, else hardcoded fallback.
-        _VN30_BENCH = compute_vn30_sector_weights()
-        _bench_meta = cache_metadata() or {}
+        _VN30_BENCH = compute_vn30_sector_weights(warehouse=warehouse)
+        _bench_meta = cache_metadata(warehouse) or {}
 
         # Aggregate portfolio current value by sector
         _sector_val: dict[str, float] = {}
@@ -663,4 +681,4 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     if _del_i is not None:
         _idx = rows[_del_i]["idx"]                              # chỉ số trong `positions`
         st.button("🗑 Xoá vị thế này", key="pf_del_btn", on_click=_delete_position,
-                  args=(st, warehouse, _idx, dict(positions[_idx])))
+                  args=(st, warehouse, _idx, list(map(dict, positions))))

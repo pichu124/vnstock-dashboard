@@ -49,18 +49,20 @@ def test_render_accepts_expected_params():
 
 # ── Watchlist: file hỏng không bị ghi đè (state user, Dropbox đẩy sang máy kia) ──
 
-def _watchlist_sidebar(path, click: str):
+def _watchlist_sidebar(path, click: str, typed: str = "VCB", snapshot=None):
+    """`snapshot` = thứ `load_watchlist()` (cache 10 phút của dashboard) trả về; None ⇒
+    đọc thẳng file như khi cache vừa hết hạn."""
     from unittest.mock import MagicMock
 
     from dashboard.screener_tab import _render_watchlist_sidebar
     from dashboard.watchlist_io import load_watchlist, save_watchlist
     from tests.test_tab_render_smoke import _fake_streamlit
     st = _fake_streamlit()
-    st.text_input = lambda *a, **k: "VCB"
+    st.text_input = lambda *a, **k: typed
     st.button = lambda label, key=None, **k: key == click and not k.get("disabled")
     st.rerun = MagicMock()
-    out = _render_watchlist_sidebar(
-        st, lambda: load_watchlist(path), lambda t: save_watchlist(path, t), path)
+    load = (lambda: list(snapshot)) if snapshot is not None else (lambda: load_watchlist(path))
+    out = _render_watchlist_sidebar(st, load, lambda t: save_watchlist(path, t), path)
     return st, out
 
 
@@ -114,6 +116,35 @@ def test_watchlist_save_failure_is_reported(tmp_path, monkeypatch):
     msg = st.error.call_args.args[0]
     assert str(path) in msg and "file đang bị khoá" in msg and not st.rerun.called
     assert json.loads(path.read_text(encoding="utf-8"))["tickers"] == ["FPT"]
+
+
+@pytest.mark.parametrize("click, typed, expected", [("wl_add_btn", "CCC", ["AAA", "BBB", "CCC"]),
+                                                    ("wl_del_btn", "AAA", ["BBB"])])
+def test_watchlist_buttons_reread_file_not_cached_snapshot(tmp_path, click, typed, expected):
+    """Cache 10 phút còn [AAA] trong khi máy kia (Dropbox) đã ghi [AAA, BBB]: Thêm/Xoá
+    phải đọc LẠI file, không ghi từ bản chụp rồi đè mất BBB."""
+    from dashboard.watchlist_io import load_watchlist, save_watchlist
+    path = tmp_path / "watchlist.json"
+    save_watchlist(path, ["AAA", "BBB"])
+
+    st, _ = _watchlist_sidebar(path, click, typed=typed, snapshot=["AAA"])
+
+    assert load_watchlist(path) == expected
+    assert st.rerun.called and not st.error.called
+
+
+@pytest.mark.parametrize("click", ["wl_add_btn", "wl_del_btn"])
+def test_watchlist_reread_failure_writes_nothing(tmp_path, click):
+    """Bản chụp còn tốt nhưng lúc bấm file trên đĩa đã hỏng (Dropbox đang ghi dở) ⇒ báo lỗi
+    kèm đường dẫn, không ghi đè file."""
+    path = tmp_path / "watchlist.json"
+    truncated = b'{"tickers": ["AAA", "BB'
+    path.write_bytes(truncated)
+
+    st, _ = _watchlist_sidebar(path, click, typed="AAA", snapshot=["AAA"])
+
+    assert path.read_bytes() == truncated
+    assert str(path) in st.error.call_args.args[0] and not st.rerun.called
 
 
 # ── Thống kê phiên: fragment chạy mỗi 30s ở tab mặc định ⇒ không tải lại EOD / ghi lại file ──
