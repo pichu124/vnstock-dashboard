@@ -182,7 +182,9 @@ def render_analysis_tab() -> None:
 
         st.caption(f"{len(_active_alerts)} active · {len(_fired_alerts)} fired")
         _save_fails = st.session_state.get("_alert_save_fails", 0)
-        if _save_fails >= _ALERT_SAVE_FAIL_MAX:
+        # Không còn alert active thì không có gì bị chặn gửi — bộ đếm giữ nguyên để
+        # alert kế tiếp vẫn phải qua lượt dò.
+        if _save_fails >= _ALERT_SAVE_FAIL_MAX and _active_alerts:
             st.error(f"Lưu alert vừa bắn vào `{ALERTS_PATH}` lỗi {_save_fails} lần liền — đã "
                      "NGỪNG gửi Telegram (không thì cứ 10s gửi lặp). Lưu lại được là tự gửi tiếp.")
 
@@ -600,12 +602,13 @@ def render_analysis_tab() -> None:
             if not _active:
                 return
             if st.session_state.get("_alert_save_fails", 0) >= _ALERT_SAVE_FAIL_MAX:
-                # Đã ngừng gửi: ghi lại đúng bản vừa đọc để dò — lưu được thì gửi như thường
+                # Đã ngừng gửi: ghi lại đúng bản vừa đọc để dò. Dò được thì gửi, nhưng chỉ
+                # chừa MỘT lần lưu lỗi — Dropbox lúc khoá lúc nhả không kéo theo 3 tin trùng.
                 if not save_alerts(_al):
                     st.error(f"Không lưu được `{ALERTS_PATH}` — đã ngừng gửi Telegram alert "
                              "tới khi lưu lại được.")
                     return
-                st.session_state["_alert_save_fails"] = 0
+                st.session_state["_alert_save_fails"] = _ALERT_SAVE_FAIL_MAX - 1
             _tg_t = st.session_state.get("_tg_token", "")
             _tg_c = st.session_state.get("_tg_chat", "")
             _was_fired = [bool(a.get("fired")) for a in _al]

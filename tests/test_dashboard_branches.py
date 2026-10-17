@@ -654,6 +654,47 @@ def test_alert_checker_stops_telegram_while_save_keeps_failing(alert_env):
     assert len(alert_env["sent"]) == stopped_at + 1
 
 
+def test_alert_checker_probe_save_ok_then_fire_save_fails_sends_no_more(alert_env):
+    """Dropbox lúc khoá lúc nhả: lượt dò ghi được, lượt lưu sau khi bắn lại lỗi. Dò
+    được mà reset bộ đếm về 0 là mỗi lần dò kéo theo tối đa 3 tin trùng."""
+    alert_env["save_alerts"]([_ALERT_A])
+    real_write, free_writes = alert_env["write_json_atomic"], [0]
+
+    def _flaky_write(data, path):
+        if free_writes[0] <= 0:
+            raise PermissionError(13, "Dropbox đang giữ file")
+        free_writes[0] -= 1
+        return real_write(data, path)
+
+    alert_env["write_json_atomic"] = _flaky_write
+    st = types.SimpleNamespace(session_state={"_tg_token": "tok", "_tg_chat": "chat"},
+                               toast=lambda m: None, error=lambda m: None)
+    frag = load_source_fns(
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
+        load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
+        check_and_fire_alerts=alert_env["check_and_fire_alerts"],
+        log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=alert_env["ALERTS_PATH"],
+    )["_alert_checker"]
+    for _ in range(5):
+        frag()
+    stopped_at = len(alert_env["sent"])
+
+    free_writes[0] = 1                                      # chỉ lượt dò ghi được
+    frag()
+    assert len(alert_env["sent"]) == stopped_at + 1
+    for _ in range(5):
+        frag()
+    assert len(alert_env["sent"]) == stopped_at + 1
+
+
+def test_sidebar_hides_stopped_error_when_no_alert_is_active(alert_env):
+    """Không còn alert active (máy kia đã bắn + lưu, hoặc đã xoá) thì không có gì bị
+    chặn gửi — báo đỏ "đã NGỪNG gửi" không được kẹt mãi."""
+    alert_env["save_alerts"]([{**_ALERT_A, "fired": True}])
+    st = _run_alert_sidebar(alert_env, _alert_save_fails=3)
+    st.error.assert_not_called()
+
+
 def test_sidebar_shows_red_error_while_alert_saves_keep_failing(alert_env):
     st = _run_alert_sidebar(alert_env)
     st.error.assert_not_called()
