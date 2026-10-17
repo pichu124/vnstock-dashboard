@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import vnstock_futures_foreign as ff
+from tests.conftest import needs
 import vnstock_futures_foreign_view as fv
 
 
@@ -372,6 +373,7 @@ def fake_st(monkeypatch):
     return st, importlib.import_module("dashboard.futures_foreign_tab")
 
 
+@needs("plotly")  # các mục vị thế/giá vẽ bằng plotly (dashboard/futures_foreign_tab.py)
 def test_tab_renders_every_section(fake_st, seeded):
     st, mod = fake_st
     mod.render_futures_foreign_tab()
