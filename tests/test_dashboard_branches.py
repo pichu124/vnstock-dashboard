@@ -1409,6 +1409,33 @@ def test_index_table_gtgd_is_real_traded_value_or_missing(monkeypatch):
     assert out.loc[days[2], "VNINDEX"] == 1690.0             # cột khác giữ nguyên
 
 
+@pytest.mark.parametrize("ph", [
+    pd.DataFrame({"trading_date": [pd.Timestamp("2026-10-16").date()]}),   # thiếu cột
+    pd.DataFrame({"trading_date": [pd.Timestamp("2026-10-16").date()],
+                  "total_value": ["n/a"]}),                                 # không phải số
+])
+def test_index_table_keeps_close_and_change_when_gtgd_source_is_broken(monkeypatch, ph):
+    """Lỗi phần GTGD từng rơi vào `except: pass` của cả lượt tải ⇒ MẤT nguyên dòng
+    VNINDEX (Close, %D) khỏi bảng chỉ số. Chỉ GTGD được thành NaN."""
+    import vnstock_session_stats as vss
+
+    days = pd.bdate_range(end="2026-10-16", periods=2)
+    quote = pd.DataFrame({"time": days, "close": [1700.0, 1717.0], "volume": [8e8, 8e8]})
+    fake_stock = types.SimpleNamespace(quote=types.SimpleNamespace(
+        history=lambda **k: quote.copy()))
+    monkeypatch.setitem(sys.modules, "vnstock_auth",
+                        types.SimpleNamespace(get_vnstock=lambda sym: fake_stock))
+    monkeypatch.setattr(vss, "_fetch_price_history",
+                        lambda name: ph.copy() if name == "VNINDEX" else pd.DataFrame())
+    load = load_source_fns("vnstock_dashboard.py", "load_index_overview", pd=pd,
+                           log=logging.getLogger("vnstock_dashboard"))["load_index_overview"]
+
+    out = load(days=2).set_index("time")
+    assert out.loc[days[1], "VNINDEX"] == 1717.0
+    assert out.loc[days[1], "VNINDEX_chg"] == pytest.approx(1.0)
+    assert out["VNINDEX_gtgd"].isna().all()
+
+
 def test_get_all_tickers_is_cached():
     """Không cache ⇒ iterdir ~1.700 thư mục + compile regex ở MỖI rerun tab Phân tích."""
     fn = next(n for n in _DASH_TREE.body

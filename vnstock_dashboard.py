@@ -3058,11 +3058,16 @@ def load_index_overview(days: int = 90) -> pd.DataFrame:
                     df["time"] = pd.to_datetime(df["time"])
                     df = df.sort_values("time").tail(days)
                     df["chg_pct"] = df["close"].pct_change() * 100
-                    ph = (_fetch_price_history(gtgd_source[idx_name])
-                          if idx_name in gtgd_source else pd.DataFrame())
-                    tv_ty = ({} if ph.empty else dict(zip(
-                        ph["trading_date"], pd.to_numeric(ph["total_value"]) / 1e9)))
-                    df["gtgd"] = df["time"].dt.date.map(tv_ty)
+                    try:
+                        ph = (_fetch_price_history(gtgd_source[idx_name])
+                              if idx_name in gtgd_source else pd.DataFrame())
+                        tv_ty = ({} if ph.empty else dict(zip(
+                            ph["trading_date"], pd.to_numeric(ph["total_value"]) / 1e9)))
+                        df["gtgd"] = df["time"].dt.date.map(tv_ty)
+                    except Exception as e:
+                        # GTGD hỏng chỉ thành "—", không kéo mất Close/%D của chỉ số
+                        log.warning("Bảng chỉ số: bỏ GTGD %s — %s", idx_name, e)
+                        df["gtgd"] = float("nan")
                     return idx_name, df[["time", "close", "chg_pct", "volume", "gtgd"]].copy()
             except Exception:
                 pass
