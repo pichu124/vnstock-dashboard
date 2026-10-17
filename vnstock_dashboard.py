@@ -1038,18 +1038,21 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
         triggered = False
         condition = alert.get("condition", "")
         target = float(alert.get("target", 0))
-        if condition in ("above", "below"):
+        if condition in ("above", "below") and ticker.upper() not in INDEX_SYMBOLS:
             # Mục tiêu nhập theo VND. Bảng giá trả VND, nhánh dự phòng (nến 1m) trả
-            # NGHÌN đồng. Mốc đơn vị = close kho (nghìn): quote cùng thang ⇒ ×1000,
-            # lệch ~1000× ⇒ đã là VND. Mục tiêu chỉ là mốc khi kho trống — nó xa giá
-            # quá 100× được (chứng quyền 10 đ, "above 1.500").
-            # ponytail: mã dưới 500 đ mà kho lưu VND thô (ngưỡng 500 không chia) thì
-            # mốc sai thang; cần thì so thêm với mục tiêu.
+            # NGHÌN đồng. Mốc đơn vị = close kho (nghìn): lệch ~1000× ⇒ đã là VND. Cùng
+            # thang kho thì MƠ HỒ: kho để thô mọi giá ≤ 500 (chỉ chia khi > 500) nên 400
+            # có thể là mã 400 đ ⇒ chỉ ×1000 khi kết quả nằm trong 5 lần quanh mục tiêu.
+            # Mục tiêu chỉ là mốc khi kho trống — nó xa giá quá 100× được (chứng quyền
+            # 10 đ, "above 1.500"). Chỉ số tính bằng điểm: không quy đổi.
+            # ponytail: quote nghìn của nhánh dự phòng + "below" dưới 1/5 giá vẫn bắn
+            # sai; cần thì vnstock_wss ghi nguồn quote vào file.
             hist = load_price_history(ticker)
             ref = float(hist["close"].iloc[-1]) if not hist.empty else 0.0
             if not ref > 0:
                 price = _normalize_live_price(target, price)
-            elif _normalize_live_price(ref, price) == price:
+            elif (_normalize_live_price(ref, price) == price and target > 0
+                  and 0.2 <= price * 1000 / target <= 5):
                 price *= 1000
 
         if condition == "above" and price >= target:

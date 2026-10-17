@@ -706,5 +706,9 @@ def _render_ticker_news() -> None:
         ctx = _nn.news_context_block(tickers=tickers_for_ai, max_items=15)
         if ctx:
             st.code(ctx, language="markdown")
-        else:
+        elif not _nn.load_news_cache():
             st.caption("Chưa có tin tức nào trong cache để inject.")
+        else:
+            _of = f" của {selected_ticker}" if tickers_for_ai else ""
+            st.caption(f"Không có tin{_of} để inject — brief chỉ lấy tin hôm nay, hôm nay "
+                       f"chưa có thì {_nn.NEWS_FALLBACK_DAYS} ngày gần đây.")
