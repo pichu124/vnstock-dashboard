@@ -11,7 +11,7 @@ import inspect
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
@@ -217,11 +217,19 @@ def _bars(n=120, end="2026-10-15", start=20.0):
                          "volume": 1_000_000.0 + 1_000 * np.arange(n)})
 
 
-def _put_hist(prices_dir, ticker, df):
+def _at(local: str) -> float:
+    """Giờ local naive → epoch giây (như `st_mtime`) — không phụ thuộc đồng hồ thật."""
+    return datetime.fromisoformat(local).timestamp()
+
+
+def _put_hist(prices_dir, ticker, df, written=None):
+    """`written` (epoch giây) = lúc kho ghi file parquet (mtime)."""
     for year, part in df.groupby(df["time"].dt.year):
         d = prices_dir / f"ticker={ticker}" / f"year={year}"
         d.mkdir(parents=True, exist_ok=True)
         part.to_parquet(d / "prices.parquet", index=False)
+        if written is not None:
+            os.utime(d / "prices.parquet", (written, written))
 
 
 def _put_quote(quote_dir, ticker, price, time="2026-10-16T14:20:52", volume=2_000_000.0,
@@ -264,19 +272,24 @@ def test_live_frame_appends_today_and_keeps_yesterday_bar():
     hist = _bars()
     before = hist.copy()
     frame = _live_frame(hist, {"time": "2026-10-16T14:20:52", "price": 61_000.0,
-                               "volume": 2e6, "high": 62_000.0, "low": 60_000.0}, TODAY)
+                               "volume": 2e6, "high": 62_000.0, "low": 60_000.0}, TODAY, None)
     assert len(frame) == len(hist) + 1
     assert frame.iloc[:-1].equals(hist)                       # bar D-1 nguyên vẹn
     assert hist.equals(before)                                # không sửa bản đang nằm trong cache
     assert frame.iloc[-1].to_dict() == _today_bar(hist, 61.0, 62.0, 60.0).iloc[0].to_dict()
 
 
-def test_live_frame_same_day_replaces_last_bar():
+def test_live_frame_same_day_replaces_last_bar_only_if_quote_is_newer():
+    """Bar ngày D của kho có thể là EOD (18:00) hoặc dở dang (chạy bù sáng) — chỉ đè khi quote
+    chụp SAU lúc ghi kho; không biết lúc ghi ⇒ không chứng minh được ⇒ bỏ."""
     from dashboard.screener_tab import _live_frame
     hist = _bars(end="2026-10-16")
     bar = hist.iloc[-1]
-    frame = _live_frame(hist, {"time": "2026-10-16T14:20:52", "price": 66_000.0,
-                               "volume": 0.0, "high": 66_500.0, "low": 50_000.0}, TODAY)
+    quote = {"time": "2026-10-16T14:20:52", "price": 66_000.0,
+             "volume": 0.0, "high": 66_500.0, "low": 50_000.0}
+    for written_at in (_at("2026-10-16T18:30"), _at("2026-10-16T14:20:52"), None):
+        assert _live_frame(hist, quote, TODAY, written_at) is None
+    frame = _live_frame(hist, quote, TODAY, _at("2026-10-16T10:20"))
     last = frame.iloc[-1]
     assert len(frame) == len(hist) and frame.iloc[:-1].equals(hist.iloc[:-1])
     assert (last["time"], last["open"], last["close"]) == (bar["time"], bar["open"], 66.0)
@@ -288,16 +301,17 @@ def test_live_frame_drops_stale_or_broken_quote():
     """Quote tồn từ phiên trước (file 08/2026 vẫn nằm trong _live) ⇒ bỏ mã."""
     from dashboard.screener_tab import _live_frame
     hist = _bars()
-    assert _live_frame(hist, {"time": "2026-08-18T14:20:52", "price": 68_700.0}, TODAY) is None
-    assert _live_frame(hist, {"time": "hỏng", "price": 68_700.0}, TODAY) is None
-    assert _live_frame(hist, {"price": 68_700.0}, TODAY) is None
-    assert _live_frame(hist, {"time": "2026-10-16T10:00:00", "price": 0}, TODAY) is None
+    assert _live_frame(hist, {"time": "2026-08-18T14:20:52", "price": 68_700.0}, TODAY, None) is None
+    assert _live_frame(hist, {"time": "hỏng", "price": 68_700.0}, TODAY, None) is None
+    assert _live_frame(hist, {"price": 68_700.0}, TODAY, None) is None
+    assert _live_frame(hist, {"time": "2026-10-16T10:00:00", "price": 0}, TODAY, None) is None
 
 
 def test_live_frame_converts_tz_aware_quote_to_vietnam_day():
     from dashboard.screener_tab import _live_frame
     hist = _bars()
-    frame = _live_frame(hist, {"time": "2026-10-15T17:30:00+00:00", "price": 61_000.0}, TODAY)
+    frame = _live_frame(hist, {"time": "2026-10-15T17:30:00+00:00", "price": 61_000.0}, TODAY,
+                        None)
     assert frame["time"].iloc[-1] == pd.Timestamp("2026-10-16")      # 00:30 giờ VN
 
 
@@ -322,7 +336,7 @@ def test_live_price_unit_follows_warehouse(hist_close, quote_price, expected):
     from dashboard.screener_tab import _live_frame
     hist = _bars().assign(open=hist_close, high=hist_close, low=hist_close, close=hist_close)
     frame = _live_frame(hist, {"time": "2026-10-16T10:00:00", "price": quote_price,
-                               "high": quote_price, "low": quote_price}, TODAY)
+                               "high": quote_price, "low": quote_price}, TODAY, None)
     last = frame.iloc[-1]
     assert (last["close"], last["high"], last["low"]) == pytest.approx((expected,) * 3)
 
@@ -459,10 +473,11 @@ def test_scan_skips_broken_quote_without_failing_round(tmp_path, monkeypatch):
 def test_scan_ignores_quote_from_past_session_even_on_last_bar_day(tmp_path, monkeypatch):
     """File quote chụp 11:00 phiên D-1 (dashboard tắt giữa phiên; hôm nay WSS chưa ghi mã này)
     trùng ngày bar EOD D-1 ⇒ code cũ đè bar EOD bằng giá 11:00: chg_1d −4%, vol 0,28×, MACD SELL
-    giả. Live Scan chỉ dùng quote của HÔM NAY; hôm nay = D-1 thì vẫn thay bar như cũ."""
+    giả. Live Scan chỉ dùng quote của HÔM NAY; hôm nay = D-1 và bar D-1 ghi TRƯỚC quote (dở dang,
+    pipeline chạy bù 10:20) thì vẫn thay bar."""
     hist = _bars()                                            # kho tới 2026-10-15
     price = round(hist["close"].iloc[-1] * 0.95, 2)
-    _put_hist(tmp_path / "prices", "AAA", hist)
+    _put_hist(tmp_path / "prices", "AAA", hist, written=_at("2026-10-15T10:20"))
     _put_quote(tmp_path / "_live", "AAA", price * 1000, time="2026-10-15T11:00:00",
                volume=3e5, high=hist["close"].iloc[-1] * 1000, low=price * 1000)
     assert _scan(tmp_path, monkeypatch, today=TODAY) == (0, {})
@@ -470,6 +485,56 @@ def test_scan_ignores_quote_from_past_session_even_on_last_bar_day(tmp_path, mon
     scanned, rows = _scan(tmp_path, monkeypatch, today=date(2026, 10, 15))
     assert scanned == 1 and rows["AAA"]["last_close"] == price
     assert rows["AAA"]["chg_1d_pct"] == round((price / hist["close"].iloc[-2] - 1) * 100, 2)
+
+
+@pytest.mark.parametrize("written, replaced", [
+    ("2026-10-16T18:30", False),    # bar EOD (pipeline 18:00) mới hơn quote 11:00 ⇒ không đè
+    ("2026-10-16T10:20", True),     # bar dở dang (pipeline chạy bù sáng) cũ hơn quote ⇒ thay
+])
+def test_scan_same_day_quote_replaces_bar_only_if_taken_after_write(tmp_path, monkeypatch,
+                                                                    written, replaced):
+    """Dashboard tắt 11:00, tối mở lại (today = D) khi kho đã có bar EOD D: code cũ đè EOD bằng
+    giá 11:00 ⇒ chg_1d −4%, vol 0,28×, MACD SELL giả. Ngày không phân biệt được EOD với bar dở
+    dang ⇒ so THỜI ĐIỂM quote với lúc ghi file parquet."""
+    hist = _bars(end="2026-10-16")
+    price = round(hist["close"].iloc[-1] * 0.95, 2)
+    _put_hist(tmp_path / "prices", "AAA", hist, written=_at(written))
+    _put_quote(tmp_path / "_live", "AAA", price * 1000, time="2026-10-16T11:00:00", volume=3e5)
+    scanned, rows = _scan(tmp_path, monkeypatch)
+    assert scanned == int(replaced)
+    assert {t: r["last_close"] for t, r in rows.items()} == ({"AAA": price} if replaced else {})
+
+
+def test_scan_rechecks_quote_taken_before_write_once_file_changes(tmp_path, monkeypatch):
+    """Quote 10:15 cũ hơn bar dở dang 10:20 ⇒ bỏ. WSS ghi lại lúc 11:00 với giá/KL y nguyên (mã ít
+    khớp, KL 0) ⇒ khoá (ngày, giá, KL, cao, thấp) như cũ nhưng giờ quote đã mới hơn kho ⇒ phải
+    thay bar, không được dính memo "bỏ"."""
+    _put_hist(tmp_path / "prices", "AAA", _bars(end="2026-10-16"), written=_at("2026-10-16T10:20"))
+    _put_quote(tmp_path / "_live", "AAA", 66_000.0, time="2026-10-16T10:15:00", volume=0.0,
+               mtime_ns=T0)
+    state = {}
+    assert _scan(tmp_path, monkeypatch, state) == (0, {})
+    _put_quote(tmp_path / "_live", "AAA", 66_000.0, time="2026-10-16T11:00:00", volume=0.0,
+               mtime_ns=T0 + S)
+    scanned, rows = _scan(tmp_path, monkeypatch, state)
+    assert scanned == 1 and rows["AAA"]["last_close"] == 66.0
+
+
+def test_scan_before_open_reads_no_parquet(tmp_path, monkeypatch):
+    """Trước 9:00 cả ~1.100 quote là của hôm qua: code cũ đọc parquet từng mã rồi mới bỏ (~33 lượt
+    ngân sách vô ích). Mở quote trước ⇒ 0 lần đọc parquet, không mã nào phải chờ lượt sau."""
+    import types
+
+    import dashboard.screener_tab as tab
+    real, reads = tab._read_recent_history, []
+    monkeypatch.setattr(tab, "_read_recent_history", lambda d: reads.append(d.name) or real(d))
+    # đồng hồ giả: 1 "giây" = 1 lần đọc parquet ⇒ ngân sách 1 = đúng 1 lần đọc mỗi lượt
+    monkeypatch.setattr(tab, "time", types.SimpleNamespace(monotonic=lambda: len(reads)))
+    for t in ("AAA", "BBB", "CCC"):
+        _put_hist(tmp_path / "prices", t, _bars())
+        _put_quote(tmp_path / "_live", t, 61_000.0, time="2026-10-15T14:45:00", mtime_ns=T0)
+    assert _scan_all(tmp_path, monkeypatch, budget_s=1) == (0, {}, 0, [])
+    assert reads == []
 
 
 def test_scan_remembers_non_dict_quote_without_reopening(tmp_path, monkeypatch):
@@ -518,7 +583,7 @@ def test_read_recent_history_only_latest_two_years(tmp_path):
     _put_hist(tmp_path, "AAA", _bars(n=250, end="2024-06-28"))
     assert {p.name for p in (tmp_path / "ticker=AAA").iterdir()} == {
         "year=2022", "year=2023", "year=2024"}
-    df = _read_recent_history(tmp_path / "ticker=AAA")
+    df, _ = _read_recent_history(tmp_path / "ticker=AAA")
     assert len(df) == 250 and df["time"].dt.year.min() == 2023 and (df["close"] != 999.0).all()
 
 
@@ -533,8 +598,9 @@ def test_read_recent_history_dedups_conflicted_copy_by_mtime(tmp_path):
     newer.to_parquet(year / "a_new (conflicted copy).parquet", index=False)
     os.utime(year / "z_old.parquet", ns=(T0, T0))
     os.utime(year / "a_new (conflicted copy).parquet", ns=(T0 + S, T0 + S))
-    df = _read_recent_history(tmp_path / "ticker=AAA")
+    df, written_at = _read_recent_history(tmp_path / "ticker=AAA")
     assert len(df) == 80 and df["time"].is_unique and df["time"].is_monotonic_increasing
+    assert written_at == (T0 + S) / 10**9                     # lúc ghi = mtime MỚI nhất đã đọc
     assert df["close"].tail(5).tolist() == newer["close"].tolist()
     assert df["close"].iloc[0] == base["close"].iloc[0]
 
@@ -544,7 +610,7 @@ def test_read_recent_history_normalizes_vnd_cells(tmp_path):
     df = _bars(n=80)
     df.loc[df.index[-1], "close"] = df["close"].iloc[-1] * 1000   # một ô ở đơn vị VND
     _put_hist(tmp_path, "AAA", df)
-    out = _read_recent_history(tmp_path / "ticker=AAA")
+    out, _ = _read_recent_history(tmp_path / "ticker=AAA")
     assert out["close"].iloc[-1] == pytest.approx(df["close"].iloc[-1] / 1000)
 
 
