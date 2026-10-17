@@ -33,6 +33,7 @@ from vnstock_console_launch import build_ps_command
 from vnstock_parquet_io import write_json_atomic
 from vnstock_price_units import normalize_live_price, normalize_price_units
 from vnstock_sectors import SECTOR_GROUPS, SECTOR_ORDER, get_sector
+from vnstock_wss import INDEX_SYMBOLS
 
 
 # ── compute_indicators: RSI khi loss = 0 ────────────────────────────────────
@@ -399,6 +400,7 @@ def alert_env(tmp_path):
         send_telegram_alert=_send, write_json_atomic=write_json_atomic,
         _normalize_live_price=normalize_live_price,
         load_price_history=lambda t, days=0: pd.DataFrame(),   # kho trống
+        INDEX_SYMBOLS=INDEX_SYMBOLS,
     )
     ns["sent"] = sent
     return ns
@@ -777,6 +779,26 @@ def test_penny_vnd_live_far_below_target_is_not_rescaled(alert_env):
         {"ticker": "AVF", "condition": "above", "target": 1000.0}])
     assert [a["fired"] for a in out] == [True, False]
     assert out[0]["fired_price"] == 400.0
+
+
+def test_penny_vnd_kept_raw_in_warehouse_is_not_rescaled(alert_env):
+    """AVF 400 đ, kho lưu THÔ 400 (`normalize_price_units` chỉ chia khi > 500), quote 400
+    VND. Quote cùng thang kho mà ×1000 ⇒ 400.000 đ: "above 1.000" bắn ngay, "below
+    50.000" không bao giờ bắn."""
+    out = _alerts_vs_warehouse(alert_env, 400.0, 400.0, [
+        {"ticker": "AVF", "condition": "above", "target": 1000.0},
+        {"ticker": "AVF", "condition": "below", "target": 50000.0}])
+    assert [a["fired"] for a in out] == [False, True]
+    assert out[1]["fired_price"] == 400.0
+
+
+def test_index_below_500_points_is_not_rescaled(alert_env):
+    """HNXINDEX ~230 điểm: kho 230, quote 230 — chỉ số tính bằng điểm, không có thang VND."""
+    out = _alerts_vs_warehouse(alert_env, 230.0, 230.0, [
+        {"ticker": "HNXINDEX", "condition": "above", "target": 250.0},
+        {"ticker": "HNXINDEX", "condition": "below", "target": 240.0}])
+    assert [a["fired"] for a in out] == [False, True]
+    assert out[1]["fired_price"] == 230.0
 
 
 # ── render_chart: thư viện chart + live bar ──────────────────────────────────
