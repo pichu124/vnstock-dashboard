@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import streamlit as st
 from datetime import datetime, date, timedelta, timezone
+import importlib
+import inspect
 import re
 from urllib.parse import urljoin, urlparse
 
@@ -51,7 +53,7 @@ _VN_TZ = timezone(timedelta(hours=7))
 def _fmt_age(date_str: str, now: datetime | None = None) -> str:
     """Human-readable age: 'Hôm nay 14:30', '2 ngày trước'.
 
-    Đếm theo NGÀY LỊCH giờ VN — khớp bộ lọc "Hôm nay" (so `_date_sort`);
+    Đếm theo NGÀY LỊCH giờ VN — khớp bộ lọc "Hôm nay" (so `_vn_day`);
     timedelta.days từng gọi tin 20:00 hôm qua là "Hôm nay" lúc 08:00.
 
     Returns 'Không rõ ngày' for unparseable input so the user can spot
@@ -83,6 +85,26 @@ def _fmt_age(date_str: str, now: datetime | None = None) -> str:
     return f"⚠️ {dt.strftime('%Y-%m-%d')} (rất cũ)"
 
 
+def _pub_raw(item: dict) -> str:
+    """Timestamp gốc mà thẻ tin hiển thị tuổi."""
+    return item.get("public_date") or item.get("created_at") or item.get("date") or ""
+
+
+def _vn_day(item: dict) -> str:
+    """Ngày lịch giờ VN 'YYYY-MM-DD' cho bộ lọc ngày — cùng cách `_fmt_age` gắn nhãn.
+
+    `_date_sort` là ngày UTC khi nguồn ghi "…Z", nhưng nó là khoá dedup / hash
+    sentiment / sổ đã gửi nên không đổi ⇒ chỉ quy lại ở đây, cho tin có tz.
+    """
+    try:
+        dt = datetime.fromisoformat(str(_pub_raw(item)).replace("Z", "+00:00"))
+    except ValueError:
+        dt = None
+    if dt is not None and dt.tzinfo is not None:
+        return dt.astimezone(_VN_TZ).date().isoformat()
+    return (item.get("_date_sort") or "")[:10]
+
+
 def _pick(item: dict, *keys: str, default: str = "") -> str:
     """Return first non-empty value among the given keys."""
     for k in keys:
@@ -112,7 +134,7 @@ def _news_card(item: dict, idx: int) -> None:
     link      = _normalize_news_url(
         _pick(item, "news_source_link", "source_link", "url", "link", "href")
     )
-    pub_date  = item.get("public_date") or item.get("created_at") or item.get("date") or ""
+    pub_date  = _pub_raw(item)
     age       = _fmt_age(pub_date)
     sentiment = item.get("_sentiment", "")
 
@@ -161,6 +183,29 @@ def _news_card(item: dict, idx: int) -> None:
         st.divider()
 
 
+def lazy_tabs(st, labels: list[str], key: str):
+    """`st.tabs` chỉ chạy tab đang mở nếu streamlit có `on_change` (1.56 có): đổi tab ⇒ rerun,
+    `.open` báo tab nào mở. Bản cũ (requirements ghim >=1.35) ⇒ như trước, chạy hết.
+    Widget trong tab ẩn bị dọn state khi rời tab — như nav chính `st.pills`."""
+    if "on_change" in inspect.signature(st.tabs).parameters:
+        return st.tabs(labels, key=key, on_change="rerun")
+    return st.tabs(labels)
+
+
+def tab_open(tab) -> bool:
+    """False chỉ khi tabs có trạng thái và tab này đang ẩn (bản cũ: không có `.open`/None)."""
+    return getattr(tab, "open", None) is not False
+
+
+_SUBTABS = (  # (nhãn, module, hàm) — module None = tin theo mã ngay trong file này
+    ("📰 Tin theo mã", None, None),
+    ("🌐 Vĩ mô", "dashboard.macro_tab", "render_macro_subtab"),
+    ("📄 Báo cáo tuần", "dashboard.rates_report_tab", "render_rates_report_subtab"),
+    ("📚 Báo cáo", "dashboard.reports_tab", "render_reports_subtab"),
+    ("🧭 Phân bổ", "dashboard.allocation_tab", "render_allocation_subtab"),
+)
+
+
 def render_news_tab() -> None:
     """Main entry point called from vnstock_dashboard.py.
 
@@ -169,34 +214,26 @@ def render_news_tab() -> None:
     cache), 📚 Báo cáo (reports_tab — ingest + digest, P5) và 🧭 Phân bổ
     (allocation_tab — band B0-B4 + scorecard, P5).
     """
-    tab_ticker, tab_macro, tab_rates, tab_reports, tab_alloc = st.tabs(
-        ["📰 Tin theo mã", "🌐 Vĩ mô", "📄 Báo cáo tuần", "📚 Báo cáo", "🧭 Phân bổ"])
-    with tab_ticker:
-        _render_ticker_news()
-    with tab_macro:
-        try:
-            from dashboard.macro_tab import render_macro_subtab
-            render_macro_subtab()
-        except Exception as _e:                              # noqa
-            st.error(f"Không render được sub-tab Vĩ mô: {_e}")
-    with tab_rates:
-        try:
-            from dashboard.rates_report_tab import render_rates_report_subtab
-            render_rates_report_subtab()
-        except Exception as _e:                              # noqa
-            st.error(f"Không render được sub-tab Báo cáo tuần: {_e}")
-    with tab_reports:
-        try:
-            from dashboard.reports_tab import render_reports_subtab
-            render_reports_subtab()
-        except Exception as _e:                              # noqa
-            st.error(f"Không render được sub-tab Báo cáo: {_e}")
-    with tab_alloc:
-        try:
-            from dashboard.allocation_tab import render_allocation_subtab
-            render_allocation_subtab()
-        except Exception as _e:                              # noqa
-            st.error(f"Không render được sub-tab Phân bổ: {_e}")
+    tabs = lazy_tabs(st, [label for label, _, _ in _SUBTABS], key="_news_subtab")
+    for tab, (label, mod, fn) in zip(tabs, _SUBTABS):
+        if not tab_open(tab):
+            continue
+        with tab:
+            if mod is None:
+                _render_ticker_news()
+                continue
+            try:
+                getattr(importlib.import_module(mod), fn)()
+            except Exception as _e:                          # noqa
+                st.error(f"Không render được sub-tab {label.split(' ', 1)[1]}: {_e}")
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def _cache_info(stamp: tuple) -> dict:
+    """`cache_info` parse cả news_cache.json (~1 MB, ~16 ms đo 17/10) chỉ để đếm ⇒ đệm tới khi
+    file đổi (`stamp` = đường dẫn + mtime)."""
+    import vnstock_news as _nn
+    return _nn.cache_info()
 
 
 def _render_ticker_news() -> None:
@@ -216,7 +253,11 @@ def _render_ticker_news() -> None:
     st.markdown("#### 🗞️ Tin tức thị trường")
 
     # ── Cache status & controls ────────────────────────────────────────────
-    info = _nn.cache_info()
+    _p = _nn.NEWS_CACHE_PATH
+    info = _cache_info((str(_p), _p.stat().st_mtime_ns if _p.exists() else None))
+    if info.get("fetched_at"):        # tuổi tính lại mỗi lượt, không lấy bản đệm
+        info["age_minutes"] = round(
+            (datetime.now() - datetime.fromisoformat(info["fetched_at"])).total_seconds() / 60, 1)
     ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([3, 2, 2, 2])
 
     with ctrl_col1:
@@ -305,13 +346,12 @@ def _render_ticker_news() -> None:
             _status.error(
                 f"❌ Không tải được tin nào cho **{len(universe)}** mã — nguồn tin "
                 "(VCI/KBS) lỗi, mạng hỏng, hoặc nguồn chưa có tin. Thử lại sau.")
-        st.session_state["_news_data"] = news_all
+        # Lượt hỏng không ghi đè cache (refresh_news) ⇒ vẫn hiện tin cũ.
+        st.session_state["_news_data"] = news_all or _nn.load_news_cache()
         # Reset recency filter after refresh — "Hôm nay" from today_clicked
         # would show 0 results if the news source doesn't publish today yet.
         if st.session_state.get("_news_recency_filter") == "Hôm nay":
-            _newest = max(
-                (n.get("_date_sort") or "") for n in news_all
-            ) if news_all else ""
+            _newest = max(map(_vn_day, news_all)) if news_all else ""
             if _newest < date.today().isoformat():
                 st.session_state["_news_recency_filter"] = "7 ngày"
 
@@ -499,7 +539,7 @@ def _render_ticker_news() -> None:
     }[recency_label]
 
     # Specific-date filter (only dates present in cache)
-    all_dates = sorted({n.get("_date_sort", "")[:10] for n in news if n.get("_date_sort")}, reverse=True)
+    all_dates = sorted({d for d in map(_vn_day, news) if d}, reverse=True)
     with flt_col3:
         selected_date = st.selectbox(
             "Ngày cụ thể", options=["Tất cả"] + all_dates,
@@ -534,15 +574,14 @@ def _render_ticker_news() -> None:
 
     # Recency filter — drop items older than N days OR with no date
     if _recency_days is not None:
-        from datetime import date as _date, timedelta as _td
-        _cutoff = (_date.today() - _td(days=_recency_days)).isoformat()
-        filtered = [n for n in filtered if (n.get("_date_sort") or "") >= _cutoff]
+        _cutoff = (date.today() - timedelta(days=_recency_days)).isoformat()
+        filtered = [n for n in filtered if _vn_day(n) >= _cutoff]
 
     if selected_ticker != "Tất cả":
         filtered = [n for n in filtered if n.get("ticker", "").upper() == selected_ticker.upper()]
 
     if selected_date != "Tất cả":
-        filtered = [n for n in filtered if n.get("_date_sort", "").startswith(selected_date)]
+        filtered = [n for n in filtered if _vn_day(n) == selected_date]
 
     if search_q:
         q = search_q.lower()
@@ -626,8 +665,8 @@ def _render_ticker_news() -> None:
     st.caption(f"Hiển thị **{min(len(filtered), page_size)}** / **{len(filtered)}** tin")
 
     if not filtered:
-        if _recency_days == 0 and any(n.get("_date_sort") for n in news):
-            _latest = max(n.get("_date_sort", "") for n in news if n.get("_date_sort"))
+        if _recency_days == 0 and all_dates:
+            _latest = all_dates[0]
             st.info(
                 f"Không có tin từ hôm nay ({date.today().isoformat()}). "
                 f"Tin mới nhất trong cache là từ **{_latest}**. "

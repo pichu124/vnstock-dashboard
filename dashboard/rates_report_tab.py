@@ -42,7 +42,12 @@ def render_rates_report_subtab() -> None:
                            file_name=f"bao_cao_lai_suat_{data['as_of']}.html",
                            mime="text/html", use_container_width=True)
     with c2:
-        if st.button("📤 Đẩy tóm tắt lên Telegram", use_container_width=True):
+        # Gửi ngay vào group ⇒ phải tick; gửi xong đổi key để ô tự bỏ tick.
+        n = st.session_state.get("_rr_push_n", 0)
+        sure = st.checkbox("Tôi chắc chắn gửi vào group Telegram", key=f"_rr_push_sure_{n}")
+        if st.button("📤 Đẩy tóm tắt lên Telegram", use_container_width=True,
+                     key="_rr_push", disabled=not sure) and sure:
+            st.session_state["_rr_push_n"] = n + 1
             try:
                 from vnstock_telegram import push_rates_weekly
                 res = push_rates_weekly()

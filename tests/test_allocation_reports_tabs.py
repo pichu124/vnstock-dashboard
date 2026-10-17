@@ -130,3 +130,64 @@ def test_reports_bad_date_is_reported_on_ui(monkeypatch, key, pressed):
 
     assert any("YYYY-MM-DD" in s for s in _said(st.error)), _said(st.error)
     rp.set_meta.assert_not_called()
+
+
+# ─── Nút không đảo ngược được phải có bước xác nhận ──────────────────────────
+
+@pytest.mark.parametrize("sure,calls", [(False, 0), (True, 1)])
+def test_reports_remove_needs_confirmation(monkeypatch, sure, calls):
+    """`rp.remove` xoá index + text + file gốc; selectbox mặc định là báo cáo mới nhất."""
+    st, rp, _ = _reports_env(monkeypatch, pressed={"_rp_remove"})
+    st.checkbox = lambda label, *a, key=None, **k: sure and key.startswith("_rp_remove_sure")
+
+    assert _render_reports() is bool(calls)
+
+    assert rp.remove.call_count == calls
+    if calls:
+        rp.remove.assert_called_once_with("r1")
+
+
+def _rates_env(monkeypatch, sure, pressed=True):
+    import sys
+    import types
+    from unittest.mock import MagicMock
+    from tests.test_tab_render_smoke import _fake_streamlit
+
+    st = _fake_streamlit()
+    st.button = lambda label, *a, key=None, disabled=False, **k: pressed and not disabled
+    st.checkbox = lambda label, *a, key=None, **k: sure
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    rr = types.SimpleNamespace(
+        build_report_data=lambda: {"rates": [1], "curve": [], "as_of": "2026-10-16"},
+        render_html=lambda data: "<html></html>")
+    tg = types.SimpleNamespace(push_rates_weekly=MagicMock(return_value={"ok": True}))
+    monkeypatch.setitem(sys.modules, "vnstock_rates_report", rr)
+    monkeypatch.setitem(sys.modules, "vnstock_telegram", tg)
+    return st, tg
+
+
+@pytest.mark.parametrize("sure,calls", [(False, 0), (True, 1)])
+def test_rates_telegram_push_needs_confirmation(monkeypatch, sure, calls):
+    from dashboard.rates_report_tab import render_rates_report_subtab
+    st, tg = _rates_env(monkeypatch, sure)
+
+    render_rates_report_subtab()
+
+    assert tg.push_rates_weekly.call_count == calls
+
+
+def test_rates_telegram_confirmation_is_spent_after_one_push(monkeypatch):
+    """Tick một lần rồi bấm hai lần ⇒ gửi một lần (ô đã tick không được giữ nút bật)."""
+    from dashboard.rates_report_tab import render_rates_report_subtab
+    st, tg = _rates_env(monkeypatch, sure=None)
+    ticked = []                    # ô user tick giữ trạng thái; ô key mới bắt đầu trống
+
+    def _checkbox(label, *a, key=None, **k):
+        ticked[:] = ticked or [key]
+        return key == ticked[0]
+    st.checkbox = _checkbox
+
+    render_rates_report_subtab()
+    render_rates_report_subtab()
+
+    assert tg.push_rates_weekly.call_count == 1

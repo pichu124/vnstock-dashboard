@@ -249,3 +249,23 @@ def test_agreement_table_dashes_when_no_common_day(monkeypatch):
     assert (empty["Lệch lớn nhất %"], empty["Lệch ngày cuối %"], empty["Ngưỡng %"]) == ("—", "—", "0.8")
     assert (ok["Lệch lớn nhất %"], ok["Lệch ngày cuối %"], ok["Lệch > ngưỡng / 5 phiên"]) == ("0.288", "-0.288", "0/5")
     assert "None" not in df.astype(str).to_string()
+
+
+@pytest.mark.parametrize("stateful,expect", [
+    (True, ["Dầu"]),                                  # streamlit có `on_change`: chỉ tab mở
+    (False, ["Vàng", "Dầu", "USD", "Liên kết"]),      # bản cũ: chạy hết như trước
+])
+def test_assets_subtabs_run_only_open_tab_when_supported(fake_st, monkeypatch, stateful, expect):
+    from tests.test_tab_render_smoke import _stateful_tabs
+    st, mod = fake_st
+    _seed()
+    ran = []
+    for fn, tag in (("_render_gold", "Vàng"), ("_render_oil", "Dầu"),
+                    ("_render_usd", "USD"), ("_render_links", "Liên kết")):
+        monkeypatch.setattr(mod, fn, lambda va_, av_, start, tag=tag: ran.append(tag))
+    if stateful:
+        st.tabs = _stateful_tabs(open_idx=1)
+
+    mod.render_assets_tab()
+
+    assert ran == expect

@@ -80,6 +80,16 @@ def _fake_streamlit():
     return st
 
 
+def _stateful_tabs(open_idx):
+    """`st.tabs` của streamlit có tab lười (1.56: `on_change` + `.open`): chỉ tab `open_idx` mở."""
+    def tabs(labels, *, key=None, on_change="ignore"):
+        out = [_Ctx() for _ in labels]
+        for i, t in enumerate(out):
+            t.open = (i == open_idx) if on_change != "ignore" else None
+        return out
+    return tabs
+
+
 def _sector_df():
     n = len(_SECTORS)
     cols = {"Ngành": _SECTORS, "Số mã": [10, 5, 3]}
