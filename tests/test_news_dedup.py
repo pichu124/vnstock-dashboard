@@ -221,6 +221,42 @@ def test_failed_refresh_still_shows_old_cache(monkeypatch):
     assert st.session_state["_news_data"] == old
 
 
+@pytest.mark.parametrize("on_disk, expect, reject", [
+    # Cache có tin nhưng chỉ toàn tin cũ hơn cửa sổ ⇒ news_context_block trả "".
+    ([{"news_title": "Tin cũ", "ticker": "VCB", "_date_sort": "2026-10-01"}],
+     "ngày gần đây", "Chưa có tin tức nào"),
+    ([], "Chưa có tin tức nào trong cache", "ngày gần đây"),
+])
+def test_ai_context_caption_tells_empty_cache_from_old_news(monkeypatch, on_disk, expect,
+                                                            reject):
+    import sys
+    import types
+
+    from vnstock_news import NEWS_FALLBACK_DAYS
+
+    nn = types.ModuleType("vnstock_news")
+    nn.NEWS_CACHE_PATH = __import__("pathlib").Path("không-có-news_cache.json")
+    nn.NEWS_FALLBACK_DAYS = NEWS_FALLBACK_DAYS
+    nn.cache_info = lambda: {"exists": True, "count": 1, "age_minutes": 60}
+    nn.load_news_cache = lambda: on_disk
+    nn.news_context_block = lambda **k: ""
+    monkeypatch.setitem(sys.modules, "vnstock_news", nn)
+    monkeypatch.setitem(sys.modules, "vnstock_sentiment", None)
+    st, news_tab = _news_tab_with_fake_st(monkeypatch)
+    st.session_state["_news_data"] = [
+        {"news_title": "Tin cũ", "ticker": "VCB", "_date_sort": "2026-10-01"}]
+    st.selectbox = lambda label, options=(), key=None, **k: (
+        "Tất cả" if key == "_news_recency_filter" else list(options)[0])
+
+    news_tab._render_ticker_news()
+
+    captions = [str(c.args[0]) for c in st.caption.call_args_list if c.args]
+    assert any(expect in s for s in captions), captions
+    assert not any(reject in s for s in captions), captions
+    if on_disk:
+        assert any(f"{NEWS_FALLBACK_DAYS} ngày" in s for s in captions), captions
+
+
 @pytest.mark.parametrize("raw,expect_prefix,reject_prefix", [
     # 20:00 hôm qua, xem 08:00 sáng: timedelta.days == 0 từng ra "Hôm nay 20:00"
     # trong khi bộ lọc "Hôm nay" (so ngày lịch) loại tin đó.
@@ -317,6 +353,7 @@ def _render_news_titles(monkeypatch, picks):
     nn.cache_info = lambda: {"exists": True, "count": 3, "age_minutes": 5}
     nn.load_news_cache = lambda: [dict(n) for n in _NEWS_TZ]
     nn.news_context_block = lambda **k: ""
+    nn.NEWS_FALLBACK_DAYS = 3
     monkeypatch.setitem(sys.modules, "vnstock_news", nn)
     monkeypatch.setitem(sys.modules, "vnstock_sentiment", None)
     st, news_tab = _news_tab_with_fake_st(monkeypatch)
