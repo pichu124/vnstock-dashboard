@@ -690,6 +690,42 @@ def test_alert_checker_probe_save_ok_then_fire_save_fails_sends_no_more(alert_en
     assert len(alert_env["sent"]) == stopped_at + 1
 
 
+def test_alert_checker_stops_telegram_while_reread_after_fire_keeps_failing(alert_env):
+    """Đọc đầu lượt được, đọc LẠI sau khi bắn thì lỗi (Dropbox đang ghi dở) ⇒ dấu "đã
+    bắn" không được lưu. Không tính là lưu lỗi thì cứ 10s gửi lại Telegram."""
+    from dashboard.analysis_tab import _ALERT_SAVE_FAIL_MAX
+
+    alert_env["save_alerts"]([_ALERT_A])
+    real_load, calls, flaky = alert_env["load_alerts"], [0], [True]
+
+    def _load():                                            # lần đọc chẵn lỗi
+        calls[0] += 1
+        if flaky[0] and calls[0] % 2 == 0:
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+        return real_load()
+
+    errors: list = []
+    st = types.SimpleNamespace(session_state={"_tg_token": "tok", "_tg_chat": "chat"},
+                               toast=lambda m: None, error=errors.append)
+    frag = load_source_fns(
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
+        load_alerts=_load, save_alerts=alert_env["save_alerts"],
+        check_and_fire_alerts=alert_env["check_and_fire_alerts"],
+        log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=alert_env["ALERTS_PATH"],
+    )["_alert_checker"]
+
+    for _ in range(8):
+        frag()
+    assert len(alert_env["sent"]) == _ALERT_SAVE_FAIL_MAX
+    assert errors and str(alert_env["ALERTS_PATH"]) in errors[-1]
+
+    flaky[0] = False                                        # đọc lại được
+    frag()
+    frag()
+    assert len(alert_env["sent"]) == _ALERT_SAVE_FAIL_MAX + 1
+    assert real_load()[0]["fired"] is True
+
+
 def test_sidebar_hides_stopped_error_when_no_alert_is_active(alert_env):
     """Không còn alert active (máy kia đã bắn + lưu, hoặc đã xoá) thì không có gì bị
     chặn gửi — báo đỏ "đã NGỪNG gửi" không được kẹt mãi."""

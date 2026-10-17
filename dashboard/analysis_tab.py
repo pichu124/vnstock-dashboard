@@ -602,9 +602,14 @@ def render_analysis_tab() -> None:
             if not _active:
                 return
             if st.session_state.get("_alert_save_fails", 0) >= _ALERT_SAVE_FAIL_MAX:
-                # Đã ngừng gửi: ghi lại đúng bản vừa đọc để dò. Dò được thì gửi, nhưng chỉ
-                # chừa MỘT lần lưu lỗi — Dropbox lúc khoá lúc nhả không kéo theo 3 tin trùng.
-                if not save_alerts(_al):
+                # Đã ngừng gửi: dò đúng đường lưu sau khi bắn (đọc lại rồi ghi). Dò được thì
+                # gửi, nhưng chỉ chừa MỘT lần lỗi — Dropbox lúc khoá lúc nhả không kéo theo
+                # 3 tin trùng.
+                try:
+                    _probe_ok = save_alerts(load_alerts())
+                except (OSError, ValueError):
+                    _probe_ok = False
+                if not _probe_ok:
                     st.error(f"Không lưu được `{ALERTS_PATH}` — đã ngừng gửi Telegram alert "
                              "tới khi lưu lại được.")
                     return
@@ -623,6 +628,8 @@ def render_analysis_tab() -> None:
                     _on_disk = load_alerts()
                 except (OSError, ValueError) as e:
                     log.warning("Không lưu alert vừa bắn — đọc lại %s lỗi: %s", ALERTS_PATH, e)
+                    st.session_state["_alert_save_fails"] = (
+                        st.session_state.get("_alert_save_fails", 0) + 1)
                 else:
                     def _key(a):
                         return (a.get("ticker"), a.get("condition"), a.get("target"),
