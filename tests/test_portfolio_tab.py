@@ -550,6 +550,43 @@ def test_position_without_price_is_left_out_of_totals(tmp_path: Path, monkeypatc
     assert any("1 vị thế chưa có giá" in c and "ZZZ" in c for c in captions), captions
 
 
+# ── Benchmark ngành VN30: cache nằm trong kho TAB nhận, không phải kho cạnh module ──
+
+@needs("plotly")  # khối Phân bổ theo ngành import plotly trước khi tính benchmark
+def test_sector_benchmark_cache_written_under_tab_warehouse(tmp_path: Path, monkeypatch):
+    """`compute_vn30_sector_weights` từng ghi `data_warehouse/_meta/vn30_sector_weights.json`
+    cạnh module bất kể `warehouse` của tab — vẽ tab với kho tạm là ghi vào kho thật."""
+    import types
+    import vnstock_vn30_weights as vw
+    from tests.test_tab_render_smoke import _fake_streamlit
+    from dashboard.portfolio_tab import _save_portfolio, render_portfolio_tab
+    default_cache = tmp_path / "kho_canh_module" / "vn30_sector_weights.json"
+    monkeypatch.setattr(vw, "_CACHE_PATH", default_cache)
+    monkeypatch.setattr(vw, "_vn30_tickers", lambda: ["VCB", "FPT"])
+    monkeypatch.setattr(vw, "_industry_map", lambda: {})
+    monkeypatch.setattr(vw, "_ticker_market_caps", lambda _: {})
+    stub = types.ModuleType("vnstock_dashboard")
+    stub._load_industry_map = lambda: {}
+    stub._get_sector = lambda ind: ind or "Khác"
+    stub.SECTOR_ICONS = {}
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    warehouse, cwd = tmp_path / "kho", tmp_path / "cwd"
+    _save_portfolio(warehouse, [_LOT_A])
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    render_portfolio_tab(warehouse)
+
+    cache = json.loads((warehouse / "_meta" / "vn30_sector_weights.json").read_text(
+        encoding="utf-8"))
+    assert (cache["weights"], cache["mode"], cache["n_tickers"]) == ({"Khác": 100.0}, "equal", 2)
+    assert not default_cache.exists() and list(cwd.iterdir()) == []
+    captions = [c.args[0] for c in st.caption.call_args_list]
+    assert any("equal-weight" in c and "2 mã" in c for c in captions), captions
+
+
 # ── JSON hợp lệ nhưng SAI DẠNG: cũng là file hỏng, không phải danh mục ──────
 
 _WRONG_SHAPE = ["null",                                          # gốc không phải list

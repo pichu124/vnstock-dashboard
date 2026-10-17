@@ -531,8 +531,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
 
         # Dynamic VN30 benchmark — market-cap weighted if data available,
         # else equal-weight by ticker count, else hardcoded fallback.
-        _VN30_BENCH = compute_vn30_sector_weights()
-        _bench_meta = cache_metadata() or {}
+        _VN30_BENCH = compute_vn30_sector_weights(warehouse=warehouse)
+        _bench_meta = cache_metadata(warehouse) or {}
 
         # Aggregate portfolio current value by sector
         _sector_val: dict[str, float] = {}

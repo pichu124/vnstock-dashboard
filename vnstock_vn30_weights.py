@@ -4,7 +4,8 @@ Derives sector composition of the VN30 index from the actual ticker list
 + industry classification + (optional) market cap data, instead of hardcoded
 approximate weights.
 
-Cached to data_warehouse/_meta/vn30_sector_weights.json, refreshed weekly.
+Cached to <warehouse>/_meta/vn30_sector_weights.json (default: the
+``data_warehouse`` next to this module), refreshed weekly.
 """
 
 from __future__ import annotations
@@ -37,28 +38,39 @@ _FALLBACK_WEIGHTS: dict[str, float] = {
 }
 
 
-def _load_cache() -> dict | None:
-    if not _CACHE_PATH.exists():
+def _cache_path(warehouse: Path | str | None) -> Path:
+    """Cache trong kho caller truyền vào (tab Danh mục truyền kho của nó); None ⇒ kho
+    cạnh module như trước."""
+    if warehouse is None:
+        return _CACHE_PATH
+    return Path(warehouse) / "_meta" / "vn30_sector_weights.json"
+
+
+def _load_cache(warehouse: Path | str | None = None) -> dict | None:
+    path = _cache_path(warehouse)
+    if not path.exists():
         return None
     try:
-        age_days = (datetime.now().timestamp() - _CACHE_PATH.stat().st_mtime) / 86400
+        age_days = (datetime.now().timestamp() - path.stat().st_mtime) / 86400
         if age_days > _CACHE_MAX_AGE_DAYS:
             return None
-        return json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
 
 
-def _save_cache(weights: dict[str, float], n_tickers: int, mode: str) -> None:
+def _save_cache(weights: dict[str, float], n_tickers: int, mode: str,
+                warehouse: Path | str | None = None) -> None:
+    path = _cache_path(warehouse)
     try:
-        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "weights":    weights,
             "n_tickers":  n_tickers,
             "mode":       mode,   # "equal" | "market_cap"
             "updated_at": datetime.now().isoformat(),
         }
-        _CACHE_PATH.write_text(
+        path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
     except OSError:
@@ -115,7 +127,8 @@ def _ticker_market_caps(tickers: list[str]) -> dict[str, float]:
     return out
 
 
-def compute_vn30_sector_weights(force_refresh: bool = False) -> dict[str, float]:
+def compute_vn30_sector_weights(force_refresh: bool = False,
+                                warehouse: Path | str | None = None) -> dict[str, float]:
     """Compute or load VN30 sector weights.
 
     Strategy:
@@ -124,10 +137,11 @@ def compute_vn30_sector_weights(force_refresh: bool = False) -> dict[str, float]
       3. Fall back to equal-weight by ticker count per sector
       4. If all fails → return _FALLBACK_WEIGHTS
 
+    ``warehouse`` chỉ định kho chứa cache (None ⇒ kho cạnh module).
     Returns: dict[sector_group → weight_pct]. Sum ≈ 100.
     """
     if not force_refresh:
-        cached = _load_cache()
+        cached = _load_cache(warehouse)
         if cached and cached.get("weights"):
             return cached["weights"]
 
@@ -157,7 +171,7 @@ def compute_vn30_sector_weights(force_refresh: bool = False) -> dict[str, float]
             sector_mcap[sec] = sector_mcap.get(sec, 0.0) + mc
         total = sum(sector_mcap.values()) or 1.0
         weights = {s: round(v / total * 100, 2) for s, v in sector_mcap.items()}
-        _save_cache(weights, len(tickers), "market_cap")
+        _save_cache(weights, len(tickers), "market_cap", warehouse)
         return weights
 
     # Fallback: equal-weight by ticker count
@@ -166,10 +180,10 @@ def compute_vn30_sector_weights(force_refresh: bool = False) -> dict[str, float]
         sector_count[sec] = sector_count.get(sec, 0) + 1
     total = sum(sector_count.values()) or 1
     weights = {s: round(n / total * 100, 2) for s, n in sector_count.items()}
-    _save_cache(weights, len(tickers), "equal")
+    _save_cache(weights, len(tickers), "equal", warehouse)
     return weights
 
 
-def cache_metadata() -> dict | None:
+def cache_metadata(warehouse: Path | str | None = None) -> dict | None:
     """Return cache payload (weights + n_tickers + mode + updated_at) or None."""
-    return _load_cache()
+    return _load_cache(warehouse)
