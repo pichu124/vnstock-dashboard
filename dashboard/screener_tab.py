@@ -568,23 +568,29 @@ def _render_watchlist_sidebar(st, load_watchlist, save_watchlist, path) -> "tupl
     _filter_wl = st.toggle(f"Chỉ hiện Watchlist ({len(_wl_tickers)})", key="filter_watchlist")
     _wl_add = st.text_input("Thêm mã", placeholder="VCB, FPT, ...", key="wl_add_input").upper().strip()
     _wl_c1, _wl_c2 = st.columns(2)
-    _new = None
     with _wl_c1:
-        if st.button("➕ Thêm", key="wl_add_btn", use_container_width=True,
-                     disabled=_broken) and _wl_add:
-            _new = _wl_tickers + [t.strip() for t in _wl_add.replace(",", " ").split() if t.strip()]
+        _add = st.button("➕ Thêm", key="wl_add_btn", use_container_width=True,
+                         disabled=_broken) and bool(_wl_add)
     with _wl_c2:
-        if st.button("🗑️ Xóa", key="wl_del_btn", use_container_width=True,
-                     disabled=_broken) and _wl_add:
-            del_tickers = {t.strip() for t in _wl_add.replace(",", " ").split() if t.strip()}
-            _new = [t for t in _wl_tickers if t not in del_tickers]
-    if _new is not None:
+        _del = st.button("🗑️ Xóa", key="wl_del_btn", use_container_width=True,
+                         disabled=_broken) and bool(_wl_add)
+    if _add or _del:
+        from dashboard.watchlist_io import load_watchlist as _read_file
+        _typed = _wl_add.replace(",", " ").split()
+        # Đọc LẠI file lúc bấm: `load_watchlist()` của dashboard cache 10 phút ⇒ ghi từ bản
+        # chụp đó là đè mất mã máy kia (Dropbox) vừa thêm/xoá.
         try:
-            save_watchlist(_new)
-        except OSError as e:
-            st.error(f"Không ghi được watchlist `{path}`: {e} — file trên đĩa giữ nguyên.")
+            _on_disk = _read_file(path)
+        except (OSError, ValueError) as e:
+            st.error(f"Không đọc lại được watchlist `{path}` ({e}) — chưa ghi gì.")
         else:
-            st.rerun()
+            _new = _on_disk + _typed if _add else [t for t in _on_disk if t not in _typed]
+            try:
+                save_watchlist(_new)
+            except OSError as e:
+                st.error(f"Không ghi được watchlist `{path}`: {e} — file trên đĩa giữ nguyên.")
+            else:
+                st.rerun()
     if _wl_tickers:
         st.caption("Đang theo dõi: " + ", ".join(_wl_tickers[:20]))
         if len(_wl_tickers) > 20:
