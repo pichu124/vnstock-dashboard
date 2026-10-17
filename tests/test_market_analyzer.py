@@ -137,6 +137,19 @@ def test_conflicted_copy_counts_each_session_once_and_newest_file_wins(tmp_path)
     assert aaa["last"] == round(float(copy["close"].iloc[-1]), 2)
 
 
+def test_young_warehouse_under_61_bars_builds_with_empty_price_3m(tmp_path):
+    """Kho mới (mọi mã < 61 bar): chg60 toàn None ⇒ cột object, `.round` từng ném
+    TypeError làm nổ cả market_overview."""
+    import vnstock_runner as vr
+
+    out = vr.build_market_overview(str(mini_warehouse(tmp_path, n_bars=30)))
+
+    aaa = next(t for t in out["tickers"] if t["Mã"] == "AAA")
+    assert pd.isna(aaa["Giá 3M %"])
+    assert aaa["Giá 1T %"] == round((22.9 / 22.4 - 1) * 100, 1)   # cột còn lại vẫn có số
+    assert pd.isna(out["sectors"][0]["Giá 3M %"])
+
+
 def test_missing_nn_3m_drops_trend_flag_and_keeps_flow_finite():
     """NN 3M thiếu ⇒ không cờ ACCUMULATING/DUMPING; flow tính từ thành phần còn lại
     (thành phần thiếu z = 0, cùng mẫu `_zscore` dùng cho mọi cột thiếu)."""

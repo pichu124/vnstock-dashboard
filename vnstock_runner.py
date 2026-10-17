@@ -628,9 +628,10 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
     tick_display["NN 1T (tỷ)"] = tick_display["ticker"].map(nn_w)
     tick_display["NN 1M (tỷ)"] = tick_display["ticker"].map(nn_m)
     tick_display["NN 3M (tỷ)"] = tick_display["ticker"].map(nn_3m)
-    tick_display["Giá 1T %"] = tick_display["chg5"].round(1)
-    tick_display["Giá 1M %"] = tick_display["chg20"].round(1)
-    tick_display["Giá 3M %"] = tick_display["chg60"].round(1)
+    # Kho mới (mọi mã < 61 bar) ⇒ chg60 toàn None = cột object, `.round` ném TypeError
+    tick_display["Giá 1T %"] = pd.to_numeric(tick_display["chg5"], errors="coerce").round(1)
+    tick_display["Giá 1M %"] = pd.to_numeric(tick_display["chg20"], errors="coerce").round(1)
+    tick_display["Giá 3M %"] = pd.to_numeric(tick_display["chg60"], errors="coerce").round(1)
     tick_display = tick_display.rename(columns={"ticker": "Mã", "industry": "Ngành"})
 
     # Custom sector groups ("Họ VIN", "Họ M", …): group these ticker families as
