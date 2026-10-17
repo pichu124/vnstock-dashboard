@@ -1049,6 +1049,37 @@ def test_market_data_loader_skips_mid_session_overview_file(tmp_path, monkeypatc
     assert breadth == {"up": 7} and list(tickers["ticker"]) == ["VCB"]
 
 
+# ── Bảng chỉ số: GTGD là giá trị giao dịch thật, không phải điểm × khối lượng ─
+
+def test_index_table_gtgd_is_real_traded_value_or_missing(monkeypatch):
+    """`close` của chỉ số là ĐIỂM: 1,700 × 800 triệu cp / 1e9 = 1,360 "tỷ" trong khi
+    phiên thật ~25 nghìn tỷ. GTGD phải là `total_value` (VND) của price_history quy
+    về tỷ; ngày/chỉ số không có nguồn (HNX30, phiên chưa có batch EOD) ⇒ NaN ("—")."""
+    import vnstock_session_stats as vss
+
+    days = pd.bdate_range(end="2026-10-16", periods=3)
+    quote = pd.DataFrame({"time": days, "close": [1700.0, 1710.0, 1690.0],
+                          "volume": [800e6, 820e6, 790e6]})
+    fake_stock = types.SimpleNamespace(quote=types.SimpleNamespace(
+        history=lambda **k: quote.copy()))
+    monkeypatch.setitem(sys.modules, "vnstock_auth",
+                        types.SimpleNamespace(get_vnstock=lambda sym: fake_stock))
+    ph = {"VNINDEX": pd.DataFrame({"trading_date": [d.date() for d in days[:2]],
+                                   "total_value": [25_000e9, 26_500.4e9]})}
+    monkeypatch.setattr(vss, "_fetch_price_history",
+                        lambda name: ph.get(name, pd.DataFrame()))
+    load = load_source_fns("vnstock_dashboard.py", "load_index_overview",
+                           pd=pd)["load_index_overview"]
+
+    out = load(days=3).set_index("time")
+    assert out.loc[days[0], "VNINDEX_gtgd"] == pytest.approx(25_000.0)
+    assert out.loc[days[1], "VNINDEX_gtgd"] == pytest.approx(26_500.4)
+    assert pd.isna(out.loc[days[2], "VNINDEX_gtgd"])        # chưa có batch EOD
+    for idx in ("VN30", "HNXINDEX", "HNX30"):
+        assert out[f"{idx}_gtgd"].isna().all(), idx
+    assert out.loc[days[2], "VNINDEX"] == 1690.0             # cột khác giữ nguyên
+
+
 def test_get_all_tickers_is_cached():
     """Không cache ⇒ iterdir ~1.700 thư mục + compile regex ở MỖI rerun tab Phân tích."""
     fn = next(n for n in _DASH_TREE.body

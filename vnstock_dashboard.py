@@ -3284,6 +3284,10 @@ def load_index_overview(days: int = 90) -> pd.DataFrame:
         start = (date.today() - timedelta(days=days + 15)).strftime("%Y-%m-%d")
         end = date.today().strftime("%Y-%m-%d")
         indices = ["VNINDEX", "VN30", "HNXINDEX", "HNX30"]
+        # GTGD = total_value (VND) của price_history. `close` là ĐIỂM chỉ số nên
+        # close × volume không phải giá trị giao dịch. HNX30 không có nguồn ⇒ "—".
+        from vnstock_session_stats import _fetch_price_history
+        gtgd_source = {"VNINDEX": "VNINDEX", "VN30": "VN30", "HNXINDEX": "HNX"}
 
         def _fetch_idx(idx_name):
             try:
@@ -3293,7 +3297,11 @@ def load_index_overview(days: int = 90) -> pd.DataFrame:
                     df["time"] = pd.to_datetime(df["time"])
                     df = df.sort_values("time").tail(days)
                     df["chg_pct"] = df["close"].pct_change() * 100
-                    df["gtgd"] = df["close"] * df["volume"] / 1e9
+                    ph = (_fetch_price_history(gtgd_source[idx_name])
+                          if idx_name in gtgd_source else pd.DataFrame())
+                    tv_ty = ({} if ph.empty else dict(zip(
+                        ph["trading_date"], pd.to_numeric(ph["total_value"]) / 1e9)))
+                    df["gtgd"] = df["time"].dt.date.map(tv_ty)
                     return idx_name, df[["time", "close", "chg_pct", "volume", "gtgd"]].copy()
             except Exception:
                 pass
