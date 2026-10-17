@@ -50,7 +50,7 @@ def mini_warehouse(root, tickers=("AAA", "BBB"), n_bars=70):
     return root
 
 
-def _fake_vnstock_data(net_per_day: float):
+def fake_vnstock_data(net_per_day: float):
     """TopStock trả AAA mua ròng `net_per_day` VND MỖI ngày được hỏi; Net BS rỗng."""
     import types
 
@@ -76,7 +76,7 @@ def test_runner_leaves_nn_3m_missing_when_feed_has_only_20_sessions(tmp_path, mo
 
     import vnstock_runner as vr
 
-    monkeypatch.setitem(sys.modules, "vnstock_data", _fake_vnstock_data(1e9))
+    monkeypatch.setitem(sys.modules, "vnstock_data", fake_vnstock_data(1e9))
     out = vr.compute_market_overview(str(mini_warehouse(tmp_path)))
 
     sector = out["sectors"][0]

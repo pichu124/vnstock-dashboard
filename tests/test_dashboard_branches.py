@@ -1049,6 +1049,51 @@ def test_market_data_loader_skips_mid_session_overview_file(tmp_path, monkeypatc
     assert breadth == {"up": 7} and list(tickers["ticker"]) == ["VCB"]
 
 
+def _files(root: Path) -> dict:
+    return {p: (p.stat().st_mtime_ns, p.stat().st_size) for p in root.rglob("*") if p.is_file()}
+
+
+def test_market_data_tier2_is_the_runner_overview_and_writes_nothing(tmp_path, monkeypatch):
+    """Tầng 2 từng là ~300 dòng chép `compute_market_overview` đã trôi (thiếu Net BS,
+    gom ngành khác, NN 3M = NN 1M). Nay gọi `vnstock_runner.build_market_overview`:
+    cùng khoá với Tầng 1 (JSON runner ghi) và KHÔNG ghi gì vào kho (Dropbox)."""
+    from datetime import datetime
+
+    import vnstock_brief as vb
+    import vnstock_runner as vr
+    from tests.test_market_analyzer import fake_vnstock_data, mini_warehouse
+
+    wh = mini_warehouse(tmp_path / "wh")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(sys.modules, "vnstock_data", fake_vnstock_data(1e9))
+    monkeypatch.setattr(vb, "_warehouse_eod_date", lambda: None)
+    days = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=20)
+    nn_raw = pd.DataFrame({"symbol": "AAA", "date": days, "net_value": 1e9})
+    ov_path = wh / "_meta" / "market_overview.json"
+
+    def load(path):
+        return load_source_fns(
+            "vnstock_dashboard.py", "_overview_file_is_current", "_load_all_market_data",
+            pd=pd, json=json, datetime=datetime, log=logging.getLogger("t"),
+            _MARKET_OVERVIEW_PATH=path, PRICES_DIR=wh / "prices",
+            _fetch_foreign_net_flow=lambda **k: nn_raw)["_load_all_market_data"]()
+
+    vr.save_market_overview(vr.compute_market_overview(str(wh)), str(wh))
+    sec1, br1, tick1 = load(ov_path)                    # Tầng 1: file runner vừa ghi
+    ov_path.unlink()
+    before = _files(tmp_path)
+    sec2, br2, tick2 = load(ov_path)                    # Tầng 2: tính tại chỗ
+    assert _files(tmp_path) == before
+
+    assert not sec2.empty and not tick2.empty
+    assert list(sec2.columns) == list(sec1.columns)
+    assert list(tick2.columns) == list(tick1.columns)
+    assert br2 == br1
+    assert list(sec2["Ngành"]) == list(sec1["Ngành"])
+    aaa = tick2.set_index("Mã").loc["AAA"]
+    assert aaa["NN 1M (tỷ)"] == 20.0 and pd.isna(aaa["NN 3M (tỷ)"])
+
+
 # ── Bảng chỉ số: GTGD là giá trị giao dịch thật, không phải điểm × khối lượng ─
 
 def test_index_table_gtgd_is_real_traded_value_or_missing(monkeypatch):
