@@ -344,3 +344,37 @@ def test_fundamental_ratios_use_thousands_separator():
     assert "4,523.12 đ" in html[0]
     assert "25,123.46 đ" in html[1]
     assert "12.50 lần" in html[2]
+
+
+# ── Khuyến nghị tổng hợp: trọng số theo phần THỰC có điểm ───────────────────
+
+def test_composite_tech_only_uses_full_tech_weight():
+    """Không có điểm cơ bản mà vẫn nhân tech × 0.5 ⇒ tech +1.00 chỉ ra +0.50, không
+    bao giờ tới STRONG (> 0.6)."""
+    from dashboard.analysis_tab import composite_score
+    assert composite_score(0.8, None) == (0.8, "(chỉ technical)")
+    assert composite_score(-1.0, None) == (-1.0, "(chỉ technical)")
+
+
+def test_composite_tech_and_fund_is_40_60():
+    from dashboard.analysis_tab import composite_score
+    assert composite_score(0.5, 1.0) == (0.8, "(40% tech + 60% fund)")
+    assert composite_score(1.0, -1.0) == (-0.2, "(40% tech + 60% fund)")
+
+
+def test_composite_card_when_fund_api_fails_says_tech_only():
+    """Bật toggle cơ bản nhưng API lỗi (không có fund_score): thẻ từng ghi "(40% tech +
+    60% fund)" và nhân tech × 0.4. Chạy ĐÚNG khối Consensus trong globals của module."""
+    import dashboard.analysis_tab as tab
+    col_fund = next(n for n in ast.walk(_TAB_TREE) if isinstance(n, ast.With)
+                    and ast.unparse(n.items[0].context_expr) == "col_fund")
+    body = col_fund.body
+    start = next(i for i, n in enumerate(body) if "tech_score" in ast.unparse(n))
+    end = next(i for i, n in enumerate(body) if "Khuyến nghị tổng hợp" in ast.unparse(n))
+    html: list = []
+    ns = {**vars(tab), "st": types.SimpleNamespace(markdown=lambda s, **kw: html.append(s)),
+          "tech": {"tech_score": 0.8}, "load_fund": True, "fund": {"error": "HTTP 403"},
+          "fund_score": None}
+    exec(compile(ast.Module(body[start:end + 1], []), "analysis_tab.py", "exec"), ns)
+    assert "(chỉ technical)" in html[-1] and "60% fund" not in html[-1]
+    assert "STRONG BUY" in html[-1] and "+0.80" in html[-1]

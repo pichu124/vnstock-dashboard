@@ -1041,11 +1041,9 @@ def render_analysis_tab() -> None:
                 unsafe_allow_html=True
             )
 
-        # Consensus
-        ts = tech.get("tech_score", 0)
-        fund_score_val = fund_score if load_fund and not fund.get("error") and fund_score is not None else 0
-        weight_t, weight_f = (0.5, 0.5) if not load_fund else (0.4, 0.6)
-        composite = round(ts * weight_t + fund_score_val * weight_f, 2)
+        # Consensus — fund_score chỉ có khi tải được và tính được (API lỗi ⇒ None)
+        composite, _weights_lbl = composite_score(tech.get("tech_score", 0),
+                                                  fund_score if load_fund else None)
 
         rec_label = (
             "STRONG BUY 🟢🟢" if composite > 0.6 else
@@ -1059,7 +1057,7 @@ def render_analysis_tab() -> None:
         st.markdown(
             f'<div class="card" style="border:1px solid {rec_color}40;margin-top:12px">'
             f'<div class="card-title">Khuyến nghị tổng hợp '
-            f'{"(40% tech + 60% fund)" if load_fund else "(chỉ technical)"}'
+            f'{_weights_lbl}'
             f'</div>'
             f'<div style="font-size:24px;font-weight:600;color:{rec_color};margin:8px 0">'
             f'{rec_label}</div>'
@@ -1280,3 +1278,14 @@ def render_analysis_tab() -> None:
                                 st.markdown(f"[🔗 Nguồn gốc]({_nlink})")
         except Exception as _ne:
             st.caption(f"Không tải được tin tức: {type(_ne).__name__}")
+
+
+def composite_score(tech_score: float, fund_score: float | None) -> tuple[float, str]:
+    """Điểm khuyến nghị tổng hợp + nhãn ĐÚNG trọng số đã dùng.
+
+    Không có điểm cơ bản (tắt toggle, API lỗi, không tiêu chí nào) ⇒ 100% tech: chia
+    đôi với một nửa bằng 0 thì tech tối đa +1.00 chỉ ra +0.50, không bao giờ tới STRONG.
+    """
+    if fund_score is None:
+        return round(tech_score, 2), "(chỉ technical)"
+    return round(tech_score * 0.4 + fund_score * 0.6, 2), "(40% tech + 60% fund)"
