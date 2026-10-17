@@ -2370,9 +2370,11 @@ var _livePriceLine = cs.createPriceLine({price:LP,color:"#fbbf24",lineWidth:1,
   lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true,title:""});
 
 function line(chart,data,color,width,title,lvVisible){
-  if(!data||!data.length) return;
-  chart.addLineSeries({color:color,lineWidth:width||1,title:title||"",
-    lastValueVisible:lvVisible!==false,priceLineVisible:false}).setData(data);
+  if(!data||!data.length) return null;
+  var s=chart.addLineSeries({color:color,lineWidth:width||1,title:title||"",
+    lastValueVisible:lvVisible!==false,priceLineVisible:false});
+  s.setData(data);
+  return s;
 }
 line(main,E9,"#60a5fa",1,"EMA9");
 line(main,E21,"#c084fc",1,"EMA21");
@@ -2399,19 +2401,27 @@ main.subscribeCrosshairMove(function(p){
 });
 
 var vol=mk("vc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0}}});
-vol.addHistogramSeries({priceFormat:{type:"volume"},priceScaleId:""}).setData(V);
+var volSeries=vol.addHistogramSeries({priceFormat:{type:"volume"},priceScaleId:""});
+volSeries.setData(V);
+// Mọi series của 3 panel dưới: nến live MỚI thì nối whitespace vào đây (xem _pollLastBar).
+var SUB=[volSeries];
 
 var rsi=mk("rc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0.1}}});
-line(rsi,RSI,"#a78bfa",1.5,"RSI",true);
+SUB.push(line(rsi,RSI,"#a78bfa",1.5,"RSI",true));
 if(RSI.length){
-  line(rsi,RSI.map(function(d){return{time:d.time,value:70}}),"rgba(239,68,68,0.4)",1,"",false);
-  line(rsi,RSI.map(function(d){return{time:d.time,value:30}}),"rgba(16,185,129,0.4)",1,"",false);
+  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:70}}),"rgba(239,68,68,0.4)",1,"",false));
+  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:30}}),"rgba(16,185,129,0.4)",1,"",false));
 }
 
 var mac=mk("dc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0.1}}});
-if(MH.length) mac.addHistogramSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false}).setData(MH);
-line(mac,ML,"#60a5fa",1.5,"MACD",true);
-line(mac,MS,"#f97316",1.5,"Signal",true);
+if(MH.length){
+  var mhSeries=mac.addHistogramSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false});
+  mhSeries.setData(MH);
+  SUB.push(mhSeries);
+}
+SUB.push(line(mac,ML,"#60a5fa",1.5,"MACD",true));
+SUB.push(line(mac,MS,"#f97316",1.5,"Signal",true));
+SUB=SUB.filter(Boolean);
 
 var charts=[main,vol,rsi,mac];
 
@@ -2552,9 +2562,10 @@ document.documentElement.style.overflow="hidden";
 var LIVE_URL=""" + _json.dumps(live_url or "") + """;
 var LIVE_POLL_MS=""" + str(int(live_poll_ms)) + """;
 if (LIVE_URL) {
-  // Volume bar update is skipped — the original addHistogramSeries call wasn't
-  // captured into a var, and updating just price keeps the visible "ticking"
-  // behaviour users care about. Volume catches up on next page render.
+  // Chỉ nến giá "tick". Nến MỚI (time > bar cuối) thì Volume/RSI/MACD nhận điểm
+  // whitespace {time} — giữ 4 panel cùng số bar cho phép đồng bộ logical range ở
+  // trên; giá trị thật của chúng có ở lần render trang sau.
+  var _lastT = C.length ? C[C.length-1].time : 0;
   function _pollLastBar() {
     fetch(LIVE_URL + "?_=" + Date.now(), {cache: "no-store"})
       .then(function(r){
@@ -2563,10 +2574,13 @@ if (LIVE_URL) {
       })
       .then(function(b){
         if (!b || typeof b.time !== "number") { console.log("[live] bad payload", b); return; }
-        var lastT = C.length ? C[C.length-1].time : 0;
-        console.log("[live] bar", b, "lastT", lastT, new Date(b.time*1000).toISOString());
-        if (b.time < lastT) { console.log("[live] SKIP: b.time < lastT"); return; }
+        console.log("[live] bar", b, "lastT", _lastT, new Date(b.time*1000).toISOString());
+        if (b.time < _lastT) { console.log("[live] SKIP: b.time < lastT"); return; }
         cs.update({time:b.time, open:b.open, high:b.high, low:b.low, close:b.close});
+        if (b.time > _lastT) {
+          SUB.forEach(function(s){ s.update({time:b.time}); });
+          _lastT = b.time;
+        }
         if (_livePriceLine) _livePriceLine.applyOptions({price: b.close});
         document.getElementById("ohlcv").innerHTML =
           "O <b style='color:#e5e7eb'>"+b.open.toFixed(2)+"</b>  "+

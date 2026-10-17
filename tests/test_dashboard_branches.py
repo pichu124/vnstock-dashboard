@@ -623,20 +623,21 @@ def test_failed_telegram_send_is_logged(alert_env, caplog):
 
 # ── render_chart: thư viện chart + live bar ──────────────────────────────────
 
-def _render_chart_html(**globs) -> tuple[list, list]:
+def _render_chart_html(lwc_path: Path, df=None, **chart_kw) -> tuple[list, list]:
     """Chạy render_chart THẬT với st/_stc giả; trả (html đã vẽ, lời báo st.error/warning)."""
     html, said = [], []
     st = types.SimpleNamespace(warning=said.append, error=said.append)
     stc = types.SimpleNamespace(html=lambda h, **k: html.append(h))
     ns = load_source_fns("vnstock_dashboard.py", "_lwc_js", "render_chart",
-                         st=st, _stc=stc, pd=pd, compute_indicators=compute_indicators, **globs)
-    ns["render_chart"](_rising(), "VCB")
+                         st=st, _stc=stc, pd=pd, compute_indicators=compute_indicators,
+                         LWC_JS_PATH=lwc_path)
+    ns["render_chart"](_rising() if df is None else df, "VCB", **chart_kw)
     return html, said
 
 
 def test_render_chart_without_lwc_file_reports_instead_of_blank_chart(tmp_path):
     """Clone mới không có lwc.min.js ⇒ `<script></script>` rỗng, chart trắng không báo gì."""
-    html, said = _render_chart_html(LWC_JS_PATH=tmp_path / "lwc.min.js")
+    html, said = _render_chart_html(tmp_path / "lwc.min.js")
     assert html == []
     assert "Thiếu lwc.min.js" in said[0] and str(tmp_path / "lwc.min.js") in said[0]
 
@@ -644,9 +645,101 @@ def test_render_chart_without_lwc_file_reports_instead_of_blank_chart(tmp_path):
 def test_render_chart_inlines_lwc_library(tmp_path):
     lib = tmp_path / "lwc.min.js"
     lib.write_text("/* LWC giả */", encoding="utf-8")
-    html, said = _render_chart_html(LWC_JS_PATH=lib)
+    html, said = _render_chart_html(lib)
     assert said == []
     assert "<script>/* LWC giả */</script>" in html[0]
+
+
+# JS chart chạy trong node với LightweightCharts giả: series ghi lại mọi điểm (setData/update
+# theo đúng luật LWC: time cũ hơn ⇒ ném, bằng ⇒ thay, mới hơn ⇒ nối); time-range API ⇒ ném.
+_CHART_JS_HARNESS = r"""
+const fs = require("fs"), vm = require("vm");
+const app = fs.readFileSync(process.argv[2], "utf8");
+const bars = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const charts = [], timeouts = [], intervals = [];
+const banned = () => { throw new Error("cấm time-range API"); };
+function series() {
+  const s = {data: []};
+  s.setData = d => { s.data = d.map(p => Object.assign({}, p)); };
+  s.update = p => {
+    const last = s.data[s.data.length - 1];
+    if (last && p.time < last.time) throw new Error("update cũ hơn bar cuối");
+    if (last && p.time === last.time) s.data[s.data.length - 1] = Object.assign({}, p);
+    else s.data.push(Object.assign({}, p));
+  };
+  s.createPriceLine = () => ({applyOptions() {}});
+  return s;
+}
+function createChart() {
+  const c = {series: []};
+  const add = () => { const s = series(); c.series.push(s); return s; };
+  const ts = {subscribeVisibleLogicalRangeChange() {}, getVisibleLogicalRange: () => null,
+              setVisibleLogicalRange() {}, setVisibleRange: banned, getVisibleRange: banned,
+              subscribeVisibleTimeRangeChange: banned};
+  Object.assign(c, {addCandlestickSeries: add, addLineSeries: add, addHistogramSeries: add,
+    timeScale: () => ts, subscribeCrosshairMove() {}, setCrosshairPosition() {}, resize() {},
+    priceScale: () => ({}), priceToCoordinate: () => null});
+  charts.push(c);
+  return c;
+}
+const els = {};
+let n = 0;
+const ctx = {
+  LightweightCharts: {createChart, CrosshairMode: {Normal: 0}, LineStyle: {Dashed: 2}},
+  document: {getElementById: id => els[id] || (els[id] = {clientWidth: 800, clientHeight: 200,
+             innerHTML: "", style: {}, appendChild() {}}),
+             addEventListener() {}, body: {style: {}}, documentElement: {style: {}}},
+  window: {addEventListener() {}}, console: {log() {}},
+  setTimeout: f => timeouts.push(f), clearTimeout() {}, setInterval: f => intervals.push(f),
+  fetch: () => Promise.resolve({ok: true, json: () => bars[Math.min(n++, bars.length - 1)]}),
+};
+vm.createContext(ctx);
+vm.runInContext(app, ctx);
+timeouts.splice(0).forEach(f => f());
+const tick = () => new Promise(r => setImmediate(r));
+(async () => {
+  await tick();
+  const poll = intervals.find(f => f.name === "_pollLastBar");
+  for (let k = 1; k < bars.length; k++) { poll(); await tick(); }
+  console.log(JSON.stringify(charts.map(c => c.series.map(s => s.data.map(p => p.time)))));
+})().catch(e => { console.error(e); process.exit(1); });
+"""
+
+
+@pytest.mark.skipif(not __import__("shutil").which("node"), reason="cần node để chạy JS chart")
+def test_live_new_bar_keeps_all_four_panels_same_bar_count(tmp_path):
+    """Bất biến CLAUDE-NOTES: đồng bộ 4 panel bằng LOGICAL range ⇒ chỉ số bar phải 1:1.
+    JSON live mang nến MỚI (time > bar cuối) mà chỉ nối vào series giá thì Volume/RSI/MACD
+    hụt 1 bar mỗi nến mới ⇒ 4 panel lệch trục."""
+    import subprocess
+    lib = tmp_path / "lwc.min.js"
+    lib.write_text("", encoding="utf-8")
+    df = _rising()
+    html, _ = _render_chart_html(lib, df, live_url="/app/static/today_bars/VCB.json")
+    (tmp_path / "app.js").write_text(html[0].rsplit("<script>", 1)[1].split("</script>")[0],
+                                     encoding="utf-8")
+    t0, day = int(pd.Timestamp(df["time"].iloc[-1]).timestamp()), 86_400
+    bar = {"open": 49.0, "high": 50.5, "low": 48.5, "close": 50.0, "volume": 1e5}
+    bars = [{**bar, "time": t0},                       # bar cuối đang có: cập nhật tại chỗ
+            {**bar, "time": t0 + day},                 # nến mới
+            {**bar, "time": t0 + day, "close": 50.2},  # nến mới đó tick tiếp
+            {**bar, "time": t0 + 2 * day}]             # thêm một nến mới nữa
+    (tmp_path / "bars.json").write_text(json.dumps(bars), encoding="utf-8")
+    (tmp_path / "harness.js").write_text(_CHART_JS_HARNESS, encoding="utf-8")
+
+    out = subprocess.run(["node", str(tmp_path / "harness.js"), str(tmp_path / "app.js"),
+                          str(tmp_path / "bars.json")],
+                         capture_output=True, text=True, encoding="utf-8", timeout=60)
+
+    assert out.returncode == 0, out.stderr
+    main, *panels = json.loads(out.stdout)
+    candle_times = main[0]
+    assert len(candle_times) == len(df) + 2 and candle_times[-2:] == [t0 + day, t0 + 2 * day]
+    assert len(panels) == 3
+    for panel in panels:
+        assert panel, "panel không có series nào"
+        for times in panel:
+            assert times == candle_times
 
 
 def test_repo_ships_lwc_library_with_license_header():
