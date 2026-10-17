@@ -258,6 +258,34 @@ def excl_missing_totals(totals: dict, gtgd_by_ticker: dict, missing: list) -> di
             for d, t in totals.items()}
 
 
+# 3M = 60 phiên (như Net BS "3m" = tail(60)). Feed TopStock chỉ kéo ~20 phiên nên
+# cửa sổ 90 ngày phủ ĐÚNG dữ liệu của 30 ngày: "NN 3M" từng bằng hệt "NN 1M" và
+# analyzer đọc thành xu hướng (cờ "NN ACCUMULATING: pace 1M nhanh hơn avg 3M").
+_NN_3M_MIN_SESSIONS = 60
+
+
+def _nn_windows(nn_df: pd.DataFrame) -> tuple:
+    """(nn_w, nn_m, nn_3m, nn_data_date): {mã: tỷ VND} trong 7/30/90 ngày lịch.
+
+    Neo ở ngày MỚI NHẤT có dữ liệu NN, không phải đồng hồ: feed trễ như batch
+    EOD, cắt theo đồng hồ thì cửa sổ trượt qua mấy ngày rỗng và số đứng im gần
+    ngày thật cuối (BĐS NN ~-5,277 ngày 09/06 hai phiên sau vẫn -5,275).
+    Dưới `_NN_3M_MIN_SESSIONS` phiên thì nn_3m rỗng ⇒ cột NN 3M = None."""
+    nn_w, nn_m, nn_3m = {}, {}, {}
+    if nn_df is None or nn_df.empty:
+        return nn_w, nn_m, nn_3m, None
+    dates = pd.to_datetime(nn_df["date"])
+    anchor = dates.max()
+    windows = [(7, nn_w), (30, nn_m)]
+    if dates.dt.normalize().nunique() >= _NN_3M_MIN_SESSIONS:
+        windows.append((90, nn_3m))
+    for days, result_map in windows:
+        filtered = nn_df[dates >= anchor - pd.Timedelta(days=days)]
+        for sym, val in filtered.groupby("symbol")["net_value"].sum().items():
+            result_map[sym] = round(val / 1e9, 1)  # → tỷ VND
+    return nn_w, nn_m, nn_3m, anchor.date().isoformat()
+
+
 def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     """
     Compute sector metrics + breadth indicators from warehouse parquet.
@@ -513,21 +541,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             days_fetched += 1
 
         if all_nn_rows:
-            nn_df_all = pd.DataFrame(all_nn_rows)
-            nn_df_all["date"] = pd.to_datetime(nn_df_all["date"])
-            # Anchor the rolling windows to the LATEST date foreign data actually
-            # exists for — NOT wall-clock today. The TopStock feed lags like the
-            # EOD batch, so a wall-clock cutoff slides forward over empty recent
-            # days and freezes the figure near the last real date (observed BĐS
-            # NN ~-5,277 on 09/06 still showing -5,275 two sessions later).
-            _nn_anchor = nn_df_all["date"].max()
-            nn_data_date = _nn_anchor.date().isoformat()
-            for days, result_map in ((7, nn_w), (30, nn_m), (90, nn_3m)):
-                cutoff = _nn_anchor - pd.Timedelta(days=days)
-                filtered = nn_df_all[nn_df_all["date"] >= cutoff]
-                agg_val = filtered.groupby("symbol")["net_value"].sum()
-                for sym, val in agg_val.items():
-                    result_map[sym] = round(val / 1e9, 1)  # → tỷ VND
+            nn_w, nn_m, nn_3m, nn_data_date = _nn_windows(pd.DataFrame(all_nn_rows))
             console.log(f"  NN data: {len(all_nn_rows)} records, đến ngày {nn_data_date}")
     except ImportError:
         console.log("  [dim]vnstock_data not installed — NN data skipped[/dim]")
