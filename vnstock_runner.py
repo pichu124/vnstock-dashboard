@@ -109,8 +109,9 @@ def run_all_presets(
 
     # Mã kho đứng im bị bỏ khỏi MỌI preset (`stale_lag`) — để dashboard/doctor đọc được.
     limit = stale_limit()
+    # `sessions` 0 = kho thiếu lịch VNINDEX ⇒ lọc KHÔNG chạy (count 0 không có nghĩa kho sạch).
     output["stale_excluded"] = {"limit": limit, "count": len(screener.stale),
-                                "tickers": screener.stale}
+                                "tickers": screener.stale, "sessions": len(screener.sessions)}
     if screener.stale:
         console.log(f"  ⏸ Bỏ {len(screener.stale):,} mã kho cũ khỏi mọi preset "
                     f"(bar cuối trễ > {limit} phiên VNINDEX)")

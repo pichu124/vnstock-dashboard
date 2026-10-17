@@ -3591,6 +3591,7 @@ if _active_tab == "📊 Screener":
             classified=classified,
             total_hits=total_hits,
             top_preset=top_preset,
+            stale_excluded=data.get("stale_excluded"),
         )
     except Exception as _e:
         log.exception("Không render được tab %s", _active_tab)

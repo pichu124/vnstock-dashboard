@@ -47,6 +47,7 @@ def render_screener_tab(
     classified: int,
     total_hits: int,
     top_preset: tuple,
+    stale_excluded: dict | None,
 ) -> None:
     """Render the Screener tab. Lazy imports Streamlit + dashboard helpers."""
     try:
@@ -391,6 +392,12 @@ def render_screener_tab(
         icon = PRESET_ICONS.get(selected_preset, "📊")
         st.markdown(f"### {icon} {selected_preset.upper()}")
         st.caption(preset_info.get("desc", ""))
+        _stale_tbl = _stale_table(stale_excluded)
+        if _stale_tbl:
+            with st.expander(_stale_tbl[0], expanded=False):
+                st.caption("Bar cuối trễ quá ngưỡng so lịch phiên VNINDEX (cách ly cơ sở, ngừng "
+                           "giao dịch, huỷ niêm yết, sync lỗi) — mới đứng im ở đầu bảng.")
+                st.dataframe(_stale_tbl[1], hide_index=True, width='stretch')
 
         df = df_from_preset(preset_info)
         if df.empty:
@@ -445,6 +452,18 @@ def render_screener_tab(
                      for p, v in presets_data.items()]
     overview_df = pd.DataFrame(overview_data).sort_values("Số mã", ascending=False)
     st.dataframe(overview_df, width='stretch', hide_index=True, height=44 + len(overview_df)*36)
+
+
+def _stale_table(stale_excluded: dict | None) -> "tuple[str, pd.DataFrame] | None":
+    """(nhãn expander, bảng Mã · Trễ) cho mã screener EOD bỏ vì kho đứng im
+    (`screener_results.json["stale_excluded"]`); không có mã nào ⇒ None."""
+    tickers = (stale_excluded or {}).get("tickers") or {}
+    if not tickers:
+        return None
+    df = (pd.DataFrame({"Mã": list(tickers), "Trễ (phiên)": list(tickers.values())})
+          .sort_values(["Trễ (phiên)", "Mã"]).reset_index(drop=True))
+    return (f"⏸ {len(df):,} mã bị loại khỏi mọi preset vì kho đứng im "
+            f"> {stale_excluded.get('limit')} phiên", df)
 
 
 def _render_watchlist_sidebar(st, load_watchlist, save_watchlist, path) -> "tuple[list, bool]":
