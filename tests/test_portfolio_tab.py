@@ -484,6 +484,37 @@ def test_delete_options_round_trip_through_real_streamlit_serde(tmp_path: Path, 
     assert json.loads(run.stdout.strip().splitlines()[-1]) == opts
 
 
+# ── Vị thế chưa có giá (gõ sai mã, mã chưa có bar): không phải lỗ −100% ─────
+
+def test_position_without_price_is_left_out_of_totals(tmp_path: Path, monkeypatch):
+    """Danh mục 500 triệu: AAA 450 triệu có giá (+10%), ZZZ 50 triệu không nguồn giá nào.
+    Trước đây ZZZ tính giá trị 0 ⇒ dòng −100% và tổng Lãi/Lỗ −5 triệu thay vì +45 triệu."""
+    import re
+    from tests.test_tab_render_smoke import _fake_streamlit
+    from dashboard.portfolio_tab import _save_portfolio, render_portfolio_tab
+    _save_portfolio(tmp_path, [
+        {"ticker": "AAA", "quantity": 45_000, "buy_price": 10_000, "buy_date": "2026-01-02"},
+        {"ticker": "ZZZ", "quantity": 5_000, "buy_price": 10_000, "buy_date": "2026-01-02"}])
+    (tmp_path / "_live").mkdir()
+    (tmp_path / "_live" / "quote_AAA.json").write_text(
+        json.dumps({"price": 11_000, "time": "2026-10-16T14:45:00"}))
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+
+    render_portfolio_tab(tmp_path)
+
+    html = " ".join(str(c.args[0]) for c in st.markdown.call_args_list)
+    cards = dict(re.findall(r'<div class="label">(.*?)</div><div class="value"[^>]*>(.*?)</div>',
+                            html))
+    assert cards == {"Vốn đầu tư": "450,000,000", "Giá trị hiện tại": "495,000,000",
+                     "Lãi/Lỗ": "+45,000,000", "% Lãi/Lỗ": "+10.00%"}
+    zzz = next(r for r in re.findall(r"<tr[^>]*>(.*?)</tr>", html) if ">ZZZ<" in r)
+    assert re.findall(r"<td[^>]*>(.*?)</td>", zzz) == [
+        "ZZZ", "5,000", "10,000", "—", "50,000,000", "—", "—", "—", "2026-01-02"]
+    captions = [c.args[0] for c in st.caption.call_args_list]
+    assert any("1 vị thế chưa có giá" in c and "ZZZ" in c for c in captions), captions
+
+
 # ── JSON hợp lệ nhưng SAI DẠNG: cũng là file hỏng, không phải danh mục ──────
 
 _WRONG_SHAPE = ["null",                                          # gốc không phải list
