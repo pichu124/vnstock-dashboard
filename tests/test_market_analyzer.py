@@ -114,6 +114,29 @@ def test_nn_1t_1m_sum_exactly_5_and_20_latest_sessions(tmp_path):
     assert out["sectors"][0]["NN 1T (tỷ)"] == 115.0
 
 
+def test_conflicted_copy_counts_each_session_once_and_newest_file_wins(tmp_path):
+    """Year-dir có "(… conflicted copy …).parquet" của Dropbox trùng ngày với file chính:
+    mỗi phiên tính MỘT lần (GTGD/số mã không nhân đôi), bản mtime MỚI thắng."""
+    import os
+
+    import vnstock_runner as vr
+
+    root = mini_warehouse(tmp_path)
+    yd = next((root / "prices" / "ticker=AAA").glob("year=*"))
+    main = pd.read_parquet(yd / "prices.parquet")
+    copy = main.tail(10).assign(close=lambda d: d["close"] + 1.0)
+    copy_pf = yd / "prices (PICHU's conflicted copy 2026-10-16).parquet"
+    copy.to_parquet(copy_pf, index=False)
+    t = os.stat(yd / "prices.parquet").st_mtime
+    os.utime(copy_pf, (t + 60, t + 60))      # tên xếp TRƯỚC file chính, mtime SAU
+
+    out = vr.build_market_overview(str(root))
+
+    assert {v["count"] for v in out["gtgd_by_date"].values()} == {2}   # 2 mã, không phải 3
+    aaa = next(x for x in out["tickers"] if x["Mã"] == "AAA")
+    assert aaa["last"] == round(float(copy["close"].iloc[-1]), 2)
+
+
 def test_missing_nn_3m_drops_trend_flag_and_keeps_flow_finite():
     """NN 3M thiếu ⇒ không cờ ACCUMULATING/DUMPING; flow tính từ thành phần còn lại
     (thành phần thiếu z = 0, cùng mẫu `_zscore` dùng cho mọi cột thiếu)."""

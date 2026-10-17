@@ -357,13 +357,17 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
         try:
             frames = []
             for yd in sorted(td.glob("year=*"))[-3:]:
-                for pf in yd.glob("*.parquet"):
+                # mtime CŨ→MỚI + khử trùng giữ bản MỚI: Dropbox có thể đẻ "(… conflicted
+                # copy …).parquet" cạnh file chính — cùng ngữ nghĩa
+                # `vnstock_strategy._read_ticker_dir`, không thì KLGD/GTGD đếm 2 lần.
+                for pf in sorted(yd.glob("*.parquet"), key=lambda f: f.stat().st_mtime):
                     frames.append(pq.read_table(str(pf),
                         columns=["time", "close", "volume", "high", "low"]).to_pandas())
             if not frames:
                 continue
-            df = pd.concat(frames).sort_values("time")
+            df = pd.concat(frames, ignore_index=True)
             df["time"] = pd.to_datetime(df["time"])
+            df = df.drop_duplicates("time", keep="last").sort_values("time")
             df = df[df["time"] >= cutoff]
             if len(df) < 5:
                 continue
