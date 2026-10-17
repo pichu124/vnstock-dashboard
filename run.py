@@ -876,6 +876,7 @@ def cmd_test(args) -> int:
             "tests/test_tab_render_smoke.py",
             "tests/test_portfolio_tab.py",
             "tests/test_screener_tab.py",
+            "tests/test_screener_stale_visible.py",
             "tests/test_money_flow_tab.py",
             "tests/test_analysis_tab.py",
             "tests/test_custom_sector_drilldown.py",

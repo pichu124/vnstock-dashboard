@@ -1883,6 +1883,59 @@ def check_gtgd_coverage() -> dict:
         "--ticker <MÃ> --explain")
 
 
+# Đo 17/10 trên kho thật (dựng lại 60 phiên 22/07–16/10, mẫu số 1.724 mã của screener): mã
+# trễ > 5 phiên dao động 267–403 (15,5–23,4%) — phần lớn là nền cấu trúc (cách ly cơ sở, ngừng
+# giao dịch, huỷ niêm yết; ~260 mã trễ > 20 phiên). 30% ≈ 517 mã, trên mức cao nhất đã đo ~115
+# mã: nhiễu ngày thường không chạm, một khối mã thôi nhận bar (nguồn rớt cả sàn, cửa KBS từ
+# chối hàng loạt) thì chạm. Bản dựng lại đã gồm các lần chữa về sau nên đánh giá thấp đỉnh
+# nhiễu thật — có warn oan lặp lại thì nâng ngưỡng, đừng tắt badge.
+SCREENER_STALE_WARN_RATIO = 0.30
+
+
+def check_screener_stale() -> dict:
+    """Mã screener EOD bỏ khỏi MỌI preset vì kho đứng im (`stale_excluded` runner ghi vào
+    screener_results.json). Tỉ lệ vượt nền cấu trúc ⇒ có khối mã ngừng nhận bar."""
+    name = "Screener — mã bỏ vì kho đứng im"
+    p = _META / "screener_results.json"
+    if not p.exists():
+        return _result("screener_stale", name, "off", "chưa có screener_results.json")
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        return _result("screener_stale", name, "error",
+                       f"không đọc được screener_results.json ({type(e).__name__})")
+    se = data.get("stale_excluded")
+    if se is None:
+        return _result("screener_stale", name, "off",
+                       "screener bản cũ chưa ghi stale_excluded — phát kế sẽ có")
+    limit = int(se.get("limit") or 0)
+    if limit <= 0:
+        return _result("screener_stale", name, "off",
+                       "lọc kho đứng im đang tắt (VNSTOCK_SCREENER_STALE_SESSIONS=0)")
+    if se.get("sessions") == 0:       # runner cũ không có key ⇒ None, bỏ qua
+        return _result("screener_stale", name, "warn",
+                       "lọc kho đứng im KHÔNG chạy — kho thiếu lịch VNINDEX, preset đang xét cả "
+                       "mã kho cũ",
+                       "kiểm data_warehouse/prices/ticker=VNINDEX (badge Kho giá EOD)")
+    lags = list((se.get("tickers") or {}).values())
+    total = int(data.get("total_tickers") or 0) or len(lags) or 1
+    ratio = len(lags) / total
+    recent = sum(1 for v in lags if v <= 20)
+    split = (f" — {recent:,} mã trễ {limit + 1}–20 phiên, {len(lags) - recent:,} mã > 20 phiên"
+             if limit < 20 else "")
+    msg = (f"{str(data.get('generated_at') or '?')[:10]}: {len(lags):,}/{total:,} mã "
+           f"({ratio:.1%}) bỏ khỏi preset vì kho đứng im > {limit} phiên{split} "
+           f"(cảnh báo khi > {SCREENER_STALE_WARN_RATIO:.0%})")
+    if ratio <= SCREENER_STALE_WARN_RATIO:
+        return _result("screener_stale", name, "ok", msg)
+    return _result(
+        "screener_stale", name, "warn", msg + " — cao bất thường",
+        f"đo 17/10 nền là 15–23%: vượt {SCREENER_STALE_WARN_RATIO:.0%} là có khối mã thôi nhận "
+        "bar. Soi badge Lệch cơ "
+        "sở + dòng `⚡ Fallback KBS` / `❌ N lỗi` trong run_daily.log; danh sách mã + độ "
+        "trễ ở tab Screener (expander ⏸)")
+
+
 OFFLINE_CHECKS = [
     check_dir_shapes, check_unit_normalizations, check_kill_switches,
     check_basis_drift, check_ohlc_repairs, check_vn30_basket,
@@ -1890,7 +1943,7 @@ OFFLINE_CHECKS = [
     check_brief_watch,
     check_exdiv_source,
     check_pipeline_reach, check_brief_engine, check_news_alert,
-    check_warehouse, check_market_overview, check_gtgd_coverage,
+    check_warehouse, check_market_overview, check_gtgd_coverage, check_screener_stale,
     check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation, check_horizons, check_assets,

@@ -45,7 +45,7 @@ def test_render_accepts_expected_params():
     sig = inspect.signature(render_screener_tab)
     expected = {
         "presets_data", "industry_summary", "gen_time",
-        "total_tickers", "classified", "total_hits", "top_preset",
+        "total_tickers", "classified", "total_hits", "top_preset", "stale_excluded",
     }
     assert set(sig.parameters.keys()) == expected
 

@@ -219,11 +219,21 @@ def _oversold(warehouse):
 def test_eod_preset_skips_ticker_stale_10_sessions_keeps_1(stale_warehouse):
     got, stale = _oversold(stale_warehouse)
     assert got == {"FRESH"}
-    assert stale == {"limit": 5, "count": 1, "tickers": {"STALE": 10}}
+    assert stale == {"limit": 5, "count": 1, "tickers": {"STALE": 10}, "sessions": 150}
 
 
 def test_eod_stale_filter_off_with_env_zero(stale_warehouse, monkeypatch):
     monkeypatch.setenv(STALE_ENV, "0")
     got, stale = _oversold(stale_warehouse)
     assert got == {"FRESH", "STALE"}
-    assert stale == {"limit": 0, "count": 0, "tickers": {}}
+    assert stale == {"limit": 0, "count": 0, "tickers": {}, "sessions": 150}
+
+
+def test_eod_stale_reports_zero_sessions_when_vnindex_missing(stale_warehouse):
+    """Kho thiếu VNINDEX ⇒ lọc không chạy được: runner phải nói ra (`sessions` 0) để doctor
+    không báo "0 mã bỏ" như thể kho sạch."""
+    import shutil
+    shutil.rmtree(stale_warehouse / "prices" / "ticker=VNINDEX")
+    got, stale = _oversold(stale_warehouse)
+    assert got == {"FRESH", "STALE"}
+    assert stale["sessions"] == 0 and stale["count"] == 0
