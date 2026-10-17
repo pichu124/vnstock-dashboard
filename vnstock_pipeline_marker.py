@@ -57,27 +57,31 @@ def is_pipeline_running(marker, now: datetime) -> "tuple[bool, str]":
 @contextmanager
 def held(warehouse, command: str):
     """Giữ marker trong suốt khối `with`. Ghi lỗi ⇒ không xoá (có thể là marker
-    của máy kia)."""
-    # ponytail: không so pid/máy trước khi xoá — chỉ lệch khi user tự tick
-    # "Vẫn chạy" cho hai lượt chồng nhau; cần thì so `pid`+`machine` ở đây.
+    của máy kia). Lúc ra chỉ xoá khi marker vẫn là của mình (`pid` + `machine`):
+    task Daily không đọc marker nên lượt khác có thể ghi đè giữa chừng."""
+    # ponytail: một marker cho một lượt — hai lượt chồng nhau thì lượt ghi sau
+    # giữ marker, lượt trước chạy tiếp không marker; cần chặn đủ thì mỗi lượt
+    # một file. Đọc-rồi-xoá không nguyên tử (Dropbox không có khoá chung).
     path = marker_path(warehouse)
-    wrote = False
+    mine = None
     if (os.environ.get(ENV_SWITCH) or "1").strip().lower() not in _OFF:
         try:
             from vnstock_parquet_io import write_json_atomic
             from vnstock_rollup import get_hostname
-            write_json_atomic({
+            data = {
                 "machine": get_hostname(), "pid": os.getpid(),
                 "started_at": datetime.now().isoformat(timespec="seconds"),
                 "command": command,
-            }, path)
-            wrote = True
+            }
+            write_json_atomic(data, path)
+            mine = data
         except Exception as exc:
             print(f"[pipeline-marker] không ghi được {path}: {exc}", file=sys.stderr)
     try:
         yield
     finally:
-        if wrote:
+        cur = read_marker(path) if mine else None
+        if cur and (cur.get("pid"), cur.get("machine")) == (mine["pid"], mine["machine"]):
             try:
                 path.unlink(missing_ok=True)
             except OSError as exc:

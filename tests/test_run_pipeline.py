@@ -921,6 +921,24 @@ def test_marker_write_failure_does_not_break_the_pipeline(tmp_path, monkeypatch,
     assert (tmp_path / "_meta").read_text(encoding="utf-8") == "không phải thư mục"
 
 
+@pytest.mark.parametrize("other", [
+    {"machine": "PICHU", "pid": _os.getpid()},          # máy khác, trùng pid
+    {"machine": "CFA-BINHLD-LT", "pid": _os.getpid() + 1},  # cùng máy, lượt khác
+])
+def test_marker_overwritten_by_another_run_is_not_deleted(tmp_path, monkeypatch, other):
+    """Laptop bấm 🚀 17:40 → 18:00 desktop chạy `all` ghi đè marker → 18:30
+    laptop xong KHÔNG được xoá marker của desktop (desktop còn chạy tới 19:40)."""
+    monkeypatch.delenv(pm.ENV_SWITCH, raising=False)
+    monkeypatch.setenv("COMPUTERNAME", "CFA-BINHLD-LT")
+    theirs = {**other, "started_at": "2026-10-16T18:00:05", "command": "all"}
+    with pm.held(tmp_path, "all"):
+        _marker(tmp_path).write_text(_json.dumps(theirs), encoding="utf-8")
+    assert pm.read_marker(_marker(tmp_path)) == theirs
+    with pm.held(tmp_path, "all"):
+        assert _marker(tmp_path).exists()
+    assert not _marker(tmp_path).exists()
+
+
 def test_marker_wrapper_holds_marker_around_script_and_passes_exit_code(tmp_path, monkeypatch):
     """Nút 📥 chạy thẳng updater/runner (không qua run.py) ⇒ đi qua wrapper."""
     monkeypatch.delenv(pm.ENV_SWITCH, raising=False)
