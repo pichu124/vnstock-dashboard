@@ -85,21 +85,21 @@ def _save_and_rerun(st, warehouse: Path, positions: list[dict]) -> None:
         st.rerun()
 
 
-def _delete_position(st, warehouse: Path, idx: int, expected: dict) -> None:
+def _delete_position(st, warehouse: Path, idx: int, expected: list[dict]) -> None:
     """``on_click`` của nút Xoá: chạy TRƯỚC lượt vẽ kế tiếp nên còn được trả selectbox
     ``pf_del_select`` về None — không thì nó giữ chỉ số cũ, giờ là lô KẾ TIẾP, và nút
-    vẫn hiện: bấm đúp xoá luôn lô đó. Đọc LẠI file, không dùng bản chụp lúc vẽ (máy
-    kia có thể vừa thêm lô); lỗi đọc/ghi ⇒ không ghi, giữ lựa chọn để bấm lại.
-    Chỉ xoá khi dòng ``idx`` trên đĩa vẫn đúng là ``expected`` (bản chụp lúc vẽ): máy
-    kia/tab khác vừa xoá bớt, hoặc Streamlit gọi lại callback cũ khi bấm đúp, thì chỉ
-    số đó đã là lô KHÁC ⇒ từ chối. Không dò ``expected`` ở vị trí khác: hai lô giống
-    hệt thì không biết user muốn xoá lô nào."""
+    vẫn hiện: bấm đúp xoá luôn lô đó. Đọc LẠI file; lỗi đọc/ghi ⇒ không ghi, giữ lựa
+    chọn để bấm lại.
+    Chỉ xoá khi CẢ danh mục trên đĩa vẫn đúng là ``expected`` (bản chụp lúc vẽ): máy
+    kia/tab khác vừa thêm/xoá, hoặc Streamlit gọi lại callback cũ khi bấm đúp, thì
+    dòng ``idx`` có thể đã là lô KHÁC ⇒ từ chối, user chọn lại. So riêng dòng ``idx``
+    không đủ: [A, B, B'] với B' giống hệt B, xoá B xong thì B' về đúng chỉ số đó."""
     try:
         positions = _load_portfolio(warehouse)
     except (OSError, ValueError) as e:
         st.error(f"Không đọc lại được `{_portfolio_path(warehouse)}` ({e}) — chưa xoá gì.")
         return
-    if idx >= len(positions) or positions[idx] != expected:
+    if positions != expected:
         st.error("Danh mục vừa thay đổi (máy khác / tab khác) — chưa xoá gì, hãy chọn lại "
                  "lô cần xoá.")
         st.session_state["pf_del_select"] = None
@@ -681,4 +681,4 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     if _del_i is not None:
         _idx = rows[_del_i]["idx"]                              # chỉ số trong `positions`
         st.button("🗑 Xoá vị thế này", key="pf_del_btn", on_click=_delete_position,
-                  args=(st, warehouse, _idx, dict(positions[_idx])))
+                  args=(st, warehouse, _idx, list(map(dict, positions))))

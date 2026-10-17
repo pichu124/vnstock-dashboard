@@ -343,14 +343,16 @@ def test_delete_double_click_does_not_drop_next_lot(tmp_path: Path, monkeypatch)
 
 def test_delete_keeps_lot_added_on_disk_after_render(tmp_path: Path, monkeypatch):
     """Lúc bấm Xoá phải đọc LẠI file: lô D máy kia vừa thêm (Dropbox) sau lượt vẽ
-    vẫn còn, không bị bản chụp lúc vẽ ghi đè."""
+    vẫn còn, không bị bản chụp lúc vẽ ghi đè. Danh mục đã khác bản chụp ⇒ từ chối,
+    user chọn lại (user chấp nhận, đổi lấy việc so CẢ danh sách)."""
     from dashboard.portfolio_tab import _load_portfolio, _save_portfolio
     flow = _flow_with_b_selected(monkeypatch, tmp_path)
     _save_portfolio(tmp_path, [_LOT_A, _LOT_B, _LOT_C, _LOT_D])
 
     flow.run(click="pf_del_btn")
 
-    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_C, _LOT_D]
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_B, _LOT_C, _LOT_D]
+    _assert_refused(flow)
 
 
 @pytest.mark.parametrize("failure", ["ghi", "đọc lại"])
@@ -422,6 +424,26 @@ def test_delete_callback_replayed_does_not_drop_next_lot(tmp_path: Path, monkeyp
     callback(*args, **kwargs)
 
     assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_C]
+    _assert_refused(flow)
+
+
+def test_delete_callback_replayed_on_identical_lots_drops_only_one(tmp_path: Path, monkeypatch):
+    """[A, B, B'] với B' giống hệt B, nằm liền sau. Bấm đúp ⇒ Streamlit gọi lại callback cũ:
+    so riêng dòng 1 thì B' (giờ ở chỉ số 1) == B nên bị xoá luôn. Phải so CẢ danh sách."""
+    from dashboard.portfolio_tab import _load_portfolio, _save_portfolio
+    _save_portfolio(tmp_path, [_LOT_A, _LOT_B, dict(_LOT_B)])
+    flow = _DeleteFlow(monkeypatch, tmp_path)
+    flow.run()
+    flow.pick(1)                                                # B (#2)
+    flow.run()
+    callback, args, kwargs = flow.shown["pf_del_btn"]
+    flow.st.session_state.drawn.clear()                         # callback chạy trước script
+
+    callback(*args, **kwargs)
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_B]
+    callback(*args, **kwargs)
+
+    assert _load_portfolio(tmp_path) == [_LOT_A, _LOT_B]
     _assert_refused(flow)
 
 
