@@ -149,7 +149,10 @@ def _render_library(st, rp) -> None:
             else ("error", f"Không lưu được meta `{rid}` — xem log terminal."))
         st.rerun()
     _render_vision(st, rp, next((r for r in reports if r["id"] == rid), None))
-    if st.button("🗑 Xóa báo cáo đã chọn", key="_rp_remove"):
+    # Xoá cả file gốc trong kho, selectbox mặc định là báo cáo mới nhất ⇒ phải tick.
+    # Key theo id: đổi lựa chọn hay xoá xong thì ô tự bỏ tick.
+    sure = st.checkbox(f"Tôi chắc chắn xoá `{rid}` (cả file gốc)", key=f"_rp_remove_sure_{rid}")
+    if st.button("🗑 Xóa báo cáo đã chọn", key="_rp_remove", disabled=not sure) and sure:
         rp.remove(rid)
         st.rerun()
 
