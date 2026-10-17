@@ -38,6 +38,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 >    `_read_year` khử trùng giữ bản mtime mới · `_write_year` dồn về 1 file ·
 >    `run.py scan` báo year-dir >1 file) nên không mất data — nhưng vẫn tránh,
 >    vì trước lần sync kế tiếp thì các đường ĐỌC khác còn đếm trùng.
+>    Marker (17/10): `run.py all|sync` + nút 📥 ghi `_meta/pipeline_running.json`
+>    {machine, pid, started_at, command}, xoá ở `finally`; marker tươi (< 5h) ⇒ dashboard
+>    khoá 📥/🧩/🚀, ô "Vẫn chạy" để bỏ chặn. Task Daily KHÔNG đọc marker (chỉ ghi).
 > 4. **Đừng suy hạ tầng từ timestamp.** File Dropbox tải xuống nhận
 >    `CreationTime` LÚC TẢI còn TÊN do bên gửi đặt — 19/08 tôi đọc dấu hiệu này
 >    thành "chép tay" và sai suốt buổi. Hạ tầng không đọc được từ code thì HỎI.
@@ -309,7 +312,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,
   `VNSTOCK_OHLC_REPAIR`, `VNSTOCK_AUTOHEAL_BUDGET_S`, `VNSTOCK_VN30_DYNAMIC`,
   `VNSTOCK_WSS_HOT_TIER`, `VNSTOCK_BRIEF_WATCH`, `VNSTOCK_NEWS_ALERT[_REVIEW]`,
-  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_HORIZONS` (brief 3 khung, mặc định BẬT từ 14/10; test ghim `0` làm nền), `VNSTOCK_HORIZON_MACRO`, `VNSTOCK_REGIME_NN_SAME_SESSION`, `VNSTOCK_ALLOC_HORIZON_CAP`, `VNSTOCK_ALLOC_ONE_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_ASSETS[_HOURLY|_MCP|_DEMOTE|_LINKS|_ALERTS]`, `VNSTOCK_BRIEF_ASSETS`, `VNSTOCK_LLM_ENGINE`
+  `VNSTOCK_FIXUNITS_FOOTER_PRUNE`, `VNSTOCK_NETBS_WORKERS`, `VNSTOCK_HORIZONS_STEP`, `VNSTOCK_HORIZONS` (brief 3 khung, mặc định BẬT từ 14/10; test ghim `0` làm nền), `VNSTOCK_HORIZON_MACRO`, `VNSTOCK_REGIME_NN_SAME_SESSION`, `VNSTOCK_ALLOC_HORIZON_CAP`, `VNSTOCK_ALLOC_ONE_STEP`, `VNSTOCK_REC_GDKHQ_HOLD`, `VNSTOCK_BRIEF_RISK_TODAY`, `VNSTOCK_BRIEF_FUND_PERIODS`, `VNSTOCK_MCP_ENRICH`, `VNSTOCK_ASSETS[_HOURLY|_MCP|_DEMOTE|_LINKS|_ALERTS]`, `VNSTOCK_BRIEF_ASSETS`, `VNSTOCK_PIPELINE_MARKER`, `VNSTOCK_LLM_ENGINE`
   + `VNSTOCK_<BƯỚC>_ENGINE` + `VNSTOCK_CLAUDE_CLI_{EXE,MODEL,FALLBACK_MODEL,
   TIMEOUT_S,API_KEY,REPO_CONTEXT}`, `VNSTOCK_LLM_BREAKER`
   — cầu dao tài khoản LLM: provider 401/402/403 hôm nay + chưa call nào OK ⇒
