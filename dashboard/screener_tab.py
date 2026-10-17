@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -204,7 +205,7 @@ def render_screener_tab(
             if "live_screener_state" not in st.session_state:
                 st.session_state["live_screener_state"] = {}
             # Chỉ cổ phiếu thật (bỏ futures, index, warrant, CW, bond)
-            scanned, live_hits = _scan_live_quotes(
+            scanned, live_hits, pending, errors = _scan_live_quotes(
                 quote_dir, Path("data_warehouse/prices"),
                 st.session_state["live_screener_state"], datetime.now().date(),
                 lambda t: _is_stock(t) and t not in INDEX_SYMBOLS)
@@ -219,6 +220,11 @@ def render_screener_tab(
                 f'</div>',
                 unsafe_allow_html=True,
             )
+            if pending:
+                st.caption(f"⏳ Mỗi lượt tính tối đa ~{_LIVE_BUDGET_S:g}s — còn {pending} mã "
+                           f"chờ tính lượt sau")
+            if errors:
+                st.caption(f"⚠ {len(errors)} mã lỗi — vd {errors[0]}")
 
             if total_hits_live > 0:
                 # Show summary counts only — click expander for details
@@ -478,6 +484,8 @@ def _render_watchlist_sidebar(st, load_watchlist, save_watchlist, path) -> "tupl
 
 _OHLCV = ["time", "open", "high", "low", "close", "volume"]
 _LIVE_MIN_BARS = 60          # = `min_rows` mặc định của `MarketScreener.scan` (EOD)
+_LIVE_BUDGET_S = 1.0         # giây wall mỗi lượt cho việc đắt; fragment chạy trên luồng script
+_DEFERRED = object()         # `_live_row` hết ngân sách: lượt sau tính tiếp
 
 
 def _read_recent_history(ticker_dir: Path, years: int = 2, tail: int = 300) -> pd.DataFrame:
@@ -543,15 +551,22 @@ def _live_frame(hist: pd.DataFrame, quote: dict) -> pd.DataFrame | None:
 
 
 def _live_row(entry: os.DirEntry, ticker: str, prices_dir: Path, state: dict,
-              calc: Callable[[pd.DataFrame], dict]) -> dict | None:
+              calc: Callable[[pd.DataFrame], dict], deadline: float) -> dict | None | object:
     """Row chỉ báo live của một mã, ghi nhớ 2 tầng trong `state`: mtime file quote không đổi
     ⇒ khỏi mở file; đổi mtime mà (ngày, giá, KL, cao, thấp) như cũ ⇒ khỏi tính lại (tầng lạnh
-    `vnstock_wss` ghi lại file mỗi COLD_EVERY_N vòng dù giá đứng yên)."""
+    `vnstock_wss` ghi lại file mỗi COLD_EVERY_N vòng dù giá đứng yên). Ngoài hai ca rẻ đó,
+    quá `deadline` (`time.monotonic`) ⇒ `_DEFERRED`, không ghi memo."""
     mtime = entry.stat().st_mtime_ns
     memo = state["rows"].get(ticker)
     if memo is not None and memo[0] == mtime:
         return memo[2]
     hists = state["hist"]
+    if ticker in hists and hists[ticker] is None:   # đã biết thiếu/ngắn: rẻ, không tốn ngân sách
+        return None
+    # Đọc JSON vừa ghi cũng đắt: lần mở đầu sau khi ghi ~7ms/file (đo 17/10 ở thư mục tạm
+    # trên desktop, lần sau 0,13ms) ⇒ 1.100 file tầng lạnh ghi lại = 11s wall dù CPU 0,4s.
+    if time.monotonic() >= deadline:
+        return _DEFERRED
     if ticker not in hists:             # thiếu thư mục / < 60 bar cũng nhớ (None), khỏi dò lại
         hist = _read_recent_history(prices_dir / f"ticker={ticker}")
         hists[ticker] = hist if len(hist) >= _LIVE_MIN_BARS else None
@@ -573,28 +588,40 @@ def _live_row(entry: os.DirEntry, ticker: str, prices_dir: Path, state: dict,
 
 
 def _scan_live_quotes(quote_dir: Path, prices_dir: Path, state: dict, today: date,
-                      is_stock: Callable[[str], bool]) -> tuple[int, dict[str, list[dict]]]:
-    """Một lượt Live Scan ⇒ (số mã quét được, preset → các row khớp).
+                      is_stock: Callable[[str], bool], budget_s: float = _LIVE_BUDGET_S,
+                      ) -> tuple[int, dict[str, list[dict]], int, list[str]]:
+    """Một lượt Live Scan ⇒ (số mã có row, preset → các row khớp, số mã chờ lượt sau,
+    lỗi `"<MÃ>: <Lỗi>: <msg>"`).
 
     `state` do caller giữ qua các lượt (fragment để trong `st.session_state`). Sang ngày mới
-    thì xoá sạch: kho có bar mới sau pipeline 18:00."""
+    thì xoá sạch: kho có bar mới sau pipeline 18:00. Việc đắt chỉ làm trong `budget_s` giây;
+    mã bị hoãn giữ row cũ (nếu có) và lượt sau bắt đầu từ mã hoãn đầu tiên, không thì mã
+    cuối danh sách đói khi lượt nào cũng hết giờ. Mã lỗi bị bỏ, không ghi memo (lượt sau thử
+    lại) nhưng được trả về để fragment báo."""
     from vnstock_screener import PRESETS, _calc_indicators   # lazy: module kéo `rich`
 
     if state.get("day") != today:
         state.clear()
-        state.update(day=today, hist={}, rows={})
+        state.update(day=today, hist={}, rows={}, cursor="")
     hits: dict[str, list[dict]] = {p: [] for p in PRESETS if p != "value"}
-    scanned = 0
+    scanned, pending, errors, cursor = 0, 0, [], ""
     with os.scandir(quote_dir) as it:
         entries = [e for e in it if e.name.startswith("quote_") and e.name.endswith(".json")]
+    entries.sort(key=lambda e: (e.name < state["cursor"], e.name))   # xoay về mã hoãn lượt trước
+    deadline = time.monotonic() + budget_s
     for entry in entries:
         ticker = entry.name[len("quote_"):-len(".json")]
         if not is_stock(ticker):
             continue
         try:
-            row = _live_row(entry, ticker, prices_dir, state, _calc_indicators)
-        except (OSError, ValueError):   # file đang ghi dở / parquet hỏng: bỏ mã, lượt sau thử lại
+            row = _live_row(entry, ticker, prices_dir, state, _calc_indicators, deadline)
+        except Exception as e:          # file ghi dở, parquet hỏng, dữ liệu lạ: chỉ bỏ mã này
+            errors.append(f"{ticker}: {type(e).__name__}: {str(e)[:80]}")
             continue
+        if row is _DEFERRED:
+            pending += 1
+            cursor = cursor or entry.name
+            row = state["rows"].get(ticker, (None, None, None))[2]
         if row is None:
             continue
         scanned += 1
@@ -604,7 +631,8 @@ def _scan_live_quotes(quote_dir: Path, prices_dir: Path, state: dict, today: dat
                     hits[pname].append(row)
             except TypeError:           # filter so số với None (vd rsi_14 None) ⇒ không khớp
                 continue
-    return scanned, hits
+    state["cursor"] = cursor
+    return scanned, hits, pending, errors
 
 
 def _top_hits(hits: list[dict], n: int = 5) -> list[tuple[str, str]]:

@@ -237,15 +237,20 @@ def _put_quote(quote_dir, ticker, price, time="2026-10-16T14:20:52", volume=2_00
     return path
 
 
-def _scan(tmp_path, monkeypatch, state=None, today=TODAY):
-    """Quét qua preset `_all` (lọt mọi row) ⇒ thấy row từng mã mà không soi ruột cache."""
+def _scan_all(tmp_path, monkeypatch, state=None, today=TODAY, budget_s=float("inf")):
+    """Quét qua preset `_all` (lọt mọi row) ⇒ (scanned, mã → row, pending, lỗi): thấy row từng
+    mã mà không soi ruột cache. Ngân sách mặc định vô hạn ⇒ test khác không phụ thuộc tốc độ máy."""
     import vnstock_screener
     from dashboard.screener_tab import _scan_live_quotes
     monkeypatch.setitem(vnstock_screener.PRESETS, "_all", {"filter": lambda r: True})
     state = {} if state is None else state
-    scanned, hits = _scan_live_quotes(tmp_path / "_live", tmp_path / "prices", state, today,
-                                      lambda t: True)
-    return scanned, {r["ticker"]: r for r in hits["_all"]}
+    scanned, hits, pending, errors = _scan_live_quotes(
+        tmp_path / "_live", tmp_path / "prices", state, today, lambda t: True, budget_s=budget_s)
+    return scanned, {r["ticker"]: r for r in hits["_all"]}, pending, errors
+
+
+def _scan(tmp_path, monkeypatch, state=None, today=TODAY):
+    return _scan_all(tmp_path, monkeypatch, state, today)[:2]
 
 
 def _today_bar(hist, close, high, low, volume=2e6):
@@ -379,6 +384,66 @@ def test_scan_memoizes_unchanged_quotes(tmp_path, monkeypatch):
     _, again = _scan(tmp_path, monkeypatch, state)
     assert len(calls) == 3 and again["BBB"]["last_close"] == 59.0
     assert again["AAA"] == first["AAA"]
+
+
+def test_scan_budget_defers_rest_and_resumes_from_first_deferred(tmp_path, monkeypatch):
+    """Giờ cao điểm vài trăm mã đổi KL mỗi lượt ⇒ 3-5s CPU/10s, lượt đầu chặn phiên ~1 phút.
+    Ngân sách cắt lượt; mã hoãn giữ row cũ; lượt sau bắt đầu từ mã hoãn đầu tiên — không thì
+    lượt nào cũng hết giờ ở cùng chỗ và mã cuối danh sách không bao giờ được tính."""
+    import types
+
+    import dashboard.screener_tab as tab
+    tickers = ["AAA", "BBB", "CCC", "DDD", "EEE"]
+    for t in tickers:
+        _put_hist(tmp_path / "prices", t, _bars())
+        _put_quote(tmp_path / "_live", t, 61_000.0, mtime_ns=T0)
+    calls, state = _count_calc(monkeypatch), {}
+    # đồng hồ giả: 1 "giây" = 1 lần tính chỉ báo ⇒ ngân sách 2 = đúng 2 mã mỗi lượt
+    monkeypatch.setattr(tab, "time", types.SimpleNamespace(monotonic=lambda: len(calls)))
+
+    def scan():
+        return _scan_all(tmp_path, monkeypatch, state, budget_s=2)
+
+    scanned, rows, pending, _ = scan()
+    assert (scanned, sorted(rows), pending, len(calls)) == (2, ["AAA", "BBB"], 3, 2)
+
+    for t in tickers:                                         # mọi mã đổi giá trước lượt 2
+        _put_quote(tmp_path / "_live", t, 62_000.0, mtime_ns=T0 + S)
+    scanned, rows, pending, _ = scan()
+    assert (scanned, sorted(rows), pending, len(calls)) == (4, ["AAA", "BBB", "CCC", "DDD"], 3, 4)
+    assert rows["CCC"]["last_close"] == rows["DDD"]["last_close"] == 62.0   # tiếp từ CCC
+    assert rows["AAA"]["last_close"] == rows["BBB"]["last_close"] == 61.0   # hoãn: row cũ vẫn hit
+
+    scanned, rows, pending, _ = scan()                        # EEE, AAA; BBB hoãn lần nữa
+    assert (scanned, pending, len(calls), rows["BBB"]["last_close"]) == (5, 1, 6, 61.0)
+    scanned, rows, pending, _ = scan()
+    assert (scanned, pending, len(calls)) == (5, 0, 7)
+    assert {t: r["last_close"] for t, r in rows.items()} == dict.fromkeys(tickers, 62.0)
+
+
+@pytest.mark.parametrize("exc", [KeyError, TypeError])
+def test_scan_reports_one_ticker_error_and_keeps_round(tmp_path, monkeypatch, exc):
+    """Một mã làm `_calc_indicators` ném lỗi ngoài (OSError, ValueError) ⇒ code cũ sập cả vòng.
+    Nay bỏ riêng mã đó, trả số lỗi + mẫu để fragment báo, không ghi memo ⇒ lượt sau thử lại."""
+    import vnstock_screener
+    real, calls = vnstock_screener._calc_indicators, []
+
+    def calc(df):
+        calls.append(df["close"].iloc[-1])
+        if df["close"].iloc[-1] == 55.0:
+            raise exc("rsi_14")
+        return real(df)
+
+    monkeypatch.setattr(vnstock_screener, "_calc_indicators", calc)
+    for t, price in (("AAA", 61_000.0), ("BAD", 55_000.0), ("CCC", 62_000.0)):
+        _put_hist(tmp_path / "prices", t, _bars())
+        _put_quote(tmp_path / "_live", t, price, mtime_ns=T0)
+    state = {}
+    scanned, rows, _, errors = _scan_all(tmp_path, monkeypatch, state)
+    assert scanned == 2 and sorted(rows) == ["AAA", "CCC"]
+    assert errors == [f"BAD: {exc.__name__}: {exc('rsi_14')}"]
+    _, rows, _, errors = _scan_all(tmp_path, monkeypatch, state)
+    assert len(calls) == 4 and len(errors) == 1 and sorted(rows) == ["AAA", "CCC"]
 
 
 def test_scan_skips_broken_quote_without_failing_round(tmp_path, monkeypatch):
