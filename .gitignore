@@ -18,7 +18,6 @@ vnstock-agent-guide-main/
 # Muốn viết AGENTS.md thật thì gỡ dòng này hoặc `git add -f`.
 AGENTS.md
 files.zip
-lwc.min.js
 industry_classification_20260405.csv
 static/today_bars/*.json
 !.claude/commands/

@@ -31,7 +31,7 @@ from dashboard.table_style import cell_color, cell_weight
 from dashboard.watchlist_io import load_watchlist, save_watchlist
 from vnstock_console_launch import build_ps_command
 from vnstock_parquet_io import write_json_atomic
-from vnstock_price_units import normalize_price_units
+from vnstock_price_units import normalize_live_price, normalize_price_units
 from vnstock_sectors import SECTOR_GROUPS, SECTOR_ORDER, get_sector
 
 
@@ -397,6 +397,7 @@ def alert_env(tmp_path):
         ALERTS_PATH=tmp_path / "_meta" / "price_alerts.json",
         load_live_quote=lambda t: {"price": 25.5, "chg_pct": 1.0, "volume": 1e6},
         send_telegram_alert=_send, write_json_atomic=write_json_atomic,
+        _normalize_live_price=normalize_live_price,
     )
     ns["sent"] = sent
     return ns
@@ -419,7 +420,7 @@ def test_alert_checker_fragment_sends_telegram_once_across_runs(alert_env):
     st = types.SimpleNamespace(
         session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=toasts.append)
     frag = load_source_fns(
-        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
         load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
         check_and_fire_alerts=alert_env["check_and_fire_alerts"],
     )["_alert_checker"]
@@ -483,9 +484,10 @@ class _Rerun(Exception):
     """st.rerun thật dừng script bằng exception — giả lập đúng như vậy."""
 
 
-def _run_alert_sidebar(alert_env):
+def _run_alert_sidebar(alert_env, **session):
     """Chạy ĐÚNG khối 🔔 Price Alerts ở sidebar analysis_tab, bấm "✅ Tạo alert"
     (nút giả tôn trọng `disabled` như Streamlit thật)."""
+    from dashboard.analysis_tab import _ALERT_SAVE_FAIL_MAX
     from tests.test_tab_render_smoke import _fake_streamlit
 
     tree = ast.parse((_ROOT / "dashboard" / "analysis_tab.py").read_text(encoding="utf-8"))
@@ -501,7 +503,9 @@ def _run_alert_sidebar(alert_env):
         raise _Rerun
 
     st.rerun = _rerun
+    st.session_state.update(session)
     ns = {"st": st, "ALERTS_PATH": alert_env["ALERTS_PATH"],
+          "_ALERT_SAVE_FAIL_MAX": _ALERT_SAVE_FAIL_MAX,
           "load_alerts": alert_env["load_alerts"], "save_alerts": alert_env["save_alerts"]}
     try:
         exec(compile(ast.Module(side.body[start:], []), "analysis_tab.py", "exec"), ns)
@@ -538,7 +542,7 @@ def test_alert_checker_on_corrupt_file_sends_nothing_and_writes_nothing(alert_en
     st = types.SimpleNamespace(
         session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=lambda m: None)
     frag = load_source_fns(
-        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
         load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
         check_and_fire_alerts=alert_env["check_and_fire_alerts"],
         log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=path,
@@ -571,7 +575,7 @@ def _alert_checker_sending(alert_env, while_sending):
     st = types.SimpleNamespace(
         session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=lambda m: None)
     return load_source_fns(
-        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
         load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
         check_and_fire_alerts=alert_env["check_and_fire_alerts"],
         log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=alert_env["ALERTS_PATH"],
@@ -613,12 +617,216 @@ def test_alert_checker_does_not_save_when_reread_fails(alert_env, caplog):
     assert str(path) in caplog.text
 
 
+def test_alert_checker_stops_telegram_while_save_keeps_failing(alert_env):
+    """`write_json_atomic` hết lượt thử (Dropbox giữ file lâu) ⇒ alert không được đánh dấu
+    đã bắn ⇒ cứ 10s fragment gửi lại Telegram. Từ lần lưu lỗi thứ 3 liên tiếp: ngừng gửi,
+    báo đỏ; lưu lại được thì gửi tiếp."""
+    alert_env["save_alerts"]([_ALERT_A])
+    real_write, broken = alert_env["write_json_atomic"], [True]
+
+    def _flaky_write(data, path):
+        if broken[0]:
+            raise PermissionError(13, "Dropbox đang giữ file")
+        return real_write(data, path)
+
+    alert_env["write_json_atomic"] = _flaky_write
+    errors: list = []
+    st = types.SimpleNamespace(session_state={"_tg_token": "tok", "_tg_chat": "chat"},
+                               toast=lambda m: None, error=errors.append)
+    frag = load_source_fns(
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
+        load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
+        check_and_fire_alerts=alert_env["check_and_fire_alerts"],
+        log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=alert_env["ALERTS_PATH"],
+    )["_alert_checker"]
+
+    for _ in range(8):
+        frag()
+    assert 2 <= len(alert_env["sent"]) <= 3
+    assert errors and str(alert_env["ALERTS_PATH"]) in errors[-1]
+    stopped_at = len(alert_env["sent"])
+
+    broken[0] = False                                       # Dropbox nhả file
+    frag()
+    assert len(alert_env["sent"]) == stopped_at + 1
+    assert alert_env["load_alerts"]()[0]["fired"] is True
+    frag()                                                  # đã lưu ⇒ không gửi lặp
+    assert len(alert_env["sent"]) == stopped_at + 1
+
+
+def test_sidebar_shows_red_error_while_alert_saves_keep_failing(alert_env):
+    st = _run_alert_sidebar(alert_env)
+    st.error.assert_not_called()
+    st = _run_alert_sidebar(alert_env, _alert_save_fails=3)
+    msg = st.error.call_args_list[0].args[0]
+    assert str(alert_env["ALERTS_PATH"]) in msg and "Telegram" in msg
+
+
+def test_save_alerts_reports_success(alert_env):
+    assert alert_env["save_alerts"]([_ALERT_A]) is True
+
+    def _locked(data, path):
+        raise PermissionError(13, "Dropbox đang giữ file")
+
+    alert_env["write_json_atomic"] = _locked
+    assert alert_env["save_alerts"]([_ALERT_A]) is False
+
+
 def test_failed_telegram_send_is_logged(alert_env, caplog):
     alert_env["send_telegram_alert"] = lambda *a: False
     with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):
         alert_env["check_and_fire_alerts"](
             [{"ticker": "VCB", "condition": "above", "target": 25.0}], "tok", "chat")
     assert "VCB" in caplog.text
+
+
+def test_vnd_target_fires_on_live_price_in_thousands(alert_env):
+    """Ô nhập ghi "Giá (VND)"; bảng giá (price_board) trả VND, nhưng nhánh dự phòng
+    `_http_fetch_quote` (nến 1m vnstock) ghi quote ở NGHÌN đồng. So thẳng 90.5 với
+    90000 thì "above" không bao giờ bắn còn "below" bắn ngay — Telegram báo sai."""
+    alert_env["load_live_quote"] = lambda t: {"price": 90.5, "chg_pct": 0.5, "volume": 1e6}
+    out = alert_env["check_and_fire_alerts"]([
+        {"ticker": "FPT", "condition": "above", "target": 90000.0, "fired": False},
+        {"ticker": "FPT", "condition": "below", "target": 90000.0, "fired": False},
+    ], "tok", "chat")
+    assert [a["fired"] for a in out] == [True, False]
+    assert out[0]["fired_price"] == 90500.0
+    assert "90,500.00" in out[0]["message"]
+
+
+def test_penny_price_in_vnd_is_not_rescaled(alert_env):
+    """Bảng giá trả AVF = 400 (VND thật — mã/chứng quyền dưới 500 đ là có thật):
+    quy đổi theo ngưỡng 500 sẽ biến nó thành 400,000 đ."""
+    alert_env["load_live_quote"] = lambda t: {"price": 400.0}
+    out = alert_env["check_and_fire_alerts"](
+        [{"ticker": "AVF", "condition": "below", "target": 500.0, "fired": False}], "tok", "chat")
+    assert out[0]["fired"] is True and out[0]["fired_price"] == 400.0
+
+
+# ── render_chart: thư viện chart + live bar ──────────────────────────────────
+
+def _render_chart_html(lwc_path: Path, df=None, **chart_kw) -> tuple[list, list]:
+    """Chạy render_chart THẬT với st/_stc giả; trả (html đã vẽ, lời báo st.error/warning)."""
+    html, said = [], []
+    st = types.SimpleNamespace(warning=said.append, error=said.append)
+    stc = types.SimpleNamespace(html=lambda h, **k: html.append(h))
+    ns = load_source_fns("vnstock_dashboard.py", "_lwc_js", "render_chart",
+                         st=st, _stc=stc, pd=pd, compute_indicators=compute_indicators,
+                         LWC_JS_PATH=lwc_path)
+    ns["render_chart"](_rising() if df is None else df, "VCB", **chart_kw)
+    return html, said
+
+
+def test_render_chart_without_lwc_file_reports_instead_of_blank_chart(tmp_path):
+    """Clone mới không có lwc.min.js ⇒ `<script></script>` rỗng, chart trắng không báo gì."""
+    html, said = _render_chart_html(tmp_path / "lwc.min.js")
+    assert html == []
+    assert "Thiếu lwc.min.js" in said[0] and str(tmp_path / "lwc.min.js") in said[0]
+
+
+def test_render_chart_inlines_lwc_library(tmp_path):
+    lib = tmp_path / "lwc.min.js"
+    lib.write_text("/* LWC giả */", encoding="utf-8")
+    html, said = _render_chart_html(lib)
+    assert said == []
+    assert "<script>/* LWC giả */</script>" in html[0]
+
+
+# JS chart chạy trong node với LightweightCharts giả: series ghi lại mọi điểm (setData/update
+# theo đúng luật LWC: time cũ hơn ⇒ ném, bằng ⇒ thay, mới hơn ⇒ nối); time-range API ⇒ ném.
+_CHART_JS_HARNESS = r"""
+const fs = require("fs"), vm = require("vm");
+const app = fs.readFileSync(process.argv[2], "utf8");
+const bars = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const charts = [], timeouts = [], intervals = [];
+const banned = () => { throw new Error("cấm time-range API"); };
+function series() {
+  const s = {data: []};
+  s.setData = d => { s.data = d.map(p => Object.assign({}, p)); };
+  s.update = p => {
+    const last = s.data[s.data.length - 1];
+    if (last && p.time < last.time) throw new Error("update cũ hơn bar cuối");
+    if (last && p.time === last.time) s.data[s.data.length - 1] = Object.assign({}, p);
+    else s.data.push(Object.assign({}, p));
+  };
+  s.createPriceLine = () => ({applyOptions() {}});
+  return s;
+}
+function createChart() {
+  const c = {series: []};
+  const add = () => { const s = series(); c.series.push(s); return s; };
+  const ts = {subscribeVisibleLogicalRangeChange() {}, getVisibleLogicalRange: () => null,
+              setVisibleLogicalRange() {}, setVisibleRange: banned, getVisibleRange: banned,
+              subscribeVisibleTimeRangeChange: banned};
+  Object.assign(c, {addCandlestickSeries: add, addLineSeries: add, addHistogramSeries: add,
+    timeScale: () => ts, subscribeCrosshairMove() {}, setCrosshairPosition() {}, resize() {},
+    priceScale: () => ({}), priceToCoordinate: () => null});
+  charts.push(c);
+  return c;
+}
+const els = {};
+let n = 0;
+const ctx = {
+  LightweightCharts: {createChart, CrosshairMode: {Normal: 0}, LineStyle: {Dashed: 2}},
+  document: {getElementById: id => els[id] || (els[id] = {clientWidth: 800, clientHeight: 200,
+             innerHTML: "", style: {}, appendChild() {}}),
+             addEventListener() {}, body: {style: {}}, documentElement: {style: {}}},
+  window: {addEventListener() {}}, console: {log() {}},
+  setTimeout: f => timeouts.push(f), clearTimeout() {}, setInterval: f => intervals.push(f),
+  fetch: () => Promise.resolve({ok: true, json: () => bars[Math.min(n++, bars.length - 1)]}),
+};
+vm.createContext(ctx);
+vm.runInContext(app, ctx);
+timeouts.splice(0).forEach(f => f());
+const tick = () => new Promise(r => setImmediate(r));
+(async () => {
+  await tick();
+  const poll = intervals.find(f => f.name === "_pollLastBar");
+  for (let k = 1; k < bars.length; k++) { poll(); await tick(); }
+  console.log(JSON.stringify(charts.map(c => c.series.map(s => s.data.map(p => p.time)))));
+})().catch(e => { console.error(e); process.exit(1); });
+"""
+
+
+@pytest.mark.skipif(not __import__("shutil").which("node"), reason="cần node để chạy JS chart")
+def test_live_new_bar_keeps_all_four_panels_same_bar_count(tmp_path):
+    """Bất biến CLAUDE-NOTES: đồng bộ 4 panel bằng LOGICAL range ⇒ chỉ số bar phải 1:1.
+    JSON live mang nến MỚI (time > bar cuối) mà chỉ nối vào series giá thì Volume/RSI/MACD
+    hụt 1 bar mỗi nến mới ⇒ 4 panel lệch trục."""
+    import subprocess
+    lib = tmp_path / "lwc.min.js"
+    lib.write_text("", encoding="utf-8")
+    df = _rising()
+    html, _ = _render_chart_html(lib, df, live_url="/app/static/today_bars/VCB.json")
+    (tmp_path / "app.js").write_text(html[0].rsplit("<script>", 1)[1].split("</script>")[0],
+                                     encoding="utf-8")
+    t0, day = int(pd.Timestamp(df["time"].iloc[-1]).timestamp()), 86_400
+    bar = {"open": 49.0, "high": 50.5, "low": 48.5, "close": 50.0, "volume": 1e5}
+    bars = [{**bar, "time": t0},                       # bar cuối đang có: cập nhật tại chỗ
+            {**bar, "time": t0 + day},                 # nến mới
+            {**bar, "time": t0 + day, "close": 50.2},  # nến mới đó tick tiếp
+            {**bar, "time": t0 + 2 * day}]             # thêm một nến mới nữa
+    (tmp_path / "bars.json").write_text(json.dumps(bars), encoding="utf-8")
+    (tmp_path / "harness.js").write_text(_CHART_JS_HARNESS, encoding="utf-8")
+
+    out = subprocess.run(["node", str(tmp_path / "harness.js"), str(tmp_path / "app.js"),
+                          str(tmp_path / "bars.json")],
+                         capture_output=True, text=True, encoding="utf-8", timeout=60)
+
+    assert out.returncode == 0, out.stderr
+    main, *panels = json.loads(out.stdout)
+    candle_times = main[0]
+    assert len(candle_times) == len(df) + 2 and candle_times[-2:] == [t0 + day, t0 + 2 * day]
+    assert len(panels) == 3
+    for panel in panels:
+        assert panel, "panel không có series nào"
+        for times in panel:
+            assert times == candle_times
+
+
+def test_repo_ships_lwc_library_with_license_header():
+    head = (_ROOT / "lwc.min.js").read_text(encoding="utf-8")[:300]
+    assert "TradingView Lightweight Charts" in head and "Apache License 2.0" in head
 
 
 # ── df_from_preset: cột % ────────────────────────────────────────────────────

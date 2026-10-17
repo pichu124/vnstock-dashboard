@@ -981,12 +981,15 @@ def load_alerts() -> list[dict]:
     return alerts
 
 
-def save_alerts(alerts: list[dict]):
-    """Save price alerts — tmp rồi tráo, thử lại khi Dropbox đang giữ handle file."""
+def save_alerts(alerts: list[dict]) -> bool:
+    """Save price alerts — tmp rồi tráo, thử lại khi Dropbox đang giữ handle file.
+    False = hết lượt thử vẫn không ghi được (đã log)."""
     try:
         write_json_atomic(alerts, ALERTS_PATH)
     except OSError:
         log.exception("Không lưu được price alerts vào %s", ALERTS_PATH)
+        return False
+    return True
 
 
 def send_telegram_alert(bot_token: str, chat_id: str, message: str) -> bool:
@@ -1035,6 +1038,10 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
         triggered = False
         condition = alert.get("condition", "")
         target = float(alert.get("target", 0))
+        if condition in ("above", "below"):
+            # Mục tiêu nhập theo VND. Bảng giá trả VND, nhánh dự phòng (nến 1m) trả
+            # NGHÌN đồng ⇒ đưa giá về thang của mục tiêu (lệch ~1000× mới đổi).
+            price = _normalize_live_price(target, price)
 
         if condition == "above" and price >= target:
             triggered = True
@@ -2166,6 +2173,18 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
     )
 
 
+from functools import lru_cache  # noqa: E402
+
+LWC_JS_PATH = Path(__file__).parent / "lwc.min.js"
+
+
+@lru_cache(maxsize=1)
+def _lwc_js() -> str:
+    """Lightweight Charts (~160 KB) đọc một lần mỗi process. Lỗi đọc thì ném ra:
+    lru_cache không nhớ lỗi, nên chép file vào là lượt render sau vẽ được."""
+    return LWC_JS_PATH.read_text(encoding="utf-8")
+
+
 def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
                  volume_profile: list = None, live_url: str | None = None,
                  live_poll_ms: int = 30000):
@@ -2257,11 +2276,12 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
         return
 
     last_price = candles[-1]["close"]
-    LWC_JS = __import__("pathlib").Path(__file__).parent / "lwc.min.js"
     try:
-        lwc_code = LWC_JS.read_text(encoding="utf-8")
-    except Exception:
-        lwc_code = ""
+        lwc_code = _lwc_js()
+    except (OSError, ValueError) as e:
+        st.error(f"Thiếu lwc.min.js — không vẽ được chart. Lấy lại file `{LWC_JS_PATH}` "
+                 f"từ git ({e}).")
+        return
 
     # VP overlay data for JS
     vp_js = "[]"
@@ -2362,9 +2382,11 @@ var _livePriceLine = cs.createPriceLine({price:LP,color:"#fbbf24",lineWidth:1,
   lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true,title:""});
 
 function line(chart,data,color,width,title,lvVisible){
-  if(!data||!data.length) return;
-  chart.addLineSeries({color:color,lineWidth:width||1,title:title||"",
-    lastValueVisible:lvVisible!==false,priceLineVisible:false}).setData(data);
+  if(!data||!data.length) return null;
+  var s=chart.addLineSeries({color:color,lineWidth:width||1,title:title||"",
+    lastValueVisible:lvVisible!==false,priceLineVisible:false});
+  s.setData(data);
+  return s;
 }
 line(main,E9,"#60a5fa",1,"EMA9");
 line(main,E21,"#c084fc",1,"EMA21");
@@ -2391,19 +2413,27 @@ main.subscribeCrosshairMove(function(p){
 });
 
 var vol=mk("vc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0}}});
-vol.addHistogramSeries({priceFormat:{type:"volume"},priceScaleId:""}).setData(V);
+var volSeries=vol.addHistogramSeries({priceFormat:{type:"volume"},priceScaleId:""});
+volSeries.setData(V);
+// Mọi series của 3 panel dưới: nến live MỚI thì nối whitespace vào đây (xem _pollLastBar).
+var SUB=[volSeries];
 
 var rsi=mk("rc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0.1}}});
-line(rsi,RSI,"#a78bfa",1.5,"RSI",true);
+SUB.push(line(rsi,RSI,"#a78bfa",1.5,"RSI",true));
 if(RSI.length){
-  line(rsi,RSI.map(function(d){return{time:d.time,value:70}}),"rgba(239,68,68,0.4)",1,"",false);
-  line(rsi,RSI.map(function(d){return{time:d.time,value:30}}),"rgba(16,185,129,0.4)",1,"",false);
+  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:70}}),"rgba(239,68,68,0.4)",1,"",false));
+  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:30}}),"rgba(16,185,129,0.4)",1,"",false));
 }
 
 var mac=mk("dc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0.1}}});
-if(MH.length) mac.addHistogramSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false}).setData(MH);
-line(mac,ML,"#60a5fa",1.5,"MACD",true);
-line(mac,MS,"#f97316",1.5,"Signal",true);
+if(MH.length){
+  var mhSeries=mac.addHistogramSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false});
+  mhSeries.setData(MH);
+  SUB.push(mhSeries);
+}
+SUB.push(line(mac,ML,"#60a5fa",1.5,"MACD",true));
+SUB.push(line(mac,MS,"#f97316",1.5,"Signal",true));
+SUB=SUB.filter(Boolean);
 
 var charts=[main,vol,rsi,mac];
 
@@ -2544,9 +2574,10 @@ document.documentElement.style.overflow="hidden";
 var LIVE_URL=""" + _json.dumps(live_url or "") + """;
 var LIVE_POLL_MS=""" + str(int(live_poll_ms)) + """;
 if (LIVE_URL) {
-  // Volume bar update is skipped — the original addHistogramSeries call wasn't
-  // captured into a var, and updating just price keeps the visible "ticking"
-  // behaviour users care about. Volume catches up on next page render.
+  // Chỉ nến giá "tick". Nến MỚI (time > bar cuối) thì Volume/RSI/MACD nhận điểm
+  // whitespace {time} — giữ 4 panel cùng số bar cho phép đồng bộ logical range ở
+  // trên; giá trị thật của chúng có ở lần render trang sau.
+  var _lastT = C.length ? C[C.length-1].time : 0;
   function _pollLastBar() {
     fetch(LIVE_URL + "?_=" + Date.now(), {cache: "no-store"})
       .then(function(r){
@@ -2555,10 +2586,13 @@ if (LIVE_URL) {
       })
       .then(function(b){
         if (!b || typeof b.time !== "number") { console.log("[live] bad payload", b); return; }
-        var lastT = C.length ? C[C.length-1].time : 0;
-        console.log("[live] bar", b, "lastT", lastT, new Date(b.time*1000).toISOString());
-        if (b.time < lastT) { console.log("[live] SKIP: b.time < lastT"); return; }
+        console.log("[live] bar", b, "lastT", _lastT, new Date(b.time*1000).toISOString());
+        if (b.time < _lastT) { console.log("[live] SKIP: b.time < lastT"); return; }
         cs.update({time:b.time, open:b.open, high:b.high, low:b.low, close:b.close});
+        if (b.time > _lastT) {
+          SUB.forEach(function(s){ s.update({time:b.time}); });
+          _lastT = b.time;
+        }
         if (_livePriceLine) _livePriceLine.applyOptions({price: b.close});
         document.getElementById("ohlcv").innerHTML =
           "O <b style='color:#e5e7eb'>"+b.open.toFixed(2)+"</b>  "+
