@@ -28,6 +28,7 @@ Exit codes
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import subprocess
@@ -2339,11 +2340,22 @@ _DISPATCH = {
 }
 
 
+# Lệnh ghi kho mà 3 nút pipeline dashboard + task Daily gọi ⇒ giữ marker
+# `_meta/pipeline_running.json` để máy kia không bấm chạy trùng (Dropbox).
+_PIPELINE_MARKED = ("all", "sync")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    _install_run_log(" ".join(argv if argv is not None else sys.argv[1:]))
+    note = " ".join(argv if argv is not None else sys.argv[1:])
+    _install_run_log(note)
     handler = _DISPATCH[args.subcommand]
-    rc = handler(args)
+    marker = contextlib.nullcontext()
+    if args.subcommand in _PIPELINE_MARKED:
+        from vnstock_pipeline_marker import held
+        marker = held(REPO_ROOT / args.warehouse, note)
+    with marker:
+        rc = handler(args)
     print(f"[run.py] {args.subcommand} → exit {rc}")
     return rc
 

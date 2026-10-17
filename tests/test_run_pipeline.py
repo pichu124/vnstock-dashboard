@@ -814,3 +814,119 @@ def test_mcp_enrich_step_after_brief_never_hard_fails(monkeypatch):
     args = runpy.build_parser().parse_args(["mcp-enrich", "--dry-run", "--tickers", "SHB", "GMD"])
     assert args.dry_run and args.tickers == ["SHB", "GMD"]
     assert runpy._DISPATCH["mcp-enrich"] is runpy.cmd_mcp_enrich
+
+
+# ─── Marker "pipeline đang chạy": chống chạy trùng giữa hai máy dùng chung kho ─
+
+import json as _json  # noqa: E402
+import os as _os  # noqa: E402
+from datetime import timedelta as _td  # noqa: E402
+
+import pytest  # noqa: E402
+
+import vnstock_pipeline_marker as pm  # noqa: E402
+
+_NOW = _dt(2026, 10, 16, 19, 30)
+_FRESH = {"machine": "PICHU", "pid": 1, "started_at": "2026-10-16T18:00:05",
+          "command": "--warehouse data_warehouse all"}
+
+
+def _marker(wh):
+    return wh / "_meta" / "pipeline_running.json"
+
+
+def test_fresh_marker_says_which_machine_since_when_and_what():
+    assert pm.is_pipeline_running(_FRESH, _NOW) == (
+        True, "Pipeline đang chạy trên máy PICHU từ 18:00 "
+              "(lệnh --warehouse data_warehouse all)")
+
+
+def test_marker_older_than_the_ceiling_is_orphaned_and_does_not_block():
+    """Cửa sổ bị đóng / máy tắt giữa chừng ⇒ finally không chạy, marker mồ côi."""
+    edge = _NOW - _td(hours=pm.STALE_AFTER_HOURS)
+    assert pm.is_pipeline_running({**_FRESH, "started_at": edge.isoformat()}, _NOW)[0]
+    late = (edge - _td(minutes=1)).isoformat()
+    running, why = pm.is_pipeline_running({**_FRESH, "started_at": late}, _NOW)
+    assert running is False and "mồ côi" in why
+
+
+def test_marker_missing_fields():
+    assert pm.is_pipeline_running({"machine": "PICHU"}, _NOW)[0] is False
+    assert pm.is_pipeline_running({**_FRESH, "started_at": "hôm qua"}, _NOW)[0] is False
+    assert pm.is_pipeline_running(None, _NOW)[0] is False
+    assert pm.is_pipeline_running({"started_at": "2026-10-16T18:00:00"}, _NOW) == (
+        True, "Pipeline đang chạy trên máy ? từ 18:00 (lệnh ?)")
+
+
+@pytest.mark.parametrize("raw", ["{hỏng", "[1, 2]", ""])
+def test_corrupt_marker_file_does_not_block(tmp_path, raw):
+    p = tmp_path / "pipeline_running.json"
+    p.write_text(raw, encoding="utf-8")
+    assert pm.is_pipeline_running(pm.read_marker(p), _NOW)[0] is False
+    assert pm.read_marker(tmp_path / "không-có.json") is None
+
+
+def test_main_holds_marker_during_all_and_clears_it_even_on_crash(tmp_path, monkeypatch):
+    monkeypatch.delenv(pm.ENV_SWITCH, raising=False)
+    monkeypatch.setenv("COMPUTERNAME", "CFA-BINHLD-LT")
+    seen = []
+
+    def boom(args):
+        seen.append(_json.loads(_marker(tmp_path).read_text(encoding="utf-8")))
+        raise RuntimeError("bước giả nổ")
+
+    monkeypatch.setitem(runpy._DISPATCH, "all", boom)
+    with pytest.raises(RuntimeError):
+        runpy.main(["--warehouse", str(tmp_path), "all", "--no-sync"])
+    assert seen[0]["machine"] == "CFA-BINHLD-LT" and seen[0]["pid"] == _os.getpid()
+    assert seen[0]["command"] == f"--warehouse {tmp_path} all --no-sync"
+    assert pm.is_pipeline_running(seen[0], _dt.now())[0] is True
+    assert not _marker(tmp_path).exists()
+
+
+def test_main_holds_marker_during_sync_and_keeps_its_exit_code(tmp_path, monkeypatch):
+    monkeypatch.delenv(pm.ENV_SWITCH, raising=False)
+    seen = []
+    monkeypatch.setitem(runpy._DISPATCH, "sync",
+                        lambda a: seen.append(_marker(tmp_path).exists()) or 1)
+    assert runpy.main(["--warehouse", str(tmp_path), "sync"]) == 1
+    assert seen == [True] and not _marker(tmp_path).exists()
+
+
+def test_other_subcommands_do_not_write_the_marker(tmp_path, monkeypatch):
+    monkeypatch.delenv(pm.ENV_SWITCH, raising=False)
+    seen = []
+    monkeypatch.setitem(runpy._DISPATCH, "doctor",
+                        lambda a: seen.append(_marker(tmp_path).exists()) or 0)
+    assert runpy.main(["--warehouse", str(tmp_path), "doctor"]) == 0
+    assert seen == [False]
+
+
+def test_marker_kill_switch(tmp_path, monkeypatch):
+    monkeypatch.setenv(pm.ENV_SWITCH, "0")
+    seen = []
+    monkeypatch.setitem(runpy._DISPATCH, "all",
+                        lambda a: seen.append(_marker(tmp_path).exists()) or 0)
+    assert runpy.main(["--warehouse", str(tmp_path), "all"]) == 0
+    assert seen == [False]
+
+
+def test_marker_write_failure_does_not_break_the_pipeline(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv(pm.ENV_SWITCH, raising=False)
+    (tmp_path / "_meta").write_text("không phải thư mục", encoding="utf-8")
+    ran = []
+    monkeypatch.setitem(runpy._DISPATCH, "all", lambda a: ran.append(1) or 0)
+    assert runpy.main(["--warehouse", str(tmp_path), "all"]) == 0 and ran == [1]
+    assert "không ghi được" in capsys.readouterr().err
+    assert (tmp_path / "_meta").read_text(encoding="utf-8") == "không phải thư mục"
+
+
+def test_marker_wrapper_holds_marker_around_script_and_passes_exit_code(tmp_path, monkeypatch):
+    """Nút 📥 chạy thẳng updater/runner (không qua run.py) ⇒ đi qua wrapper."""
+    monkeypatch.delenv(pm.ENV_SWITCH, raising=False)
+    monkeypatch.setattr(pm, "DEFAULT_WAREHOUSE", tmp_path)
+    p = _marker(tmp_path)
+    code = f"import pathlib, sys; sys.exit(3 if pathlib.Path({str(p)!r}).exists() else 4)"
+    assert pm.main(["-c", code]) == 3
+    assert not p.exists()
+    assert pm.main([]) == 2

@@ -1167,3 +1167,74 @@ def test_load_alerts_returns_valid_list_unchanged(alert_env):
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(al), encoding="utf-8")
     assert alert_env["load_alerts"]() == al
+
+
+# ── 3 nút pipeline khoá khi marker "pipeline đang chạy" còn tươi ────────────
+
+def _run_pipeline_buttons(tmp_path, marker, override=False):
+    """Chạy ĐÚNG khối `with _update_col:` (📥/🧩/🚀). Nút giả "được bấm" khi KHÔNG
+    disabled — như người dùng bấm mọi nút bấm được."""
+    from datetime import datetime
+
+    import vnstock_pipeline_marker as pm
+    from tests.test_tab_render_smoke import _fake_streamlit
+
+    path = tmp_path / "pipeline_running.json"
+    if marker is not None:
+        write_json_atomic(marker, path)
+    block = next(n for n in _DASH_TREE.body if isinstance(n, ast.With)
+                 and ast.unparse(n.items[0].context_expr) == "_update_col")
+    st = _fake_streamlit()
+    disabled, launched, warned = {}, [], []
+
+    def _button(label, key=None, **k):
+        disabled[key] = k.get("disabled", False)
+        return not disabled[key]
+
+    st.button = _button
+    st.checkbox = lambda label, **k: override
+    st.warning = lambda msg, **k: warned.append(msg)
+    ns = {"st": st, "datetime": datetime,
+          "_is_pipeline_running": pm.is_pipeline_running,
+          "_read_pipeline_marker": pm.read_marker,
+          "_pipeline_marker_path": lambda _wh: path,
+          "launch_in_new_console":
+              lambda commands, log_filename="": launched.append(commands) or (True, None)}
+    exec(compile(ast.Module(block.body, []), "vnstock_dashboard.py", "exec"), ns)
+    return disabled, launched, warned
+
+
+def _started(minutes_ago):
+    from datetime import datetime, timedelta
+    return (datetime.now() - timedelta(minutes=minutes_ago)).isoformat(timespec="seconds")
+
+
+_BUTTONS = ("run_updater", "run_all_no_sync", "run_all_pipeline")
+
+
+def test_fresh_pipeline_marker_disables_all_three_buttons(tmp_path):
+    disabled, launched, warned = _run_pipeline_buttons(
+        tmp_path, {"machine": "PICHU", "started_at": _started(10), "command": "all"})
+    assert disabled == dict.fromkeys(_BUTTONS, True) and launched == []
+    assert len(warned) == 1 and "máy PICHU" in warned[0] and "(lệnh all)" in warned[0]
+
+
+def test_van_chay_checkbox_unblocks_the_buttons(tmp_path):
+    disabled, launched, _ = _run_pipeline_buttons(
+        tmp_path, {"machine": "PICHU", "started_at": _started(10)}, override=True)
+    assert disabled == dict.fromkeys(_BUTTONS, False) and len(launched) == 3
+
+
+@pytest.mark.parametrize("marker", [None, {"machine": "PICHU", "started_at": _started(6 * 60)}])
+def test_no_or_orphaned_marker_leaves_buttons_enabled_and_every_launch_writes_one(
+        tmp_path, marker):
+    import run
+
+    disabled, launched, warned = _run_pipeline_buttons(tmp_path, marker)
+    assert disabled == dict.fromkeys(_BUTTONS, False) and warned == []
+    # Mọi bước mở ra phải tự GHI marker: run.py all|sync hoặc qua wrapper.
+    steps = [c["args"] for cmds in launched for c in cmds]
+    assert len(launched) == 3 and steps
+    for a in steps:
+        assert a[0] == "vnstock_pipeline_marker.py" or (
+            a[0] == "run.py" and a[1] in run._PIPELINE_MARKED), a
