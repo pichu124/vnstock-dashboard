@@ -3569,7 +3569,7 @@ sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
 
 # ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
 _TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền",
-                "💱 Hàng hoá & Tiền tệ", "💼 Portfolio", "⚕️ Sức khỏe"]
+                "📑 Phái sinh NN", "💱 Hàng hoá & Tiền tệ", "💼 Portfolio", "⚕️ Sức khỏe"]
 _active_tab = st.pills("Điều hướng", _TAB_OPTIONS, default="📊 Screener", key="nav_tab",
                        label_visibility="collapsed")
 # Bấm lại pill đang chọn ⇒ pills trả None ⇒ không tab nào render: giữ tab trước.
@@ -3646,6 +3646,19 @@ if _active_tab == "💰 Dòng Tiền":
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB: Portfolio
 # ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB: PHÁI SINH NN (vị thế ròng khối ngoại HĐTL VN30 — chỉ đọc kho data_warehouse/futures, U88)
+# ══════════════════════════════════════════════════════════════════════════════
+if _active_tab == "📑 Phái sinh NN":
+    try:
+        from dashboard.futures_foreign_tab import render_futures_foreign_tab
+        render_futures_foreign_tab()
+    except Exception as _e:
+        log.exception("Không render được tab %s", _active_tab)
+        st.error(f"Không render được tab Phái sinh NN: {_e}")
+        st.caption("Kiểm tra `dashboard/futures_foreign_tab.py`, `vnstock_futures_foreign_view.py` "
+                   "và kho `data_warehouse/futures/`.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB: HÀNG HOÁ & TIỀN TỆ (vàng · dầu · USD — chỉ đọc kho data_warehouse/assets, U83)

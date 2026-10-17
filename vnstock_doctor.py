@@ -1115,6 +1115,65 @@ def check_assets(now: "datetime | None" = None) -> dict:
     return _result("assets", name, "ok", head, "")
 
 
+_FIX_FUTURES_MCP = ("🖥️ DESKTOP, ngoài khung pipeline 18:00 → '⏱ TỔNG': python run.py futures-foreign "
+                    "--force (cần Claude Code đăng nhập + connector SSI dưới tài khoản chạy task)")
+
+
+def check_futures_foreign(now: "datetime | None" = None) -> dict:
+    """Vị thế ròng khối ngoại HĐTL VN30 (U88, SSI MCP): kho theo kịp phiên phủ chưa, phiên cuối
+    đủ 4 hợp đồng lưu hành chưa (thiếu ⇒ mã KRX năm mới chưa đúng/nguồn hở), sai số do nguồn thiếu
+    trường khối ngoại, conflicted copy, lỗi lượt MCP cuối. Brief tự ghi "chưa lấy được số phiên …"
+    khi kho cũ ⇒ chỉ warn, không bao giờ error."""
+    name = "Phái sinh khối ngoại (VN30F)"
+    if os.environ.get("VNSTOCK_FUTURES_FOREIGN", "1").strip().lower() in _OFF_VALUES:
+        return _result("futures_foreign", name, "off", "tắt (VNSTOCK_FUTURES_FOREIGN=0)", "")
+    try:
+        import vnstock_futures_foreign as ff
+        import vnstock_futures_foreign_view as fv
+        base = _META.parent / "futures"
+        df = ff.load(base)
+    except Exception as e:                                         # noqa: BLE001
+        return _result("futures_foreign", name, "warn", f"không đọc được kho ({type(e).__name__}: {e})", "")
+    if not len(df):
+        return _result("futures_foreign", name, "warn", "kho trống (U88 vừa merge?)",
+                       "○ một lần: python run.py futures-foreign --seed (lịch sử 2 năm, không gọi MCP) "
+                       "— sau đó bước pipeline 🖥️ tự cập nhật")
+    now = now or datetime.now()
+    st = ff.read_status(_META)
+    try:
+        expect = ff.expected_session(now, _META.parent)
+        s = fv.summary(df)
+    except Exception as e:                                         # noqa: BLE001
+        return _result("futures_foreign", name, "warn", f"không tính được vị thế ({type(e).__name__}: {e})", "")
+    issues, fixes = [], []
+    conflicted = ff.conflicted_files(base)
+    if conflicted:
+        issues.append(f"conflicted copy: {', '.join(conflicted[:2])}")
+        fixes.append("○ xoá bản '(conflicted copy)' trong data_warehouse/futures sau khi pipeline chạy xong "
+                     "(đọc đã gộp, không mất số)")
+    if s["date"] < expect.isoformat():
+        err = (st.get("error") or "; ".join(f"{k}: {v}" for k, v in (st.get("errors") or {}).items())
+               or st.get("reason") or "")
+        issues.append(f"cũ: số cuối phiên {s['date']}, phiên phủ {expect.isoformat()}"
+                      + (f" · lượt cuối {st.get('run_at', '—')} {st.get('status', '')}: {err[:120]}" if st else ""))
+        fixes.append(_FIX_FUTURES_MCP)
+    if not s["complete"]:
+        issues.append(f"phiên {s['date']} mới có {s['n_live']}/{fv.LIVE_CONTRACTS} hợp đồng lưu hành "
+                      f"({', '.join(r['contract'] for r in s['contracts'])})")
+        fixes.append(_FIX_FUTURES_MCP + " · vẫn thiếu ⇒ mã KRX năm mới (ff.krx_symbol) chưa đúng — báo Claude")
+    if s["uncertain"]:
+        issues.append(f"nguồn thiếu trường khối ngoại ⇒ tổng sai số ±{s['err95']:,.0f} HĐ")
+        fixes.append("○ python run.py futures-foreign --show (bảng chất lượng ở tab 📑 Phái sinh NN)")
+    head = (f"{fv.side(s['after'])} sau phiên {s['date']}" if s["complete"] else f"phiên {s['date']}")
+    cur = s.get("streak")
+    if cur:
+        head += f" · {'long' if cur['sign'] > 0 else 'short'} {cur['n']} phiên liên tiếp"
+    head += f" · lượt cuối {st.get('run_at') or '—'} ({st.get('status') or 'seed'}, máy {st.get('machine') or '—'})"
+    if issues:
+        return _result("futures_foreign", name, "warn", "; ".join(issues) + f" · {head}", " · ".join(fixes))
+    return _result("futures_foreign", name, "ok", head, "")
+
+
 def check_telegram() -> dict:
     name = "Telegram push"
     tok = bool((os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip())
@@ -1835,6 +1894,7 @@ OFFLINE_CHECKS = [
     check_fundamentals, check_macro,
     check_pdf_tooling, check_market_news, check_ticker_news,
     check_foreign_flow, check_events, check_reports, check_allocation, check_horizons, check_assets,
+    check_futures_foreign,
     check_llm_keys, check_env_duplicates, check_llm_ledger, check_telegram, check_tests,
 ]
 def net_vn30_basket() -> dict:

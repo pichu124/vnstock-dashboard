@@ -85,7 +85,7 @@ def is_defensive(ctx: dict | None) -> bool:
 
 
 _SECTION_EMOJIS = ("🎯", "📊", "📈", "🏆", "💰", "📋", "⚠️", "📅", "💡", "🔧", "⚡", "🔮", "🌐", "📰", "📌", "📚", "🧭",
-                   "🪙", "🔭")
+                   "🪙", "🔭", "📑")
 
 
 def _is_section_start(line: str) -> bool:
