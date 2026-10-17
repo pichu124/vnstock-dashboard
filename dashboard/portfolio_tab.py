@@ -298,8 +298,10 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
 
         if positions:
             st.caption(f"{len(positions)} vị thế")
-            if st.button("🗑 Xoá tất cả", key="pf_clear",
-                          use_container_width=True):
+            _confirm_clear = st.checkbox("Tôi chắc chắn muốn xoá TẤT CẢ vị thế",
+                                         key="pf_clear_confirm")
+            if st.button("🗑 Xoá tất cả", key="pf_clear", use_container_width=True,
+                         disabled=not _confirm_clear):
                 _save_and_rerun(st, warehouse, [])
 
     if not positions:

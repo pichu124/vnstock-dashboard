@@ -147,10 +147,12 @@ class _Rerun(Exception):
     """st.rerun thật dừng script bằng exception — giả lập đúng như vậy."""
 
 
-def _render_clicking_add(monkeypatch, warehouse: Path):
+def _render_clicking(monkeypatch, warehouse: Path, click: str = "pf_add",
+                     confirm_clear: bool = False):
     from tests.test_tab_render_smoke import _fake_streamlit
     st = _fake_streamlit()
-    st.button = lambda label, key=None, **k: key == "pf_add" and not k.get("disabled")
+    st.button = lambda label, key=None, **k: key == click and not k.get("disabled")
+    st.checkbox = lambda label, key=None, **k: confirm_clear and key == "pf_clear_confirm"
     st.text_input = lambda label, **k: "VCB" if k.get("key") == "pf_ticker" else ""
     st.number_input = lambda label, min_value=0, max_value=None, value=0, **k: (
         25_000.0 if k.get("key") == "pf_price" else value)
@@ -175,7 +177,7 @@ def test_corrupt_portfolio_blocks_writes_and_keeps_bytes(tmp_path: Path, monkeyp
     truncated = b'[\n  {\n    "ticker": "HPG",\n    "quantity": 1000,\n    "buy_pr'
     path.write_bytes(truncated)
 
-    st = _render_clicking_add(monkeypatch, tmp_path)
+    st = _render_clicking(monkeypatch, tmp_path)
 
     assert path.read_bytes() == truncated                    # không ghi đè bằng [] + 1 vị thế
     assert sorted(p.name for p in path.parent.iterdir()) == ["portfolio.json"]   # không đổi tên/xoá
@@ -192,11 +194,22 @@ def test_portfolio_save_failure_is_reported(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(pio, "_REPLACE_BACKOFF", 0)
     monkeypatch.setattr(_os, "replace", _fail)
-    st = _render_clicking_add(monkeypatch, tmp_path)
+    st = _render_clicking(monkeypatch, tmp_path)
 
     assert not _portfolio_path(tmp_path).exists()
     msg = st.error.call_args.args[0]
     assert str(_portfolio_path(tmp_path)) in msg and "file đang bị khoá" in msg
+
+
+@pytest.mark.parametrize("confirm", [False, True])
+def test_clear_all_requires_confirmation(tmp_path: Path, monkeypatch, confirm: bool):
+    """"🗑 Xoá tất cả" từng xoá sạch ngay cú bấm đầu: chưa tick xác nhận thì không ghi."""
+    from dashboard.portfolio_tab import _load_portfolio, _save_portfolio
+    _save_portfolio(tmp_path, [_LOT_A, _LOT_B])
+
+    _render_clicking(monkeypatch, tmp_path, click="pf_clear", confirm_clear=confirm)
+
+    assert _load_portfolio(tmp_path) == ([] if confirm else [_LOT_A, _LOT_B])
 
 
 # ── Xoá vị thế: theo VỊ TRÍ dòng, không theo nhãn ───────────────────────────
@@ -542,7 +555,7 @@ def test_wrong_shape_portfolio_blocks_writes(tmp_path: Path, monkeypatch, payloa
     path.write_text(payload, encoding="utf-8")
     before = path.read_bytes()
 
-    st = _render_clicking_add(monkeypatch, tmp_path)
+    st = _render_clicking(monkeypatch, tmp_path)
 
     assert path.read_bytes() == before
     assert str(path) in st.error.call_args.args[0]
