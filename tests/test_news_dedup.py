@@ -267,6 +267,31 @@ def test_refresh_with_zero_news_keeps_existing_cache(monkeypatch, tmp_path):
     assert len(nn.load_news_cache()) == 5  # bộ nhớ đệm cũng không bị thay bằng []
 
 
+# ─── news_context_block: hôm nay chưa có tin ⇒ chỉ lùi vài ngày lịch ─────────
+
+def _context_block(monkeypatch, items):
+    import vnstock_news as nn
+    monkeypatch.setattr(nn, "load_news_cache", lambda: [dict(n) for n in items])
+    return nn.news_context_block(max_items=15, date_filter="2026-10-17")
+
+
+def test_context_block_drops_news_older_than_fallback_window(monkeypatch):
+    """Hôm nay chưa có tin (refresh_news ra 0 tin giữ cache cũ) ⇒ không được nhét tin
+    tuần trước vào brief như tin mới."""
+    old = {"news_title": "Tin 5 ngày trước", "ticker": "VCB", "_date_sort": "2026-10-12"}
+    assert _context_block(monkeypatch, [old]) == ""
+
+
+def test_context_block_fallback_keeps_recent_dated_news_and_drops_undated(monkeypatch):
+    out = _context_block(monkeypatch, [
+        {"news_title": "Tin không ngày", "ticker": "FPT", "_date_sort": ""},
+        {"news_title": "Tin hai ngày trước", "ticker": "VCB", "_date_sort": "2026-10-15"},
+        {"news_title": "Tin thiếu khoá ngày", "ticker": "HPG"},
+    ])
+    assert "[VCB] 2026-10-15: Tin hai ngày trước" in out
+    assert "không ngày" not in out and "thiếu khoá" not in out
+
+
 # ─── Bộ lọc ngày của tab: ngày lịch giờ VN ───────────────────────────────────
 
 _NEWS_TZ = [
