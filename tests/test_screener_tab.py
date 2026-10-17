@@ -608,6 +608,25 @@ def test_scan_caches_history_for_the_day_only(tmp_path, monkeypatch):
     assert next_day["AAA"]["chg_20d_pct"] == round((62.0 / rebased["close"].iloc[-20] - 1) * 100, 2)
 
 
+@pytest.mark.parametrize("env, expected", [(None, ["AAA"]), ("0", ["AAA", "OLD"])])
+def test_scan_skips_ticker_whose_warehouse_is_stale(tmp_path, monkeypatch, env, expected):
+    """Kho đứng im nhiều phiên (cách ly basis drift, ngừng GD): nối bar live ngay sau khoảng
+    trống ⇒ chỉ báo nhảy vọt ⇒ hit giả. Lịch phiên = bar VNINDEX của kho; env 0 = tắt lọc."""
+    monkeypatch.delenv("VNSTOCK_SCREENER_STALE_SESSIONS", raising=False)
+    if env is not None:
+        monkeypatch.setenv("VNSTOCK_SCREENER_STALE_SESSIONS", env)
+    prices = tmp_path / "prices"
+    _put_hist(prices, "VNINDEX", _bars(n=150, end="2026-10-15"))
+    _put_hist(prices, "AAA", _bars(end="2026-10-14"))          # trễ 1 phiên: vẫn xét
+    _put_hist(prices, "OLD", _bars(end="2026-10-01"))          # trễ 10 phiên
+    for t in ("AAA", "OLD"):
+        _put_quote(tmp_path / "_live", t, 61_000.0)
+    state = {}
+    scanned, rows = _scan(tmp_path, monkeypatch, state)
+    assert (scanned, sorted(rows)) == (len(expected), expected)
+    assert state["stale"] == ({"OLD"} if env is None else set())
+
+
 def test_read_recent_history_only_latest_two_years(tmp_path):
     from dashboard.screener_tab import _read_recent_history
     _put_hist(tmp_path, "AAA", _bars(n=100, end="2022-12-30").assign(close=999.0))   # "độc"
