@@ -930,3 +930,26 @@ def test_marker_wrapper_holds_marker_around_script_and_passes_exit_code(tmp_path
     assert pm.main(["-c", code]) == 3
     assert not p.exists()
     assert pm.main([]) == 2
+
+
+def _fast_whitelist() -> list:
+    import ast
+    from pathlib import Path
+    tree = ast.parse(Path(runpy.__file__).read_text(encoding="utf-8"))
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "cmd_test")
+    lst = next(n.value for n in ast.walk(fn) if isinstance(n, ast.Assign)
+               and getattr(n.targets[0], "id", None) == "test_paths"
+               and len(n.value.elts) > 1)
+    return [e.value for e in lst.elts]
+
+
+def test_dashboard_tab_tests_run_under_fast():
+    """Test của các tab dashboard từng NGOÀI `--fast` ⇒ sửa tab rồi chạy --fast
+    là chạy không lưới."""
+    fast = _fast_whitelist()
+    for f in ("tests/test_portfolio_tab.py", "tests/test_screener_tab.py",
+              "tests/test_money_flow_tab.py", "tests/test_analysis_tab.py",
+              "tests/test_tab_render_smoke.py"):
+        assert f in fast, f
+    assert len(fast) == len(set(fast)), "file trùng trong --fast"
