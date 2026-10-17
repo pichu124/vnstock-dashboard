@@ -51,7 +51,7 @@ _VN_TZ = timezone(timedelta(hours=7))
 def _fmt_age(date_str: str, now: datetime | None = None) -> str:
     """Human-readable age: 'Hôm nay 14:30', '2 ngày trước'.
 
-    Đếm theo NGÀY LỊCH giờ VN — khớp bộ lọc "Hôm nay" (so `_date_sort`);
+    Đếm theo NGÀY LỊCH giờ VN — khớp bộ lọc "Hôm nay" (so `_vn_day`);
     timedelta.days từng gọi tin 20:00 hôm qua là "Hôm nay" lúc 08:00.
 
     Returns 'Không rõ ngày' for unparseable input so the user can spot
@@ -83,6 +83,26 @@ def _fmt_age(date_str: str, now: datetime | None = None) -> str:
     return f"⚠️ {dt.strftime('%Y-%m-%d')} (rất cũ)"
 
 
+def _pub_raw(item: dict) -> str:
+    """Timestamp gốc mà thẻ tin hiển thị tuổi."""
+    return item.get("public_date") or item.get("created_at") or item.get("date") or ""
+
+
+def _vn_day(item: dict) -> str:
+    """Ngày lịch giờ VN 'YYYY-MM-DD' cho bộ lọc ngày — cùng cách `_fmt_age` gắn nhãn.
+
+    `_date_sort` là ngày UTC khi nguồn ghi "…Z", nhưng nó là khoá dedup / hash
+    sentiment / sổ đã gửi nên không đổi ⇒ chỉ quy lại ở đây, cho tin có tz.
+    """
+    try:
+        dt = datetime.fromisoformat(str(_pub_raw(item)).replace("Z", "+00:00"))
+    except ValueError:
+        dt = None
+    if dt is not None and dt.tzinfo is not None:
+        return dt.astimezone(_VN_TZ).date().isoformat()
+    return (item.get("_date_sort") or "")[:10]
+
+
 def _pick(item: dict, *keys: str, default: str = "") -> str:
     """Return first non-empty value among the given keys."""
     for k in keys:
@@ -112,7 +132,7 @@ def _news_card(item: dict, idx: int) -> None:
     link      = _normalize_news_url(
         _pick(item, "news_source_link", "source_link", "url", "link", "href")
     )
-    pub_date  = item.get("public_date") or item.get("created_at") or item.get("date") or ""
+    pub_date  = _pub_raw(item)
     age       = _fmt_age(pub_date)
     sentiment = item.get("_sentiment", "")
 
@@ -310,9 +330,7 @@ def _render_ticker_news() -> None:
         # Reset recency filter after refresh — "Hôm nay" from today_clicked
         # would show 0 results if the news source doesn't publish today yet.
         if st.session_state.get("_news_recency_filter") == "Hôm nay":
-            _newest = max(
-                (n.get("_date_sort") or "") for n in news_all
-            ) if news_all else ""
+            _newest = max(map(_vn_day, news_all)) if news_all else ""
             if _newest < date.today().isoformat():
                 st.session_state["_news_recency_filter"] = "7 ngày"
 
@@ -500,7 +518,7 @@ def _render_ticker_news() -> None:
     }[recency_label]
 
     # Specific-date filter (only dates present in cache)
-    all_dates = sorted({n.get("_date_sort", "")[:10] for n in news if n.get("_date_sort")}, reverse=True)
+    all_dates = sorted({d for d in map(_vn_day, news) if d}, reverse=True)
     with flt_col3:
         selected_date = st.selectbox(
             "Ngày cụ thể", options=["Tất cả"] + all_dates,
@@ -535,15 +553,14 @@ def _render_ticker_news() -> None:
 
     # Recency filter — drop items older than N days OR with no date
     if _recency_days is not None:
-        from datetime import date as _date, timedelta as _td
-        _cutoff = (_date.today() - _td(days=_recency_days)).isoformat()
-        filtered = [n for n in filtered if (n.get("_date_sort") or "") >= _cutoff]
+        _cutoff = (date.today() - timedelta(days=_recency_days)).isoformat()
+        filtered = [n for n in filtered if _vn_day(n) >= _cutoff]
 
     if selected_ticker != "Tất cả":
         filtered = [n for n in filtered if n.get("ticker", "").upper() == selected_ticker.upper()]
 
     if selected_date != "Tất cả":
-        filtered = [n for n in filtered if n.get("_date_sort", "").startswith(selected_date)]
+        filtered = [n for n in filtered if _vn_day(n) == selected_date]
 
     if search_q:
         q = search_q.lower()
@@ -627,8 +644,8 @@ def _render_ticker_news() -> None:
     st.caption(f"Hiển thị **{min(len(filtered), page_size)}** / **{len(filtered)}** tin")
 
     if not filtered:
-        if _recency_days == 0 and any(n.get("_date_sort") for n in news):
-            _latest = max(n.get("_date_sort", "") for n in news if n.get("_date_sort"))
+        if _recency_days == 0 and all_dates:
+            _latest = all_dates[0]
             st.info(
                 f"Không có tin từ hôm nay ({date.today().isoformat()}). "
                 f"Tin mới nhất trong cache là từ **{_latest}**. "

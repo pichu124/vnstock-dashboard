@@ -263,3 +263,58 @@ def test_refresh_with_zero_news_keeps_existing_cache(monkeypatch, tmp_path):
     assert [d["news_title"] for d in data["items"]] == [f"Tin {i}" for i in range(5)]
     assert data["fetched_at"] == "2026-10-15T18:00:00"
     assert len(nn.load_news_cache()) == 5  # bộ nhớ đệm cũng không bị thay bằng []
+
+
+# ─── Bộ lọc ngày của tab: ngày lịch giờ VN ───────────────────────────────────
+
+_NEWS_TZ = [
+    # 20:00Z ngày 15 = 03:00 ngày 16 giờ VN; `_date_sort` (khoá dedup) vẫn là ngày UTC.
+    {"news_title": "Tin UTC", "ticker": "VCB", "public_date": "2026-10-15T20:00:00Z",
+     "_date_sort": "2026-10-15"},
+    # Không tz ⇒ hành vi cũ (theo `_date_sort`).
+    {"news_title": "Tin không tz", "ticker": "FPT", "public_date": "2026-10-15T20:00:00",
+     "_date_sort": "2026-10-15"},
+    {"news_title": "Tin sáng nay", "ticker": "HPG", "public_date": "2026-10-16T07:30:00",
+     "_date_sort": "2026-10-16"},
+]
+
+
+def _render_news_titles(monkeypatch, picks):
+    """Render tab với 3 tin trên, hôm nay = 16/10; trả về tiêu đề thẻ tin đã vẽ."""
+    import sys
+    import types
+    from datetime import date
+
+    nn = types.ModuleType("vnstock_news")
+    nn.cache_info = lambda: {"exists": True, "count": 3, "age_minutes": 5}
+    nn.load_news_cache = lambda: [dict(n) for n in _NEWS_TZ]
+    nn.news_context_block = lambda **k: ""
+    monkeypatch.setitem(sys.modules, "vnstock_news", nn)
+    monkeypatch.setitem(sys.modules, "vnstock_sentiment", None)
+    st, news_tab = _news_tab_with_fake_st(monkeypatch)
+
+    class _Today(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 10, 16)
+
+    monkeypatch.setattr(news_tab, "date", _Today)
+    st.selectbox = lambda label, options=(), key=None, **k: (
+        picks[key] if key in picks else list(options)[0])
+
+    news_tab._render_ticker_news()
+
+    titles = {n["news_title"] for n in _NEWS_TZ}
+    return [c.args[0].strip("*") for c in st.markdown.call_args_list
+            if c.args and c.args[0].strip("*") in titles]
+
+
+def test_today_filter_uses_vn_calendar_day(monkeypatch):
+    shown = _render_news_titles(monkeypatch, {"_news_recency_filter": "Hôm nay"})
+    assert sorted(shown) == ["Tin UTC", "Tin sáng nay"]
+
+
+def test_specific_date_filter_uses_vn_calendar_day(monkeypatch):
+    shown = _render_news_titles(monkeypatch, {"_news_recency_filter": "Tất cả",
+                                              "_news_date_filter": "2026-10-15"})
+    assert shown == ["Tin không tz"]
