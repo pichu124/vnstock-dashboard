@@ -604,6 +604,11 @@ from dashboard.table_style import cell_color, cell_weight  # noqa: E402
 
 
 from vnstock_console_launch import build_ps_command as _build_ps_command  # noqa: E402
+from vnstock_pipeline_marker import (  # noqa: E402
+    is_pipeline_running as _is_pipeline_running,
+    marker_path as _pipeline_marker_path,
+    read_marker as _read_pipeline_marker,
+)
 
 
 def launch_in_new_console(commands: list, log_filename: str = "subprocess.log") -> tuple:
@@ -3139,12 +3144,24 @@ with _info_col:
     else:
         st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
 with _update_col:
+    # Kho dùng chung qua Dropbox: chạy khi máy kia đang chạy = hai máy cùng ghi
+    # `prices/` ⇒ conflicted copy (CLAUDE.md, hệ quả #3).
+    _pl_running, _pl_why = _is_pipeline_running(
+        _read_pipeline_marker(_pipeline_marker_path("data_warehouse")), datetime.now())
+    _pl_blocked = _pl_running
+    if _pl_running:
+        st.warning(_pl_why)
+        _pl_blocked = not st.checkbox(
+            "Vẫn chạy", key="pipeline_override",
+            help="Bỏ chặn 3 nút bên dưới. Chỉ tick khi chắc lượt kia đã chết "
+                 "(cửa sổ bị đóng, máy tắt) — không thì hai máy cùng ghi kho.")
     _uc1, _uc2, _uc3 = st.columns(3)
     with _uc1:
         if st.button(
             "📥 Cập nhật giá",
             key="run_updater",
             use_container_width=True,
+            disabled=_pl_blocked,
             help=(
                 "**Tải giá mới nhất từ API + tính lại screener** "
                 "(8 luồng song song + bỏ mã đã hủy niêm yết; VCI ốm → tự "
@@ -3165,9 +3182,13 @@ with _update_col:
         ):
             _is_win, _log = launch_in_new_console(
                 commands=[
-                    {"label": "Cap nhat gia",     "args": ["vnstock_updater.py", "--force",
+                    # Qua wrapper: updater/runner không đi qua run.py nên tự
+                    # không ghi marker "pipeline đang chạy".
+                    {"label": "Cap nhat gia",     "args": ["vnstock_pipeline_marker.py",
+                                                           "vnstock_updater.py", "--force",
                                                            "--workers", "8", "--skip-stale-days", "90"]},
-                    {"label": "Refresh Screener", "args": ["vnstock_runner.py"]},
+                    {"label": "Refresh Screener", "args": ["vnstock_pipeline_marker.py",
+                                                           "vnstock_runner.py"]},
                 ],
                 log_filename="updater.log",
             )
@@ -3187,6 +3208,7 @@ with _update_col:
             "🧩 Cập nhật còn lại",
             key="run_all_no_sync",
             use_container_width=True,
+            disabled=_pl_blocked,
             help=(
                 "**Chạy pipeline `run.py all --no-sync`** — toàn bộ 13 bước "
                 "TRỪ kho giá parquet ~1.724 mã (~10-25 phút thay vì 35-55):\n"
@@ -3231,6 +3253,7 @@ with _update_col:
             "🚀 Cập nhật tất cả",
             key="run_all_pipeline",
             use_container_width=True,
+            disabled=_pl_blocked,
             help=(
                 "**Chạy TRỌN pipeline tối `python run.py all` — 13 bước** "
                 "(~35-55 phút): sync giá → validate → screener → news → "
