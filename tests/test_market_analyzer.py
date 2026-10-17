@@ -97,6 +97,59 @@ def test_nn_windows_fill_3m_once_feed_covers_60_sessions():
     assert vr._nn_windows(nn.tail(59))[2] == {}
 
 
+def test_nn_1t_1m_sum_exactly_5_and_20_latest_sessions(tmp_path):
+    """NN 1T/1M = 5/20 PHIÊN có trong data (như `Giá 1T %` = 5 phiên). Cắt `≥ mốc − 7
+    ngày lịch` từng lấy cả mốc ⇒ 6 phiên khi mốc là ngày thường."""
+    import vnstock_runner as vr
+
+    days = pd.bdate_range(end="2026-10-16", periods=25)          # phiên k mua ròng k tỷ
+    nn = pd.DataFrame({"symbol": "AAA", "date": days,
+                       "net_value": [k * 1e9 for k in range(1, 26)]})
+    out = vr.build_market_overview(str(mini_warehouse(tmp_path)), fetch_nn=lambda: nn)
+
+    aaa = next(t for t in out["tickers"] if t["Mã"] == "AAA")
+    assert aaa["NN 1T (tỷ)"] == 21 + 22 + 23 + 24 + 25           # 115, không phải 135
+    assert aaa["NN 1M (tỷ)"] == sum(range(6, 26))                # 310
+    assert pd.isna(aaa["NN 3M (tỷ)"])                            # 25 < 60 phiên
+    assert out["sectors"][0]["NN 1T (tỷ)"] == 115.0
+
+
+def test_conflicted_copy_counts_each_session_once_and_newest_file_wins(tmp_path):
+    """Year-dir có "(… conflicted copy …).parquet" của Dropbox trùng ngày với file chính:
+    mỗi phiên tính MỘT lần (GTGD/số mã không nhân đôi), bản mtime MỚI thắng."""
+    import os
+
+    import vnstock_runner as vr
+
+    root = mini_warehouse(tmp_path)
+    yd = next((root / "prices" / "ticker=AAA").glob("year=*"))
+    main = pd.read_parquet(yd / "prices.parquet")
+    copy = main.tail(10).assign(close=lambda d: d["close"] + 1.0)
+    copy_pf = yd / "prices (PICHU's conflicted copy 2026-10-16).parquet"
+    copy.to_parquet(copy_pf, index=False)
+    t = os.stat(yd / "prices.parquet").st_mtime
+    os.utime(copy_pf, (t + 60, t + 60))      # tên xếp TRƯỚC file chính, mtime SAU
+
+    out = vr.build_market_overview(str(root))
+
+    assert {v["count"] for v in out["gtgd_by_date"].values()} == {2}   # 2 mã, không phải 3
+    aaa = next(x for x in out["tickers"] if x["Mã"] == "AAA")
+    assert aaa["last"] == round(float(copy["close"].iloc[-1]), 2)
+
+
+def test_young_warehouse_under_61_bars_builds_with_empty_price_3m(tmp_path):
+    """Kho mới (mọi mã < 61 bar): chg60 toàn None ⇒ cột object, `.round` từng ném
+    TypeError làm nổ cả market_overview."""
+    import vnstock_runner as vr
+
+    out = vr.build_market_overview(str(mini_warehouse(tmp_path, n_bars=30)))
+
+    aaa = next(t for t in out["tickers"] if t["Mã"] == "AAA")
+    assert pd.isna(aaa["Giá 3M %"])
+    assert aaa["Giá 1T %"] == round((22.9 / 22.4 - 1) * 100, 1)   # cột còn lại vẫn có số
+    assert pd.isna(out["sectors"][0]["Giá 3M %"])
+
+
 def test_missing_nn_3m_drops_trend_flag_and_keeps_flow_finite():
     """NN 3M thiếu ⇒ không cờ ACCUMULATING/DUMPING; flow tính từ thành phần còn lại
     (thành phần thiếu z = 0, cùng mẫu `_zscore` dùng cho mọi cột thiếu)."""
