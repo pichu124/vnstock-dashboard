@@ -216,6 +216,28 @@ def test_create_alert_does_not_write_when_file_unreadable(tmp_path):
     assert "price_alerts.json" in errors[0]
 
 
+def _clear_fired_block():
+    return next(n for n in ast.walk(_TAB_TREE) if isinstance(n, ast.If)
+                and ast.unparse(n.test) == "_fired_alerts" and "alert_clear" in ast.unparse(n))
+
+
+@pytest.mark.parametrize("clicked, block", [("alert_create", _create_alert_block),
+                                            ("alert_clear", _clear_fired_block)])
+def test_alert_button_reports_failed_save_instead_of_rerun(tmp_path, clicked, block):
+    """`save_alerts` hết lượt thử (Dropbox giữ file) trả False: rerun ngay thì trang vẽ
+    lại như chưa bấm, user không biết alert chưa được tạo / chưa xoá."""
+    errors: list = []
+    st = types.SimpleNamespace(button=lambda label, key=None, **kw: key == clicked,
+                               rerun=_raise_rerun, error=errors.append)
+    ns = {"st": st, "ALERTS_PATH": tmp_path / "price_alerts.json", "_alerts": [],
+          "_alerts_broken": False, "_al_ticker": "FPT", "_al_cond": "below",
+          "_al_target": 90.0, "_fired_alerts": [{"ticker": "HPG", "fired": True}],
+          "load_alerts": lambda: [{"ticker": "HPG", "fired": True}],
+          "save_alerts": lambda al: False}
+    exec(compile(ast.Module([block()], []), "analysis_tab.py", "exec"), ns)
+    assert len(errors) == 1 and "price_alerts.json" in errors[0]
+
+
 # ── Chọn mã: lựa chọn MỚI NHẤT của user thắng (selectbox hay nút futures) ────
 
 def _ticker_pick_code():

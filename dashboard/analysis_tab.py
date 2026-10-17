@@ -228,15 +228,16 @@ def render_analysis_tab() -> None:
                     except (OSError, ValueError) as _e:
                         st.error(f"Không đọc lại được `{ALERTS_PATH}` ({_e}) — chưa tạo alert.")
                     else:
-                        save_alerts([*_on_disk, {
+                        if save_alerts([*_on_disk, {
                             "ticker": _al_ticker,
                             "condition": _al_cond,
                             "target": _al_target,
                             "fired": False,
                             "created_at": __import__("datetime").datetime.now().isoformat(
                                 timespec="seconds"),
-                        }])
-                        st.rerun()
+                        }]):
+                            st.rerun()
+                        st.error(f"Không lưu được `{ALERTS_PATH}` — chưa tạo alert.")
 
         # List active alerts
         if _active_alerts:
@@ -265,8 +266,9 @@ def render_analysis_tab() -> None:
                 except (OSError, ValueError) as _e:
                     st.error(f"Không đọc lại được `{ALERTS_PATH}` ({_e}) — chưa xoá gì.")
                 else:
-                    save_alerts([a for a in _on_disk if not a.get("fired")])
-                    st.rerun()
+                    if save_alerts([a for a in _on_disk if not a.get("fired")]):
+                        st.rerun()
+                    st.error(f"Không lưu được `{ALERTS_PATH}` — chưa xoá gì.")
 
     # ── Xác định ticker cần phân tích ─────────────────────────────────────────────
     ticker = ticker_input or st.session_state.get("analyze_ticker", "")
