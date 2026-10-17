@@ -1030,6 +1030,10 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
         triggered = False
         condition = alert.get("condition", "")
         target = float(alert.get("target", 0))
+        if condition in ("above", "below"):
+            # Mục tiêu nhập theo VND. Bảng giá trả VND, nhánh dự phòng (nến 1m) trả
+            # NGHÌN đồng ⇒ đưa giá về thang của mục tiêu (lệch ~1000× mới đổi).
+            price = _normalize_live_price(target, price)
 
         if condition == "above" and price >= target:
             triggered = True

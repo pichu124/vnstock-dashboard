@@ -31,7 +31,7 @@ from dashboard.table_style import cell_color, cell_weight
 from dashboard.watchlist_io import load_watchlist, save_watchlist
 from vnstock_console_launch import build_ps_command
 from vnstock_parquet_io import write_json_atomic
-from vnstock_price_units import normalize_price_units
+from vnstock_price_units import normalize_live_price, normalize_price_units
 from vnstock_sectors import SECTOR_GROUPS, SECTOR_ORDER, get_sector
 
 
@@ -397,6 +397,7 @@ def alert_env(tmp_path):
         ALERTS_PATH=tmp_path / "_meta" / "price_alerts.json",
         load_live_quote=lambda t: {"price": 25.5, "chg_pct": 1.0, "volume": 1e6},
         send_telegram_alert=_send, write_json_atomic=write_json_atomic,
+        _normalize_live_price=normalize_live_price,
     )
     ns["sent"] = sent
     return ns
@@ -619,6 +620,29 @@ def test_failed_telegram_send_is_logged(alert_env, caplog):
         alert_env["check_and_fire_alerts"](
             [{"ticker": "VCB", "condition": "above", "target": 25.0}], "tok", "chat")
     assert "VCB" in caplog.text
+
+
+def test_vnd_target_fires_on_live_price_in_thousands(alert_env):
+    """Ô nhập ghi "Giá (VND)"; bảng giá (price_board) trả VND, nhưng nhánh dự phòng
+    `_http_fetch_quote` (nến 1m vnstock) ghi quote ở NGHÌN đồng. So thẳng 90.5 với
+    90000 thì "above" không bao giờ bắn còn "below" bắn ngay — Telegram báo sai."""
+    alert_env["load_live_quote"] = lambda t: {"price": 90.5, "chg_pct": 0.5, "volume": 1e6}
+    out = alert_env["check_and_fire_alerts"]([
+        {"ticker": "FPT", "condition": "above", "target": 90000.0, "fired": False},
+        {"ticker": "FPT", "condition": "below", "target": 90000.0, "fired": False},
+    ], "tok", "chat")
+    assert [a["fired"] for a in out] == [True, False]
+    assert out[0]["fired_price"] == 90500.0
+    assert "90,500.00" in out[0]["message"]
+
+
+def test_penny_price_in_vnd_is_not_rescaled(alert_env):
+    """Bảng giá trả AVF = 400 (VND thật — mã/chứng quyền dưới 500 đ là có thật):
+    quy đổi theo ngưỡng 500 sẽ biến nó thành 400,000 đ."""
+    alert_env["load_live_quote"] = lambda t: {"price": 400.0}
+    out = alert_env["check_and_fire_alerts"](
+        [{"ticker": "AVF", "condition": "below", "target": 500.0, "fired": False}], "tok", "chat")
+    assert out[0]["fired"] is True and out[0]["fired_price"] == 400.0
 
 
 # ── render_chart: thư viện chart + live bar ──────────────────────────────────
