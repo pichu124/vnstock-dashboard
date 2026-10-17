@@ -599,8 +599,8 @@ def _scan_live_quotes(quote_dir: Path, prices_dir: Path, state: dict, today: dat
     Chỉ dùng quote của `today` (`_live_frame`). `state` do caller giữ qua các lượt (fragment
     để trong `st.session_state`). Sang ngày mới thì xoá sạch: kho có bar mới sau pipeline
     18:00. Việc đắt chỉ làm trong `budget_s` giây; mã bị hoãn giữ row cũ (nếu có) và lượt sau
-    bắt đầu từ mã hoãn đầu tiên, không thì mã cuối danh sách đói khi lượt nào cũng hết giờ. Mã lỗi bị bỏ, không ghi memo (lượt sau thử
-    lại) nhưng được trả về để fragment báo."""
+    bắt đầu từ mã hoãn đầu tiên, không thì mã cuối danh sách đói khi lượt nào cũng hết giờ.
+    Mã lỗi bị bỏ, không ghi memo (lượt sau thử lại) nhưng được trả về để fragment báo."""
     from vnstock_screener import PRESETS, _calc_indicators   # lazy: module kéo `rich`
 
     if state.get("day") != today:
