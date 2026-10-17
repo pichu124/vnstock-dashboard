@@ -1040,8 +1040,17 @@ def check_and_fire_alerts(alerts: list[dict], bot_token: str = "",
         target = float(alert.get("target", 0))
         if condition in ("above", "below"):
             # Mục tiêu nhập theo VND. Bảng giá trả VND, nhánh dự phòng (nến 1m) trả
-            # NGHÌN đồng ⇒ đưa giá về thang của mục tiêu (lệch ~1000× mới đổi).
-            price = _normalize_live_price(target, price)
+            # NGHÌN đồng. Mốc đơn vị = close kho (nghìn): quote cùng thang ⇒ ×1000,
+            # lệch ~1000× ⇒ đã là VND. Mục tiêu chỉ là mốc khi kho trống — nó xa giá
+            # quá 100× được (chứng quyền 10 đ, "above 1.500").
+            # ponytail: mã dưới 500 đ mà kho lưu VND thô (ngưỡng 500 không chia) thì
+            # mốc sai thang; cần thì so thêm với mục tiêu.
+            hist = load_price_history(ticker)
+            ref = float(hist["close"].iloc[-1]) if not hist.empty else 0.0
+            if not ref > 0:
+                price = _normalize_live_price(target, price)
+            elif _normalize_live_price(ref, price) == price:
+                price *= 1000
 
         if condition == "above" and price >= target:
             triggered = True

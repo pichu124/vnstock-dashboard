@@ -398,6 +398,7 @@ def alert_env(tmp_path):
         load_live_quote=lambda t: {"price": 25.5, "chg_pct": 1.0, "volume": 1e6},
         send_telegram_alert=_send, write_json_atomic=write_json_atomic,
         _normalize_live_price=normalize_live_price,
+        load_price_history=lambda t, days=0: pd.DataFrame(),   # kho trống
     )
     ns["sent"] = sent
     return ns
@@ -742,6 +743,40 @@ def test_penny_price_in_vnd_is_not_rescaled(alert_env):
     out = alert_env["check_and_fire_alerts"](
         [{"ticker": "AVF", "condition": "below", "target": 500.0, "fired": False}], "tok", "chat")
     assert out[0]["fired"] is True and out[0]["fired_price"] == 400.0
+
+
+def _alerts_vs_warehouse(alert_env, kho_close, live, alerts):
+    """Kho có close gần nhất `kho_close` (nghìn đồng, như `load_price_history`)."""
+    alert_env["load_price_history"] = lambda t, days=0: pd.DataFrame(
+        {"time": pd.to_datetime(["2026-10-16"]), "close": [kho_close]})
+    alert_env["load_live_quote"] = lambda t: {"price": live}
+    return alert_env["check_and_fire_alerts"](
+        [{"fired": False, **a} for a in alerts], "tok", "chat")
+
+
+def test_warrant_10_vnd_does_not_fire_far_above_target(alert_env):
+    """Chứng quyền 10 đ, "above 1.500": lấy MỤC TIÊU làm mốc đơn vị thì 10/1500 < 0,01
+    ⇒ giá bị nhân 1000 thành 10.000 đ và bắn ngay."""
+    out = _alerts_vs_warehouse(alert_env, 0.01, 10.0, [
+        {"ticker": "CVHM2601", "condition": "above", "target": 1500.0}])
+    assert out[0]["fired"] is False
+    assert alert_env["sent"] == []
+
+
+def test_live_in_thousands_is_scaled_by_warehouse_close(alert_env):
+    out = _alerts_vs_warehouse(alert_env, 90.2, 90.5, [
+        {"ticker": "FPT", "condition": "above", "target": 90000.0}])
+    assert out[0]["fired"] is True and out[0]["fired_price"] == 90500.0
+
+
+def test_penny_vnd_live_far_below_target_is_not_rescaled(alert_env):
+    """AVF 400 đ (VND), kho 0.4 nghìn, "below 50.000": mốc mục tiêu thì 400/50000 < 0,01
+    ⇒ thành 400.000 đ, alert không bao giờ bắn."""
+    out = _alerts_vs_warehouse(alert_env, 0.4, 400.0, [
+        {"ticker": "AVF", "condition": "below", "target": 50000.0},
+        {"ticker": "AVF", "condition": "above", "target": 1000.0}])
+    assert [a["fired"] for a in out] == [True, False]
+    assert out[0]["fired_price"] == 400.0
 
 
 # ── render_chart: thư viện chart + live bar ──────────────────────────────────
