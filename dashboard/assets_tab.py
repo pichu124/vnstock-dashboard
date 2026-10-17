@@ -52,12 +52,16 @@ def render_assets_tab() -> None:
     rng = st.radio("Khung biểu đồ", list(_RANGES), index=2, horizontal=True, key="assets_range")
     days = _RANGES.get(rng)
     start = (date.today() - timedelta(days=days)).isoformat() if days else None
-    # st.tabs chạy cả 4 mục mỗi lượt rerun (kể cả chỉ đổi radio) ⇒ đọc kho qua cache.
+    # Mỗi lượt rerun (đổi radio; Streamlit cũ không tab lười thì cả 4 mục) ⇒ đọc kho qua cache.
     stamp = _store_stamp(va)
     va, av = _Cached(va, stamp), _Cached(av, stamp)
-    t_gold, t_oil, t_usd, t_link = st.tabs(["🥇 Vàng", "🛢️ Dầu", "💵 USD", "🔗 Liên kết cổ phiếu"])
+    from dashboard.news_tab import lazy_tabs, tab_open
+    t_gold, t_oil, t_usd, t_link = lazy_tabs(
+        st, ["🥇 Vàng", "🛢️ Dầu", "💵 USD", "🔗 Liên kết cổ phiếu"], key="assets_subtab")
     for tab, fn, name in ((t_gold, _render_gold, "Vàng"), (t_oil, _render_oil, "Dầu"),
                           (t_usd, _render_usd, "USD"), (t_link, _render_links, "Liên kết cổ phiếu")):
+        if not tab_open(tab):
+            continue
         with tab:
             try:
                 fn(va, av, start)

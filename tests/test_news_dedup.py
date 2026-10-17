@@ -174,6 +174,7 @@ def test_refresh_with_zero_news_is_not_reported_as_success(monkeypatch):
     from tests.test_tab_render_smoke import _Ctx
 
     nn = types.ModuleType("vnstock_news")
+    nn.NEWS_CACHE_PATH = __import__("pathlib").Path("không-có-news_cache.json")
     nn.cache_info = lambda: {"exists": False, "count": 0, "age_minutes": None}
     nn.build_universe = lambda **k: ["VCB", "FPT"]
     nn.refresh_news = lambda **k: []
@@ -201,6 +202,7 @@ def test_failed_refresh_still_shows_old_cache(monkeypatch):
 
     old = [{"news_title": "Tin cũ", "ticker": "VCB", "_date_sort": "2026-10-15"}]
     nn = types.ModuleType("vnstock_news")
+    nn.NEWS_CACHE_PATH = __import__("pathlib").Path("không-có-news_cache.json")
     nn.cache_info = lambda: {"exists": True, "count": 1, "age_minutes": 60}
     nn.build_universe = lambda **k: ["VCB"]
     nn.refresh_news = lambda **k: []
@@ -286,6 +288,7 @@ def _render_news_titles(monkeypatch, picks):
     from datetime import date
 
     nn = types.ModuleType("vnstock_news")
+    nn.NEWS_CACHE_PATH = __import__("pathlib").Path("không-có-news_cache.json")
     nn.cache_info = lambda: {"exists": True, "count": 3, "age_minutes": 5}
     nn.load_news_cache = lambda: [dict(n) for n in _NEWS_TZ]
     nn.news_context_block = lambda **k: ""
@@ -318,3 +321,83 @@ def test_specific_date_filter_uses_vn_calendar_day(monkeypatch):
     shown = _render_news_titles(monkeypatch, {"_news_recency_filter": "Tất cả",
                                               "_news_date_filter": "2026-10-15"})
     assert shown == ["Tin không tz"]
+
+
+# ─── Sub-tab lười + đệm cache_info ───────────────────────────────────────────
+
+@pytest.mark.parametrize("stateful,expect", [
+    (True, ["macro"]),                                          # streamlit có `on_change`: chỉ tab mở
+    (False, ["ticker", "macro", "rates", "reports", "alloc"]),  # bản cũ: chạy hết như trước
+])
+def test_news_subtabs_run_only_open_tab_when_supported(monkeypatch, stateful, expect):
+    import sys
+    import types
+    from tests.test_tab_render_smoke import _stateful_tabs
+
+    ran = []
+    for mod, fn, tag in (("dashboard.macro_tab", "render_macro_subtab", "macro"),
+                         ("dashboard.rates_report_tab", "render_rates_report_subtab", "rates"),
+                         ("dashboard.reports_tab", "render_reports_subtab", "reports"),
+                         ("dashboard.allocation_tab", "render_allocation_subtab", "alloc")):
+        m = types.ModuleType(mod)
+        setattr(m, fn, lambda tag=tag: ran.append(tag))
+        monkeypatch.setitem(sys.modules, mod, m)
+    st, news_tab = _news_tab_with_fake_st(monkeypatch)
+    monkeypatch.setattr(news_tab, "_render_ticker_news", lambda: ran.append("ticker"))
+    if stateful:
+        st.tabs = _stateful_tabs(open_idx=1)
+
+    news_tab.render_news_tab()
+
+    assert ran == expect
+    assert not st.error.called
+
+
+def test_cache_info_parsed_once_per_file_version(monkeypatch, tmp_path):
+    """`cache_info` đọc + parse cả news_cache.json (~1 MB, ~16 ms đo 17/10) chỉ để đếm tin, mỗi
+    lượt rerun ⇒ đệm theo mtime; tuổi cache vẫn tính lại mỗi lượt."""
+    import copy
+    import importlib
+    import os
+    import sys
+    import types
+    from datetime import datetime, timedelta
+    from tests.test_tab_render_smoke import _fake_streamlit
+
+    st = _fake_streamlit()
+
+    def _cache_data(*a, **k):            # đệm thật theo tham số, trả bản sao như Streamlit
+        def deco(f):
+            memo = {}
+
+            def wrapper(*args):
+                if repr(args) not in memo:
+                    memo[repr(args)] = f(*args)
+                return copy.deepcopy(memo[repr(args)])
+            return wrapper
+        return deco
+    st.cache_data = _cache_data
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    path = tmp_path / "news_cache.json"
+    path.write_text("{}", encoding="utf-8")
+    calls = []
+    fetched = (datetime.now() - timedelta(minutes=30)).isoformat()
+    nn = types.ModuleType("vnstock_news")
+    nn.NEWS_CACHE_PATH = path
+    nn.cache_info = lambda: calls.append(1) or {
+        "exists": True, "count": 3, "fetched_at": fetched, "age_minutes": 0.0}
+    nn.load_news_cache = lambda: []
+    monkeypatch.setitem(sys.modules, "vnstock_news", nn)
+    monkeypatch.setitem(sys.modules, "vnstock_sentiment", None)
+    news_tab = importlib.reload(importlib.import_module("dashboard.news_tab"))
+
+    news_tab._render_ticker_news()
+    news_tab._render_ticker_news()
+    assert len(calls) == 1
+    m = path.stat()
+    os.utime(path, ns=(m.st_atime_ns, m.st_mtime_ns + 10**9))      # file được ghi lại
+    news_tab._render_ticker_news()
+    assert len(calls) == 2
+
+    captions = [str(c.args[0]) for c in st.caption.call_args_list if c.args]
+    assert any("**3** tin · cập nhật **30.0 phút trước**" in s for s in captions), captions

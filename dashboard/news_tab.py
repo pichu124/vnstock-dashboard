@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import streamlit as st
 from datetime import datetime, date, timedelta, timezone
+import importlib
+import inspect
 import re
 from urllib.parse import urljoin, urlparse
 
@@ -181,6 +183,29 @@ def _news_card(item: dict, idx: int) -> None:
         st.divider()
 
 
+def lazy_tabs(st, labels: list[str], key: str):
+    """`st.tabs` chỉ chạy tab đang mở nếu streamlit có `on_change` (1.56 có): đổi tab ⇒ rerun,
+    `.open` báo tab nào mở. Bản cũ (requirements ghim >=1.35) ⇒ như trước, chạy hết.
+    Widget trong tab ẩn bị dọn state khi rời tab — như nav chính `st.pills`."""
+    if "on_change" in inspect.signature(st.tabs).parameters:
+        return st.tabs(labels, key=key, on_change="rerun")
+    return st.tabs(labels)
+
+
+def tab_open(tab) -> bool:
+    """False chỉ khi tabs có trạng thái và tab này đang ẩn (bản cũ: không có `.open`/None)."""
+    return getattr(tab, "open", None) is not False
+
+
+_SUBTABS = (  # (nhãn, module, hàm) — module None = tin theo mã ngay trong file này
+    ("📰 Tin theo mã", None, None),
+    ("🌐 Vĩ mô", "dashboard.macro_tab", "render_macro_subtab"),
+    ("📄 Báo cáo tuần", "dashboard.rates_report_tab", "render_rates_report_subtab"),
+    ("📚 Báo cáo", "dashboard.reports_tab", "render_reports_subtab"),
+    ("🧭 Phân bổ", "dashboard.allocation_tab", "render_allocation_subtab"),
+)
+
+
 def render_news_tab() -> None:
     """Main entry point called from vnstock_dashboard.py.
 
@@ -189,34 +214,26 @@ def render_news_tab() -> None:
     cache), 📚 Báo cáo (reports_tab — ingest + digest, P5) và 🧭 Phân bổ
     (allocation_tab — band B0-B4 + scorecard, P5).
     """
-    tab_ticker, tab_macro, tab_rates, tab_reports, tab_alloc = st.tabs(
-        ["📰 Tin theo mã", "🌐 Vĩ mô", "📄 Báo cáo tuần", "📚 Báo cáo", "🧭 Phân bổ"])
-    with tab_ticker:
-        _render_ticker_news()
-    with tab_macro:
-        try:
-            from dashboard.macro_tab import render_macro_subtab
-            render_macro_subtab()
-        except Exception as _e:                              # noqa
-            st.error(f"Không render được sub-tab Vĩ mô: {_e}")
-    with tab_rates:
-        try:
-            from dashboard.rates_report_tab import render_rates_report_subtab
-            render_rates_report_subtab()
-        except Exception as _e:                              # noqa
-            st.error(f"Không render được sub-tab Báo cáo tuần: {_e}")
-    with tab_reports:
-        try:
-            from dashboard.reports_tab import render_reports_subtab
-            render_reports_subtab()
-        except Exception as _e:                              # noqa
-            st.error(f"Không render được sub-tab Báo cáo: {_e}")
-    with tab_alloc:
-        try:
-            from dashboard.allocation_tab import render_allocation_subtab
-            render_allocation_subtab()
-        except Exception as _e:                              # noqa
-            st.error(f"Không render được sub-tab Phân bổ: {_e}")
+    tabs = lazy_tabs(st, [label for label, _, _ in _SUBTABS], key="_news_subtab")
+    for tab, (label, mod, fn) in zip(tabs, _SUBTABS):
+        if not tab_open(tab):
+            continue
+        with tab:
+            if mod is None:
+                _render_ticker_news()
+                continue
+            try:
+                getattr(importlib.import_module(mod), fn)()
+            except Exception as _e:                          # noqa
+                st.error(f"Không render được sub-tab {label.split(' ', 1)[1]}: {_e}")
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def _cache_info(stamp: tuple) -> dict:
+    """`cache_info` parse cả news_cache.json (~1 MB, ~16 ms đo 17/10) chỉ để đếm ⇒ đệm tới khi
+    file đổi (`stamp` = đường dẫn + mtime)."""
+    import vnstock_news as _nn
+    return _nn.cache_info()
 
 
 def _render_ticker_news() -> None:
@@ -236,7 +253,11 @@ def _render_ticker_news() -> None:
     st.markdown("#### 🗞️ Tin tức thị trường")
 
     # ── Cache status & controls ────────────────────────────────────────────
-    info = _nn.cache_info()
+    _p = _nn.NEWS_CACHE_PATH
+    info = _cache_info((str(_p), _p.stat().st_mtime_ns if _p.exists() else None))
+    if info.get("fetched_at"):        # tuổi tính lại mỗi lượt, không lấy bản đệm
+        info["age_minutes"] = round(
+            (datetime.now() - datetime.fromisoformat(info["fetched_at"])).total_seconds() / 60, 1)
     ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([3, 2, 2, 2])
 
     with ctrl_col1:
