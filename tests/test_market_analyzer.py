@@ -97,6 +97,23 @@ def test_nn_windows_fill_3m_once_feed_covers_60_sessions():
     assert vr._nn_windows(nn.tail(59))[2] == {}
 
 
+def test_nn_1t_1m_sum_exactly_5_and_20_latest_sessions(tmp_path):
+    """NN 1T/1M = 5/20 PHIÊN có trong data (như `Giá 1T %` = 5 phiên). Cắt `≥ mốc − 7
+    ngày lịch` từng lấy cả mốc ⇒ 6 phiên khi mốc là ngày thường."""
+    import vnstock_runner as vr
+
+    days = pd.bdate_range(end="2026-10-16", periods=25)          # phiên k mua ròng k tỷ
+    nn = pd.DataFrame({"symbol": "AAA", "date": days,
+                       "net_value": [k * 1e9 for k in range(1, 26)]})
+    out = vr.build_market_overview(str(mini_warehouse(tmp_path)), fetch_nn=lambda: nn)
+
+    aaa = next(t for t in out["tickers"] if t["Mã"] == "AAA")
+    assert aaa["NN 1T (tỷ)"] == 21 + 22 + 23 + 24 + 25           # 115, không phải 135
+    assert aaa["NN 1M (tỷ)"] == sum(range(6, 26))                # 310
+    assert pd.isna(aaa["NN 3M (tỷ)"])                            # 25 < 60 phiên
+    assert out["sectors"][0]["NN 1T (tỷ)"] == 115.0
+
+
 def test_missing_nn_3m_drops_trend_flag_and_keeps_flow_finite():
     """NN 3M thiếu ⇒ không cờ ACCUMULATING/DUMPING; flow tính từ thành phần còn lại
     (thành phần thiếu z = 0, cùng mẫu `_zscore` dùng cho mọi cột thiếu)."""

@@ -265,25 +265,26 @@ _NN_3M_MIN_SESSIONS = 60
 
 
 def _nn_windows(nn_df: pd.DataFrame) -> tuple:
-    """(nn_w, nn_m, nn_3m, nn_data_date): {mã: tỷ VND} trong 7/30/90 ngày lịch.
+    """(nn_w, nn_m, nn_3m, nn_data_date): {mã: tỷ VND} của 5/20/60 phiên gần nhất.
 
-    Neo ở ngày MỚI NHẤT có dữ liệu NN, không phải đồng hồ: feed trễ như batch
-    EOD, cắt theo đồng hồ thì cửa sổ trượt qua mấy ngày rỗng và số đứng im gần
-    ngày thật cuối (BĐS NN ~-5,277 ngày 09/06 hai phiên sau vẫn -5,275).
+    Phiên = ngày phân biệt CÓ trong dữ liệu NN (như `vnstock_dashboard._nn_window`),
+    không đếm ngày lịch: `≥ mốc − 7 ngày` lấy cả mốc ⇒ "NN 1T" thành 6 phiên. Neo ở
+    ngày mới nhất có dữ liệu, không phải đồng hồ: feed trễ như batch EOD (BĐS NN
+    ~-5,277 ngày 09/06 hai phiên sau vẫn -5,275).
     Dưới `_NN_3M_MIN_SESSIONS` phiên thì nn_3m rỗng ⇒ cột NN 3M = None."""
     nn_w, nn_m, nn_3m = {}, {}, {}
     if nn_df is None or nn_df.empty:
         return nn_w, nn_m, nn_3m, None
-    dates = pd.to_datetime(nn_df["date"])
-    anchor = dates.max()
-    windows = [(7, nn_w), (30, nn_m)]
-    if dates.dt.normalize().nunique() >= _NN_3M_MIN_SESSIONS:
-        windows.append((90, nn_3m))
-    for days, result_map in windows:
-        filtered = nn_df[dates >= anchor - pd.Timedelta(days=days)]
+    dates = pd.to_datetime(nn_df["date"]).dt.normalize()
+    sessions = dates.drop_duplicates().nlargest(_NN_3M_MIN_SESSIONS)
+    windows = [(5, nn_w), (20, nn_m)]
+    if len(sessions) >= _NN_3M_MIN_SESSIONS:
+        windows.append((_NN_3M_MIN_SESSIONS, nn_3m))
+    for n, result_map in windows:
+        filtered = nn_df[dates.isin(sessions.head(n))]
         for sym, val in filtered.groupby("symbol")["net_value"].sum().items():
             result_map[sym] = round(val / 1e9, 1)  # → tỷ VND
-    return nn_w, nn_m, nn_3m, anchor.date().isoformat()
+    return nn_w, nn_m, nn_3m, sessions.iloc[0].date().isoformat()
 
 
 def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
