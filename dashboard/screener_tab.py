@@ -26,6 +26,16 @@ aggregates at the top of the dashboard):
 
 from __future__ import annotations
 
+import json
+import os
+from collections.abc import Callable
+from datetime import date
+from pathlib import Path
+
+import pandas as pd
+
+from vnstock_price_units import normalize_live_price, normalize_price_units
+
 
 def render_screener_tab(
     *,
@@ -43,11 +53,6 @@ def render_screener_tab(
     except ImportError:
         print("[screener_tab] streamlit not available")
         return
-
-    # Third-party deps the block uses
-    import json
-    import numpy as np
-    import pandas as pd
 
     # Dashboard-level helpers — lazy import to avoid circular deps at load.
     # Streamlit registers vnstock_dashboard under various names (__main__, main,
@@ -68,7 +73,6 @@ def render_screener_tab(
     WSS_AVAILABLE          = _vnd.WSS_AVAILABLE
     INDEX_SYMBOLS          = _vnd.INDEX_SYMBOLS
     _is_stock              = _vnd._is_stock
-    _normalize_price_units = _vnd._normalize_price_units
     load_watchlist         = _vnd.load_watchlist
     save_watchlist         = _vnd.save_watchlist
     compute_alerts         = _vnd.compute_alerts
@@ -189,140 +193,21 @@ def render_screener_tab(
     if _live_scan_on and WSS_AVAILABLE:
         @st.fragment(run_every=10)
         def _live_screener_fragment():
-            import glob as _gl
-            from pathlib import Path as _P
-            from vnstock_screener import PRESETS
-
-            # Đọc tất cả quote files hiện có
-            quote_dir = _P("data_warehouse/_live")
+            quote_dir = Path("data_warehouse/_live")
             if not quote_dir.exists():
                 st.caption("⏳ Chưa có quote data — bật Live Mode trước")
                 return
-
-            live_hits = {p: [] for p in PRESETS if p != "value"}
-            quote_files = list(quote_dir.glob("quote_*.json"))
-            if not quote_files:
+            if not any(quote_dir.glob("quote_*.json")):
                 st.caption("⏳ Chưa có quote data — chờ WSS poll...")
                 return
 
-            # Load warehouse data cho mỗi ticker (cached), merge live price
-            _screener_cache_key = "live_screener_warehouse"
-            if _screener_cache_key not in st.session_state:
-                st.session_state[_screener_cache_key] = {}
-            _ws_cache = st.session_state[_screener_cache_key]
-
-            scanned = 0
-            for qf in quote_files:
-                try:
-                    ticker_name = qf.stem.replace("quote_", "")
-                    # Lọc: chỉ giữ cổ phiếu thật (bỏ futures, index, warrant, CW, bond)
-                    if not _is_stock(ticker_name) or ticker_name in INDEX_SYMBOLS:
-                        continue
-
-                    live_q = json.loads(qf.read_text())
-                    live_price = float(live_q.get("price", 0))
-                    live_vol = float(live_q.get("volume", 0))
-                    if live_price <= 0:
-                        continue
-
-                    # Normalize live price: API trả VND (77700), warehouse dùng nghìn VND (77.7)
-                    if live_price > 500:
-                        live_price /= 1000
-
-                    # Load historical indicators từ warehouse (cache in session)
-                    if ticker_name not in _ws_cache:
-                        _ticker_dir = _P("data_warehouse/prices") / f"ticker={ticker_name}"
-                        if not _ticker_dir.exists():
-                            continue
-                        try:
-                            import pyarrow.parquet as _pq
-                            _frames = []
-                            for _yd in sorted(_ticker_dir.iterdir()):
-                                if not _yd.is_dir():
-                                    continue
-                                for _pf in _yd.glob("*.parquet"):
-                                    _frames.append(
-                                        _pq.read_table(str(_pf),
-                                            columns=["time","open","high","low","close","volume"]
-                                        ).to_pandas()
-                                    )
-                            if not _frames:
-                                continue
-                            _hist = pd.concat(_frames, ignore_index=True)
-                            _hist["time"] = pd.to_datetime(_hist["time"])
-                            _hist = _hist.sort_values("time").tail(300).reset_index(drop=True)
-                            # Normalize warehouse: có thể pha trộn VND + nghìn VND
-                            _hist = _normalize_price_units(_hist)
-                            _ws_cache[ticker_name] = _hist
-                        except Exception:
-                            continue
-
-                    hist = _ws_cache.get(ticker_name)
-                    if hist is None or len(hist) < 60:
-                        continue
-
-                    # Append live price as latest row (đã normalize ở trên)
-                    df_live = hist.copy()
-                    df_live.iloc[-1, df_live.columns.get_loc("close")] = live_price
-                    if live_vol > 0:
-                        df_live.iloc[-1, df_live.columns.get_loc("volume")] = live_vol
-
-                    # Compute indicators
-                    c = df_live["close"].astype(float)
-                    delta = c.diff()
-                    gain = delta.clip(lower=0).rolling(14).mean()
-                    loss = (-delta.clip(upper=0)).rolling(14).mean()
-                    rsi = (100 - (100 / (1 + gain / loss.replace(0, np.nan)))).iloc[-1]
-
-                    ema9 = c.ewm(span=9, adjust=False).mean().iloc[-1]
-                    ema21 = c.ewm(span=21, adjust=False).mean().iloc[-1]
-                    ema50 = c.ewm(span=50, adjust=False).mean().iloc[-1]
-                    ema200 = c.ewm(span=200, adjust=False).mean().iloc[-1]
-
-                    ema12 = c.ewm(span=12, adjust=False).mean()
-                    ema26 = c.ewm(span=26, adjust=False).mean()
-                    macd_hist = ((ema12 - ema26) - (ema12 - ema26).ewm(span=9, adjust=False).mean()).iloc[-1]
-                    macd_hist_prev = ((ema12 - ema26) - (ema12 - ema26).ewm(span=9, adjust=False).mean()).iloc[-2]
-
-                    vol_ma20 = df_live["volume"].astype(float).rolling(20).mean().iloc[-1]
-                    vol_spike = live_vol / vol_ma20 if vol_ma20 > 0 else 0
-
-                    hi52 = df_live["high"].astype(float).tail(252).max()
-                    lo52 = df_live["low"].astype(float).tail(252).min()
-                    pct52 = ((live_price - lo52) / (hi52 - lo52) * 100) if hi52 != lo52 else 50
-
-                    chg_20d = ((live_price / c.iloc[-21] - 1) * 100) if len(c) > 20 else 0
-
-                    macd_cross = "BULL" if macd_hist > 0 else "BEAR"
-                    if macd_hist > 0 and macd_hist_prev <= 0:
-                        macd_cross = "BUY"
-
-                    row = {
-                        "ticker": ticker_name,
-                        "price": live_price,
-                        "rsi_14": rsi,
-                        "ema_trend": "UP" if ema9 > ema21 else "DOWN",
-                        "long_trend": "BULL" if ema50 > ema200 else "BEAR",
-                        "above_ma200": live_price > ema200,
-                        "macd_cross": macd_cross,
-                        "vol_spike": vol_spike,
-                        "52w_pct": pct52,
-                        "chg_20d_pct": chg_20d,
-                    }
-
-                    # Check mỗi preset
-                    for pname, pcfg in PRESETS.items():
-                        if pname == "value":
-                            continue
-                        try:
-                            if pcfg["filter"] and pcfg["filter"](row):
-                                live_hits[pname].append(row)
-                        except Exception:
-                            continue
-
-                    scanned += 1
-                except Exception:
-                    continue
+            if "live_screener_state" not in st.session_state:
+                st.session_state["live_screener_state"] = {}
+            # Chỉ cổ phiếu thật (bỏ futures, index, warrant, CW, bond)
+            scanned, live_hits = _scan_live_quotes(
+                quote_dir, Path("data_warehouse/prices"),
+                st.session_state["live_screener_state"], datetime.now().date(),
+                lambda t: _is_stock(t) and t not in INDEX_SYMBOLS)
 
             # Render results
             total_hits_live = sum(len(v) for v in live_hits.values())
@@ -353,13 +238,10 @@ def render_screener_tab(
                         icon = PRESET_ICONS.get(pname, "📊")
                         with cols[col_idx % len(cols)]:
                             st.markdown(f"**{icon} {pname}** ({len(hits)})")
-                            for h in sorted(hits, key=lambda x: x.get("rsi_14", 50))[:5]:
-                                _rsi = h.get("rsi_14", 0)
-                                _vs = h.get("vol_spike", 0)
+                            for _tk, _txt in _top_hits(hits):
                                 st.markdown(
-                                    f"<span style='color:#60a5fa;font-size:12px'>{h['ticker']}</span>"
-                                    f" <span style='color:#6b7280;font-size:10px'>"
-                                    f"RSI {_rsi:.0f} Vol {_vs:.1f}x</span>",
+                                    f"<span style='color:#60a5fa;font-size:12px'>{_tk}</span>"
+                                    f" <span style='color:#6b7280;font-size:10px'>{_txt}</span>",
                                     unsafe_allow_html=True,
                                 )
                         col_idx += 1
@@ -590,3 +472,146 @@ def _render_watchlist_sidebar(st, load_watchlist, save_watchlist, path) -> "tupl
         if len(_wl_tickers) > 20:
             st.caption(f"... +{len(_wl_tickers)-20} mã khác")
     return _wl_tickers, _filter_wl
+
+
+# ── Live Scan: hàm thuần (test gọi được không cần Streamlit) ─────────────────
+
+_OHLCV = ["time", "open", "high", "low", "close", "volume"]
+_LIVE_MIN_BARS = 60          # = `min_rows` mặc định của `MarketScreener.scan` (EOD)
+
+
+def _read_recent_history(ticker_dir: Path, years: int = 2, tail: int = 300) -> pd.DataFrame:
+    """`tail` bar cuối của một mã, chỉ đọc `years` thư mục `year=` mới nhất (EOD lookback 300
+    cũng chỉ đọc 2 năm). Trong năm đọc file theo mtime CŨ→MỚI rồi khử trùng ngày giữ bản MỚI:
+    Dropbox có thể đẻ "(conflicted copy).parquet" — cùng ngữ nghĩa
+    `vnstock_strategy._read_ticker_dir`."""
+    import pyarrow.parquet as pq
+
+    frames = [pq.read_table(str(pf), columns=_OHLCV).to_pandas()
+              for yd in sorted(ticker_dir.glob("year=*"))[-years:]
+              for pf in sorted(yd.glob("*.parquet"), key=lambda f: f.stat().st_mtime)]
+    if not frames:
+        return pd.DataFrame(columns=_OHLCV)
+    df = pd.concat(frames, ignore_index=True)
+    df["time"] = pd.to_datetime(df["time"])
+    df = df.drop_duplicates("time", keep="last").sort_values("time").tail(tail)
+    return normalize_price_units(df.reset_index(drop=True))
+
+
+def _quote_day(quote: dict) -> pd.Timestamp | None:
+    """Ngày phiên của quote theo giờ VN (không tz); `time` thiếu/hỏng ⇒ None."""
+    try:
+        t = pd.Timestamp(quote.get("time"))
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(t):
+        return None
+    if t.tz is not None:
+        t = t.tz_convert("Asia/Ho_Chi_Minh").tz_localize(None)
+    return t.normalize()
+
+
+def _live_frame(hist: pd.DataFrame, quote: dict) -> pd.DataFrame | None:
+    """`hist` + quote live. Quote cùng ngày bar cuối ⇒ thay bar cuối; ngày sau ⇒ nối bar mới;
+    cũ hơn bar cuối (file tồn từ phiên trước) / giá hỏng ⇒ None. Không sửa `hist` (nằm trong
+    cache). `volume` của quote là TÍCH LUỸ cả phiên = KL bar ngày."""
+    day = _quote_day(quote)
+    try:
+        price, vol = float(quote.get("price") or 0), float(quote.get("volume") or 0)
+        q_high, q_low = float(quote.get("high") or 0), float(quote.get("low") or 0)
+    except (TypeError, ValueError):
+        return None
+    last = hist.iloc[-1]
+    last_day = last["time"].normalize()
+    if price <= 0 or day is None or day < last_day:
+        return None
+    ref = float(last["close"])          # đơn vị giá live suy theo kho, không theo ngưỡng cứng
+    price = normalize_live_price(ref, price)
+    high = max(normalize_live_price(ref, q_high) if q_high > 0 else price, price)
+    low = min(normalize_live_price(ref, q_low) if q_low > 0 else price, price)
+    if day == last_day:
+        base = hist.iloc[:-1]
+        bar = {"time": last["time"], "open": last["open"], "high": max(last["high"], high),
+               "low": min(last["low"], low), "close": price,
+               "volume": vol if vol > 0 else last["volume"]}
+    else:
+        base = hist
+        # ponytail: quote không có giá mở cửa ⇒ open = close hôm qua; trần: mẫu nến có gap
+        # mở cửa đọc sai; nâng cấp: lấy open từ `_live/bars_<ngày>.parquet`.
+        bar = {"time": day, "open": ref, "high": high, "low": low, "close": price, "volume": vol}
+    return pd.concat([base, pd.DataFrame([bar])], ignore_index=True)
+
+
+def _live_row(entry: os.DirEntry, ticker: str, prices_dir: Path, state: dict,
+              calc: Callable[[pd.DataFrame], dict]) -> dict | None:
+    """Row chỉ báo live của một mã, ghi nhớ 2 tầng trong `state`: mtime file quote không đổi
+    ⇒ khỏi mở file; đổi mtime mà (ngày, giá, KL, cao, thấp) như cũ ⇒ khỏi tính lại (tầng lạnh
+    `vnstock_wss` ghi lại file mỗi COLD_EVERY_N vòng dù giá đứng yên)."""
+    mtime = entry.stat().st_mtime_ns
+    memo = state["rows"].get(ticker)
+    if memo is not None and memo[0] == mtime:
+        return memo[2]
+    hists = state["hist"]
+    if ticker not in hists:             # thiếu thư mục / < 60 bar cũng nhớ (None), khỏi dò lại
+        hist = _read_recent_history(prices_dir / f"ticker={ticker}")
+        hists[ticker] = hist if len(hist) >= _LIVE_MIN_BARS else None
+    if hists[ticker] is None:
+        return None
+    with open(entry.path, encoding="utf-8") as f:
+        quote = json.load(f)
+    if not isinstance(quote, dict):
+        return None
+    key = (_quote_day(quote), *(quote.get(k) for k in ("price", "volume", "high", "low")))
+    if memo is not None and memo[1] == key:
+        row = memo[2]
+    else:
+        frame = _live_frame(hists[ticker], quote)
+        ind = calc(frame) if frame is not None else {}
+        row = {**ind, "ticker": ticker} if ind else None
+    state["rows"][ticker] = (mtime, key, row)
+    return row
+
+
+def _scan_live_quotes(quote_dir: Path, prices_dir: Path, state: dict, today: date,
+                      is_stock: Callable[[str], bool]) -> tuple[int, dict[str, list[dict]]]:
+    """Một lượt Live Scan ⇒ (số mã quét được, preset → các row khớp).
+
+    `state` do caller giữ qua các lượt (fragment để trong `st.session_state`). Sang ngày mới
+    thì xoá sạch: kho có bar mới sau pipeline 18:00."""
+    from vnstock_screener import PRESETS, _calc_indicators   # lazy: module kéo `rich`
+
+    if state.get("day") != today:
+        state.clear()
+        state.update(day=today, hist={}, rows={})
+    hits: dict[str, list[dict]] = {p: [] for p in PRESETS if p != "value"}
+    scanned = 0
+    with os.scandir(quote_dir) as it:
+        entries = [e for e in it if e.name.startswith("quote_") and e.name.endswith(".json")]
+    for entry in entries:
+        ticker = entry.name[len("quote_"):-len(".json")]
+        if not is_stock(ticker):
+            continue
+        try:
+            row = _live_row(entry, ticker, prices_dir, state, _calc_indicators)
+        except (OSError, ValueError):   # file đang ghi dở / parquet hỏng: bỏ mã, lượt sau thử lại
+            continue
+        if row is None:
+            continue
+        scanned += 1
+        for pname in hits:
+            try:
+                if PRESETS[pname]["filter"](row):
+                    hits[pname].append(row)
+            except TypeError:           # filter so số với None (vd rsi_14 None) ⇒ không khớp
+                continue
+    return scanned, hits
+
+
+def _top_hits(hits: list[dict], n: int = 5) -> list[tuple[str, str]]:
+    """(mã, "RSI 28 Vol 1.6x") của `n` hit RSI thấp nhất; số thiếu (None) hiện "—"."""
+    out = []
+    for h in sorted(hits, key=lambda h: 50 if h.get("rsi_14") is None else h["rsi_14"])[:n]:
+        rsi = "—" if h.get("rsi_14") is None else f"{h['rsi_14']:.0f}"
+        vol = "—" if h.get("vol_spike") is None else f"{h['vol_spike']:.1f}x"
+        out.append((h["ticker"], f"RSI {rsi} Vol {vol}"))
+    return out
