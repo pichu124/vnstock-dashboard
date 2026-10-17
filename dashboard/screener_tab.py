@@ -605,7 +605,7 @@ def _live_row(entry: os.DirEntry, ticker: str, prices_dir: Path, state: dict, to
         # Kho đứng im: nối bar live ngay sau khoảng trống ⇒ chỉ báo nhảy vọt ⇒ hit giả.
         if hists[ticker] and stale_lag(hist["time"].iloc[-1], state.get("sessions", ())):
             hists[ticker] = None
-            state["stale"].add(ticker)
+            state.setdefault("stale", set()).add(ticker)   # state cũ (hot-reload giữa ngày) chưa có khoá
     if hists[ticker] is None:
         return None
     hist, written_at = hists[ticker]
