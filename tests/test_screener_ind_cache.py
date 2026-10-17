@@ -18,6 +18,7 @@ Bất biến phải giữ:
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -150,3 +151,79 @@ class TestWiring:
         # CLAUDE.md từng ghi "9 preset" — con số đó SAI, và nó là hệ số nhân
         # của toàn bộ chi phí bước screener.
         assert len(sc.PRESETS) == 14
+
+
+# ── Kho đứng im: mã trễ > N phiên không xét preset ──────────────────────────
+# Đo 17/10 trên kho thật: 517/1.723 mã có bar cuối trễ > 5 phiên so với VNINDEX
+# (cách ly basis drift, ngừng giao dịch, huỷ niêm yết) — chỉ báo của chúng là
+# của một ngày cũ, ra preset hôm nay là tín hiệu giả.
+
+STALE_ENV = "VNSTOCK_SCREENER_STALE_SESSIONS"
+# Tuần lễ 30/4: nghỉ T2 27/4 (Giỗ Tổ bù), T5 30/4, T6 1/5.
+_HOLIDAY_SESSIONS = ["2026-04-24", "2026-04-28", "2026-04-29", "2026-05-04", "2026-05-05"]
+
+
+@pytest.mark.parametrize("last_bar, expected", [
+    ("2026-05-05", 0),            # bar cuối = phiên mới nhất
+    ("2026-05-06", 0),            # bar mới hơn lịch (VNINDEX chậm một phiên) ⇒ không trễ
+    ("2026-05-04", 1),
+    ("2026-04-29 14:45", 2),      # giờ trong ngày không đổi phép đếm
+    ("2026-04-24", 4),            # qua cuối tuần + 3 ngày lễ: 4 phiên, không phải 7 ngày làm việc
+    ("2026-04-25", 4),            # bar ngày không phải phiên ⇒ đếm phiên SAU nó
+    ("2026-01-02", 5),            # cũ hơn cả lịch ⇒ mọi phiên của lịch
+])
+def test_stale_sessions_counts_market_sessions_not_calendar_days(last_bar, expected):
+    assert sc.stale_sessions(pd.Timestamp(last_bar), _HOLIDAY_SESSIONS) == expected
+
+
+def test_stale_sessions_without_calendar_is_zero():
+    assert sc.stale_sessions(pd.Timestamp("2026-01-02"), []) == 0
+
+
+@pytest.mark.parametrize("raw, expected", [(None, 5), ("0", 0), ("8", 8), ("hỏng", 5)])
+def test_stale_limit_reads_env(monkeypatch, raw, expected):
+    monkeypatch.delenv(STALE_ENV, raising=False)
+    if raw is not None:
+        monkeypatch.setenv(STALE_ENV, raw)
+    assert sc.stale_limit() == expected
+
+
+def _write_prices(root, ticker, times, close):
+    df = pd.DataFrame({"time": times, "open": close, "high": close * 1.01,
+                       "low": close * 0.99, "close": close, "volume": 1e6})
+    for year, part in df.groupby(df["time"].dt.year):
+        d = root / "prices" / f"ticker={ticker}" / f"year={year}"
+        d.mkdir(parents=True, exist_ok=True)
+        part.to_parquet(d / "prices.parquet", index=False)
+
+
+@pytest.fixture()
+def stale_warehouse(tmp_path, monkeypatch):
+    """Kho thu nhỏ: VNINDEX (đang tăng) = lịch phiên; FRESH trễ 1 phiên, STALE trễ 10 phiên —
+    cả hai rơi đều 1%/phiên (RSI 0 ⇒ lọt `oversold`). Ngày neo theo hôm nay vì `_load_ticker`
+    chỉ đọc từ năm ngoái trở đi."""
+    monkeypatch.delenv(STALE_ENV, raising=False)
+    sessions = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=150)
+    _write_prices(tmp_path, "VNINDEX", sessions, 1000.0 + np.arange(150))
+    _write_prices(tmp_path, "FRESH", sessions[:-1], 50 * 0.99 ** np.arange(149))
+    _write_prices(tmp_path, "STALE", sessions[:-10], 50 * 0.99 ** np.arange(140))
+    return tmp_path
+
+
+def _oversold(warehouse):
+    from vnstock_runner import run_all_presets
+    out = run_all_presets(str(warehouse), presets=["oversold"])
+    return {r["ticker"] for r in out["presets"]["oversold"]["results"]}, out["stale_excluded"]
+
+
+def test_eod_preset_skips_ticker_stale_10_sessions_keeps_1(stale_warehouse):
+    got, stale = _oversold(stale_warehouse)
+    assert got == {"FRESH"}
+    assert stale == {"limit": 5, "count": 1, "tickers": {"STALE": 10}}
+
+
+def test_eod_stale_filter_off_with_env_zero(stale_warehouse, monkeypatch):
+    monkeypatch.setenv(STALE_ENV, "0")
+    got, stale = _oversold(stale_warehouse)
+    assert got == {"FRESH", "STALE"}
+    assert stale == {"limit": 0, "count": 0, "tickers": {}}
