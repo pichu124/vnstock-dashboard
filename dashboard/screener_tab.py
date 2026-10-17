@@ -519,10 +519,12 @@ def _quote_day(quote: dict) -> pd.Timestamp | None:
     return t.normalize()
 
 
-def _live_frame(hist: pd.DataFrame, quote: dict) -> pd.DataFrame | None:
-    """`hist` + quote live. Quote cùng ngày bar cuối ⇒ thay bar cuối; ngày sau ⇒ nối bar mới;
-    cũ hơn bar cuối (file tồn từ phiên trước) / giá hỏng ⇒ None. Không sửa `hist` (nằm trong
-    cache). `volume` của quote là TÍCH LUỸ cả phiên = KL bar ngày."""
+def _live_frame(hist: pd.DataFrame, quote: dict, today: date) -> pd.DataFrame | None:
+    """`hist` + quote live của HÔM NAY. Quote ngày trước `today` ⇒ None dù trùng ngày bar cuối
+    (chụp giữa phiên đã qua — đè bar EOD bằng giá 11:00 là tín hiệu giả; row EOD đã có ở bảng
+    screener chính); cũ hơn bar cuối / giá hỏng ⇒ None. Còn lại: cùng ngày bar cuối ⇒ thay bar
+    cuối, ngày sau ⇒ nối bar mới. Không sửa `hist` (nằm trong cache). `volume` của quote là
+    TÍCH LUỸ cả phiên = KL bar ngày."""
     day = _quote_day(quote)
     try:
         price, vol = float(quote.get("price") or 0), float(quote.get("volume") or 0)
@@ -531,7 +533,7 @@ def _live_frame(hist: pd.DataFrame, quote: dict) -> pd.DataFrame | None:
         return None
     last = hist.iloc[-1]
     last_day = last["time"].normalize()
-    if price <= 0 or day is None or day < last_day:
+    if price <= 0 or day is None or day < max(last_day, pd.Timestamp(today)):
         return None
     ref = float(last["close"])          # đơn vị giá live suy theo kho, không theo ngưỡng cứng
     price = normalize_live_price(ref, price)
@@ -550,7 +552,7 @@ def _live_frame(hist: pd.DataFrame, quote: dict) -> pd.DataFrame | None:
     return pd.concat([base, pd.DataFrame([bar])], ignore_index=True)
 
 
-def _live_row(entry: os.DirEntry, ticker: str, prices_dir: Path, state: dict,
+def _live_row(entry: os.DirEntry, ticker: str, prices_dir: Path, state: dict, today: date,
               calc: Callable[[pd.DataFrame], dict], deadline: float) -> dict | None | object:
     """Row chỉ báo live của một mã, ghi nhớ 2 tầng trong `state`: mtime file quote không đổi
     ⇒ khỏi mở file; đổi mtime mà (ngày, giá, KL, cao, thấp) như cũ ⇒ khỏi tính lại (tầng lạnh
@@ -574,13 +576,14 @@ def _live_row(entry: os.DirEntry, ticker: str, prices_dir: Path, state: dict,
         return None
     with open(entry.path, encoding="utf-8") as f:
         quote = json.load(f)
-    if not isinstance(quote, dict):
+    if not isinstance(quote, dict):     # JSON hợp lệ sai dạng: nhớ để lượt sau khỏi mở lại
+        state["rows"][ticker] = (mtime, None, None)
         return None
     key = (_quote_day(quote), *(quote.get(k) for k in ("price", "volume", "high", "low")))
     if memo is not None and memo[1] == key:
         row = memo[2]
     else:
-        frame = _live_frame(hists[ticker], quote)
+        frame = _live_frame(hists[ticker], quote, today)
         ind = calc(frame) if frame is not None else {}
         row = {**ind, "ticker": ticker} if ind else None
     state["rows"][ticker] = (mtime, key, row)
@@ -593,10 +596,10 @@ def _scan_live_quotes(quote_dir: Path, prices_dir: Path, state: dict, today: dat
     """Một lượt Live Scan ⇒ (số mã có row, preset → các row khớp, số mã chờ lượt sau,
     lỗi `"<MÃ>: <Lỗi>: <msg>"`).
 
-    `state` do caller giữ qua các lượt (fragment để trong `st.session_state`). Sang ngày mới
-    thì xoá sạch: kho có bar mới sau pipeline 18:00. Việc đắt chỉ làm trong `budget_s` giây;
-    mã bị hoãn giữ row cũ (nếu có) và lượt sau bắt đầu từ mã hoãn đầu tiên, không thì mã
-    cuối danh sách đói khi lượt nào cũng hết giờ. Mã lỗi bị bỏ, không ghi memo (lượt sau thử
+    Chỉ dùng quote của `today` (`_live_frame`). `state` do caller giữ qua các lượt (fragment
+    để trong `st.session_state`). Sang ngày mới thì xoá sạch: kho có bar mới sau pipeline
+    18:00. Việc đắt chỉ làm trong `budget_s` giây; mã bị hoãn giữ row cũ (nếu có) và lượt sau
+    bắt đầu từ mã hoãn đầu tiên, không thì mã cuối danh sách đói khi lượt nào cũng hết giờ. Mã lỗi bị bỏ, không ghi memo (lượt sau thử
     lại) nhưng được trả về để fragment báo."""
     from vnstock_screener import PRESETS, _calc_indicators   # lazy: module kéo `rich`
 
@@ -614,7 +617,7 @@ def _scan_live_quotes(quote_dir: Path, prices_dir: Path, state: dict, today: dat
         if not is_stock(ticker):
             continue
         try:
-            row = _live_row(entry, ticker, prices_dir, state, _calc_indicators, deadline)
+            row = _live_row(entry, ticker, prices_dir, state, today, _calc_indicators, deadline)
         except Exception as e:          # file ghi dở, parquet hỏng, dữ liệu lạ: chỉ bỏ mã này
             errors.append(f"{ticker}: {type(e).__name__}: {str(e)[:80]}")
             continue

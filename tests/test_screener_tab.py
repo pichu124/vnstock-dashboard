@@ -264,7 +264,7 @@ def test_live_frame_appends_today_and_keeps_yesterday_bar():
     hist = _bars()
     before = hist.copy()
     frame = _live_frame(hist, {"time": "2026-10-16T14:20:52", "price": 61_000.0,
-                               "volume": 2e6, "high": 62_000.0, "low": 60_000.0})
+                               "volume": 2e6, "high": 62_000.0, "low": 60_000.0}, TODAY)
     assert len(frame) == len(hist) + 1
     assert frame.iloc[:-1].equals(hist)                       # bar D-1 nguyên vẹn
     assert hist.equals(before)                                # không sửa bản đang nằm trong cache
@@ -276,7 +276,7 @@ def test_live_frame_same_day_replaces_last_bar():
     hist = _bars(end="2026-10-16")
     bar = hist.iloc[-1]
     frame = _live_frame(hist, {"time": "2026-10-16T14:20:52", "price": 66_000.0,
-                               "volume": 0.0, "high": 66_500.0, "low": 50_000.0})
+                               "volume": 0.0, "high": 66_500.0, "low": 50_000.0}, TODAY)
     last = frame.iloc[-1]
     assert len(frame) == len(hist) and frame.iloc[:-1].equals(hist.iloc[:-1])
     assert (last["time"], last["open"], last["close"]) == (bar["time"], bar["open"], 66.0)
@@ -288,16 +288,16 @@ def test_live_frame_drops_stale_or_broken_quote():
     """Quote tồn từ phiên trước (file 08/2026 vẫn nằm trong _live) ⇒ bỏ mã."""
     from dashboard.screener_tab import _live_frame
     hist = _bars()
-    assert _live_frame(hist, {"time": "2026-08-18T14:20:52", "price": 68_700.0}) is None
-    assert _live_frame(hist, {"time": "hỏng", "price": 68_700.0}) is None
-    assert _live_frame(hist, {"price": 68_700.0}) is None
-    assert _live_frame(hist, {"time": "2026-10-16T10:00:00", "price": 0}) is None
+    assert _live_frame(hist, {"time": "2026-08-18T14:20:52", "price": 68_700.0}, TODAY) is None
+    assert _live_frame(hist, {"time": "hỏng", "price": 68_700.0}, TODAY) is None
+    assert _live_frame(hist, {"price": 68_700.0}, TODAY) is None
+    assert _live_frame(hist, {"time": "2026-10-16T10:00:00", "price": 0}, TODAY) is None
 
 
 def test_live_frame_converts_tz_aware_quote_to_vietnam_day():
     from dashboard.screener_tab import _live_frame
     hist = _bars()
-    frame = _live_frame(hist, {"time": "2026-10-15T17:30:00+00:00", "price": 61_000.0})
+    frame = _live_frame(hist, {"time": "2026-10-15T17:30:00+00:00", "price": 61_000.0}, TODAY)
     assert frame["time"].iloc[-1] == pd.Timestamp("2026-10-16")      # 00:30 giờ VN
 
 
@@ -322,7 +322,7 @@ def test_live_price_unit_follows_warehouse(hist_close, quote_price, expected):
     from dashboard.screener_tab import _live_frame
     hist = _bars().assign(open=hist_close, high=hist_close, low=hist_close, close=hist_close)
     frame = _live_frame(hist, {"time": "2026-10-16T10:00:00", "price": quote_price,
-                               "high": quote_price, "low": quote_price})
+                               "high": quote_price, "low": quote_price}, TODAY)
     last = frame.iloc[-1]
     assert (last["close"], last["high"], last["low"]) == pytest.approx((expected,) * 3)
 
@@ -456,6 +456,38 @@ def test_scan_skips_broken_quote_without_failing_round(tmp_path, monkeypatch):
     assert scanned == 1 and set(rows) == {"AAA"}
 
 
+def test_scan_ignores_quote_from_past_session_even_on_last_bar_day(tmp_path, monkeypatch):
+    """File quote chụp 11:00 phiên D-1 (dashboard tắt giữa phiên; hôm nay WSS chưa ghi mã này)
+    trùng ngày bar EOD D-1 ⇒ code cũ đè bar EOD bằng giá 11:00: chg_1d −4%, vol 0,28×, MACD SELL
+    giả. Live Scan chỉ dùng quote của HÔM NAY; hôm nay = D-1 thì vẫn thay bar như cũ."""
+    hist = _bars()                                            # kho tới 2026-10-15
+    price = round(hist["close"].iloc[-1] * 0.95, 2)
+    _put_hist(tmp_path / "prices", "AAA", hist)
+    _put_quote(tmp_path / "_live", "AAA", price * 1000, time="2026-10-15T11:00:00",
+               volume=3e5, high=hist["close"].iloc[-1] * 1000, low=price * 1000)
+    assert _scan(tmp_path, monkeypatch, today=TODAY) == (0, {})
+
+    scanned, rows = _scan(tmp_path, monkeypatch, today=date(2026, 10, 15))
+    assert scanned == 1 and rows["AAA"]["last_close"] == price
+    assert rows["AAA"]["chg_1d_pct"] == round((price / hist["close"].iloc[-2] - 1) * 100, 2)
+
+
+def test_scan_remembers_non_dict_quote_without_reopening(tmp_path, monkeypatch):
+    """JSON hợp lệ nhưng không phải dict (`null`) từng không ghi memo ⇒ mỗi lượt mở lại file và
+    tiêu ngân sách. Lượt 2 ngân sách 0, mtime như cũ ⇒ không còn mã nào phải hoãn."""
+    for t in ("AAA", "CCC"):
+        _put_hist(tmp_path / "prices", t, _bars())
+    _put_quote(tmp_path / "_live", "AAA", 61_000.0, mtime_ns=T0)
+    null = tmp_path / "_live" / "quote_CCC.json"
+    null.write_text("null", encoding="utf-8")
+    os.utime(null, ns=(T0, T0))
+    state = {}
+    scanned, _, pending, _ = _scan_all(tmp_path, monkeypatch, state)
+    assert (scanned, pending) == (1, 0)
+    scanned, rows, pending, errors = _scan_all(tmp_path, monkeypatch, state, budget_s=0)
+    assert (scanned, sorted(rows), pending, errors) == (1, ["AAA"], 0, [])
+
+
 def test_scan_skips_short_or_missing_history(tmp_path, monkeypatch):
     _put_hist(tmp_path / "prices", "NEW", _bars(n=59))        # < 60 bar như min_rows của EOD
     _put_quote(tmp_path / "_live", "NEW", 61_000.0)
@@ -475,6 +507,7 @@ def test_scan_caches_history_for_the_day_only(tmp_path, monkeypatch):
     _put_quote(tmp_path / "_live", "AAA", 62_000.0, mtime_ns=T0 + S)
     _, same_day = _scan(tmp_path, monkeypatch, state)
     assert same_day["AAA"]["chg_20d_pct"] == round((62.0 / hist["close"].iloc[-20] - 1) * 100, 2)
+    _put_quote(tmp_path / "_live", "AAA", 62_000.0, time="2026-10-17T10:00:00")   # quote hôm nay
     _, next_day = _scan(tmp_path, monkeypatch, state, today=date(2026, 10, 17))
     assert next_day["AAA"]["chg_20d_pct"] == round((62.0 / rebased["close"].iloc[-20] - 1) * 100, 2)
 
