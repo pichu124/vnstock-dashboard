@@ -305,7 +305,8 @@ def _render_ticker_news() -> None:
             _status.error(
                 f"❌ Không tải được tin nào cho **{len(universe)}** mã — nguồn tin "
                 "(VCI/KBS) lỗi, mạng hỏng, hoặc nguồn chưa có tin. Thử lại sau.")
-        st.session_state["_news_data"] = news_all
+        # Lượt hỏng không ghi đè cache (refresh_news) ⇒ vẫn hiện tin cũ.
+        st.session_state["_news_data"] = news_all or _nn.load_news_cache()
         # Reset recency filter after refresh — "Hôm nay" from today_clicked
         # would show 0 results if the news source doesn't publish today yet.
         if st.session_state.get("_news_recency_filter") == "Hôm nay":

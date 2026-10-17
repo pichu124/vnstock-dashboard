@@ -543,6 +543,14 @@ def refresh_news(
         except Exception:
             pass
 
+    if not all_news:
+        # fetch_ticker_news nuốt mọi lỗi thành [] ⇒ 0 tin = mạng/nguồn hỏng. Ghi [] sẽ đè
+        # cache cũ (đi Dropbox sang cả hai máy) và làm mtime "tươi" cho doctor.
+        import logging
+        logging.getLogger("vnstock_news").warning(
+            "refresh_news: 0 tin cho %d mã — giữ nguyên %s", total, NEWS_CACHE_PATH.name)
+        return all_news
+
     save_news_cache(all_news)
     _set_memory_cache(all_news)
     return all_news

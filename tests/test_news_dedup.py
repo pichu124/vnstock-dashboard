@@ -193,6 +193,32 @@ def test_refresh_with_zero_news_is_not_reported_as_success(monkeypatch):
     assert any("Không tải được tin nào" in s for s in shown), shown
 
 
+def test_failed_refresh_still_shows_old_cache(monkeypatch):
+    """Lượt hỏng giữ cache cũ ⇒ tab vẫn báo lỗi nhưng không xoá danh sách đang xem."""
+    import sys
+    import types
+    from tests.test_tab_render_smoke import _Ctx
+
+    old = [{"news_title": "Tin cũ", "ticker": "VCB", "_date_sort": "2026-10-15"}]
+    nn = types.ModuleType("vnstock_news")
+    nn.cache_info = lambda: {"exists": True, "count": 1, "age_minutes": 60}
+    nn.build_universe = lambda **k: ["VCB"]
+    nn.refresh_news = lambda **k: []
+    nn.load_news_cache = lambda: old
+    nn.news_context_block = lambda **k: ""
+    monkeypatch.setitem(sys.modules, "vnstock_news", nn)
+    monkeypatch.setitem(sys.modules, "vnstock_sentiment", None)
+    st, news_tab = _news_tab_with_fake_st(monkeypatch)
+    st.button = lambda *a, key=None, **k: key == "_news_refresh"
+    status = _Ctx()
+    st.empty = lambda *a, **k: status
+
+    news_tab._render_ticker_news()
+
+    assert status.error.called
+    assert st.session_state["_news_data"] == old
+
+
 @pytest.mark.parametrize("raw,expect_prefix,reject_prefix", [
     # 20:00 hôm qua, xem 08:00 sáng: timedelta.days == 0 từng ra "Hôm nay 20:00"
     # trong khi bộ lọc "Hôm nay" (so ngày lịch) loại tin đó.
@@ -210,3 +236,30 @@ def test_fmt_age_uses_calendar_days_vn_time(monkeypatch, raw, expect_prefix, rej
     assert out.startswith(expect_prefix), out
     if reject_prefix:
         assert not out.startswith(reject_prefix), out
+
+
+# ─── refresh_news: lượt hỏng không đè cache ──────────────────────────────────
+
+def test_refresh_with_zero_news_keeps_existing_cache(monkeypatch, tmp_path):
+    """Mất mạng ⇒ fetch_ticker_news trả [] cho mọi mã; cache cũ (đi Dropbox sang cả
+    hai máy) không được bị đè thành rỗng."""
+    import json
+    import vnstock_news as nn
+
+    path = tmp_path / "news_cache.json"
+    old = [{"news_title": f"Tin {i}", "ticker": "VCB", "_date_sort": "2026-10-15"}
+           for i in range(5)]
+    path.write_text(json.dumps({"fetched_at": "2026-10-15T18:00:00", "items": old}),
+                    encoding="utf-8")
+    monkeypatch.setattr(nn, "NEWS_CACHE_PATH", path)
+    monkeypatch.setattr(nn, "_in_memory", [])
+    monkeypatch.setattr(nn, "_cache_loaded_at", None)
+    monkeypatch.setattr(nn, "fetch_ticker_news", lambda t, **k: [])
+
+    out = nn.refresh_news(universe=["VCB", "FPT"])
+
+    assert out == []                       # lượt này không tải được gì — caller báo lỗi
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert [d["news_title"] for d in data["items"]] == [f"Tin {i}" for i in range(5)]
+    assert data["fetched_at"] == "2026-10-15T18:00:00"
+    assert len(nn.load_news_cache()) == 5  # bộ nhớ đệm cũng không bị thay bằng []
