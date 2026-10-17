@@ -20,6 +20,10 @@ the dashboard module has finished initialising.
 
 from __future__ import annotations
 
+# Lưu alert lỗi bấy nhiêu lần LIÊN TIẾP ⇒ `_alert_checker` ngừng gửi Telegram (không lưu
+# được dấu "đã bắn" thì 10s sau lại gửi lặp) tới khi lưu lại được.
+_ALERT_SAVE_FAIL_MAX = 3
+
 
 def render_analysis_tab() -> None:
     """Render the Phân tích tab. Lazy imports Streamlit + dashboard helpers."""
@@ -177,6 +181,10 @@ def render_analysis_tab() -> None:
         _fired_alerts = [a for a in _alerts if a.get("fired")]
 
         st.caption(f"{len(_active_alerts)} active · {len(_fired_alerts)} fired")
+        _save_fails = st.session_state.get("_alert_save_fails", 0)
+        if _save_fails >= _ALERT_SAVE_FAIL_MAX:
+            st.error(f"Lưu alert vừa bắn vào `{ALERTS_PATH}` lỗi {_save_fails} lần liền — đã "
+                     "NGỪNG gửi Telegram (không thì cứ 10s gửi lặp). Lưu lại được là tự gửi tiếp.")
 
         # Telegram config
         _tg_token = st.text_input("Telegram Bot Token", type="password",
@@ -591,6 +599,13 @@ def render_analysis_tab() -> None:
             _active = [a for a in _al if not a.get("fired")]
             if not _active:
                 return
+            if st.session_state.get("_alert_save_fails", 0) >= _ALERT_SAVE_FAIL_MAX:
+                # Đã ngừng gửi: ghi lại đúng bản vừa đọc để dò — lưu được thì gửi như thường
+                if not save_alerts(_al):
+                    st.error(f"Không lưu được `{ALERTS_PATH}` — đã ngừng gửi Telegram alert "
+                             "tới khi lưu lại được.")
+                    return
+                st.session_state["_alert_save_fails"] = 0
             _tg_t = st.session_state.get("_tg_token", "")
             _tg_c = st.session_state.get("_tg_chat", "")
             _was_fired = [bool(a.get("fired")) for a in _al]
@@ -611,10 +626,12 @@ def render_analysis_tab() -> None:
                                 a.get("created_at"))
                     _shot = {_key(a): a for a in _fresh}
                     _fields = ("fired", "fired_at", "fired_price", "message")
-                    save_alerts([
+                    _saved = save_alerts([
                         {**a, **{k: _shot[_key(a)][k] for k in _fields}}
                         if _key(a) in _shot and not a.get("fired") else a
                         for a in _on_disk])
+                    st.session_state["_alert_save_fails"] = (
+                        0 if _saved else st.session_state.get("_alert_save_fails", 0) + 1)
                 for a in _fresh:
                     st.toast(f"🔔 {a['ticker']}: {a.get('message', 'Alert triggered!')[:100]}")
 

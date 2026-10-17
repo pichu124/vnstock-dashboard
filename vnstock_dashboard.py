@@ -976,12 +976,15 @@ def load_alerts() -> list[dict]:
     return alerts
 
 
-def save_alerts(alerts: list[dict]):
-    """Save price alerts — tmp rồi tráo, thử lại khi Dropbox đang giữ handle file."""
+def save_alerts(alerts: list[dict]) -> bool:
+    """Save price alerts — tmp rồi tráo, thử lại khi Dropbox đang giữ handle file.
+    False = hết lượt thử vẫn không ghi được (đã log)."""
     try:
         write_json_atomic(alerts, ALERTS_PATH)
     except OSError:
         log.exception("Không lưu được price alerts vào %s", ALERTS_PATH)
+        return False
+    return True
 
 
 def send_telegram_alert(bot_token: str, chat_id: str, message: str) -> bool:

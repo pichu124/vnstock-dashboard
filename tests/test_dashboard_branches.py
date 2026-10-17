@@ -420,7 +420,7 @@ def test_alert_checker_fragment_sends_telegram_once_across_runs(alert_env):
     st = types.SimpleNamespace(
         session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=toasts.append)
     frag = load_source_fns(
-        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
         load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
         check_and_fire_alerts=alert_env["check_and_fire_alerts"],
     )["_alert_checker"]
@@ -484,9 +484,10 @@ class _Rerun(Exception):
     """st.rerun thật dừng script bằng exception — giả lập đúng như vậy."""
 
 
-def _run_alert_sidebar(alert_env):
+def _run_alert_sidebar(alert_env, **session):
     """Chạy ĐÚNG khối 🔔 Price Alerts ở sidebar analysis_tab, bấm "✅ Tạo alert"
     (nút giả tôn trọng `disabled` như Streamlit thật)."""
+    from dashboard.analysis_tab import _ALERT_SAVE_FAIL_MAX
     from tests.test_tab_render_smoke import _fake_streamlit
 
     tree = ast.parse((_ROOT / "dashboard" / "analysis_tab.py").read_text(encoding="utf-8"))
@@ -502,7 +503,9 @@ def _run_alert_sidebar(alert_env):
         raise _Rerun
 
     st.rerun = _rerun
+    st.session_state.update(session)
     ns = {"st": st, "ALERTS_PATH": alert_env["ALERTS_PATH"],
+          "_ALERT_SAVE_FAIL_MAX": _ALERT_SAVE_FAIL_MAX,
           "load_alerts": alert_env["load_alerts"], "save_alerts": alert_env["save_alerts"]}
     try:
         exec(compile(ast.Module(side.body[start:], []), "analysis_tab.py", "exec"), ns)
@@ -539,7 +542,7 @@ def test_alert_checker_on_corrupt_file_sends_nothing_and_writes_nothing(alert_en
     st = types.SimpleNamespace(
         session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=lambda m: None)
     frag = load_source_fns(
-        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
         load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
         check_and_fire_alerts=alert_env["check_and_fire_alerts"],
         log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=path,
@@ -572,7 +575,7 @@ def _alert_checker_sending(alert_env, while_sending):
     st = types.SimpleNamespace(
         session_state={"_tg_token": "tok", "_tg_chat": "chat"}, toast=lambda m: None)
     return load_source_fns(
-        "dashboard/analysis_tab.py", "_alert_checker", st=st,
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
         load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
         check_and_fire_alerts=alert_env["check_and_fire_alerts"],
         log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=alert_env["ALERTS_PATH"],
@@ -612,6 +615,61 @@ def test_alert_checker_does_not_save_when_reread_fails(alert_env, caplog):
     assert path.read_bytes() == _TRUNCATED_ALERTS
     assert [p.name for p in path.parent.iterdir()] == ["price_alerts.json"]
     assert str(path) in caplog.text
+
+
+def test_alert_checker_stops_telegram_while_save_keeps_failing(alert_env):
+    """`write_json_atomic` hết lượt thử (Dropbox giữ file lâu) ⇒ alert không được đánh dấu
+    đã bắn ⇒ cứ 10s fragment gửi lại Telegram. Từ lần lưu lỗi thứ 3 liên tiếp: ngừng gửi,
+    báo đỏ; lưu lại được thì gửi tiếp."""
+    alert_env["save_alerts"]([_ALERT_A])
+    real_write, broken = alert_env["write_json_atomic"], [True]
+
+    def _flaky_write(data, path):
+        if broken[0]:
+            raise PermissionError(13, "Dropbox đang giữ file")
+        return real_write(data, path)
+
+    alert_env["write_json_atomic"] = _flaky_write
+    errors: list = []
+    st = types.SimpleNamespace(session_state={"_tg_token": "tok", "_tg_chat": "chat"},
+                               toast=lambda m: None, error=errors.append)
+    frag = load_source_fns(
+        "dashboard/analysis_tab.py", "_alert_checker", "_ALERT_SAVE_FAIL_MAX", st=st,
+        load_alerts=alert_env["load_alerts"], save_alerts=alert_env["save_alerts"],
+        check_and_fire_alerts=alert_env["check_and_fire_alerts"],
+        log=logging.getLogger("vnstock_dashboard"), ALERTS_PATH=alert_env["ALERTS_PATH"],
+    )["_alert_checker"]
+
+    for _ in range(8):
+        frag()
+    assert 2 <= len(alert_env["sent"]) <= 3
+    assert errors and str(alert_env["ALERTS_PATH"]) in errors[-1]
+    stopped_at = len(alert_env["sent"])
+
+    broken[0] = False                                       # Dropbox nhả file
+    frag()
+    assert len(alert_env["sent"]) == stopped_at + 1
+    assert alert_env["load_alerts"]()[0]["fired"] is True
+    frag()                                                  # đã lưu ⇒ không gửi lặp
+    assert len(alert_env["sent"]) == stopped_at + 1
+
+
+def test_sidebar_shows_red_error_while_alert_saves_keep_failing(alert_env):
+    st = _run_alert_sidebar(alert_env)
+    st.error.assert_not_called()
+    st = _run_alert_sidebar(alert_env, _alert_save_fails=3)
+    msg = st.error.call_args_list[0].args[0]
+    assert str(alert_env["ALERTS_PATH"]) in msg and "Telegram" in msg
+
+
+def test_save_alerts_reports_success(alert_env):
+    assert alert_env["save_alerts"]([_ALERT_A]) is True
+
+    def _locked(data, path):
+        raise PermissionError(13, "Dropbox đang giữ file")
+
+    alert_env["write_json_atomic"] = _locked
+    assert alert_env["save_alerts"]([_ALERT_A]) is False
 
 
 def test_failed_telegram_send_is_logged(alert_env, caplog):
