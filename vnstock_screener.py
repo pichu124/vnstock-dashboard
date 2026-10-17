@@ -14,6 +14,7 @@ Run:
 """
 
 import argparse
+import os
 import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -104,6 +105,48 @@ def _load_industry_map(warehouse_root: str = "data_warehouse") -> dict:
     except Exception as e:
         console.log(f"[yellow]⚠ Industry map load failed: {e}[/yellow]")
         return {}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Kho đứng im — mã trễ quá N phiên không xét preset (EOD lẫn Live Scan)
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Đo 17/10 trên kho thật (1.723 mã): trễ 1–5 phiên phần lớn là mã ít thanh khoản (không khớp
+# lệnh thì không có bar; mật độ bar trung vị 0,40–0,53), từ 6 phiên mật độ còn ≤ 0,23 và 385 mã
+# trễ > 20 phiên (cách ly basis drift, ngừng giao dịch, huỷ niêm yết).
+STALE_SESSIONS = 5           # env VNSTOCK_SCREENER_STALE_SESSIONS (0 = tắt lọc)
+
+
+def stale_limit() -> int:
+    raw = (os.environ.get("VNSTOCK_SCREENER_STALE_SESSIONS") or "").strip()
+    try:
+        return int(raw) if raw else STALE_SESSIONS
+    except ValueError:
+        return STALE_SESSIONS
+
+
+def stale_sessions(last_bar, sessions) -> int:
+    """Số phiên của lịch `sessions` SAU ngày của `last_bar` — đếm phiên chứ không đếm ngày lịch
+    (cuối tuần, ngày lễ không nằm trong lịch). Lịch rỗng ⇒ 0."""
+    s = pd.DatetimeIndex(sessions).normalize().unique().sort_values()
+    return int(len(s) - s.searchsorted(pd.Timestamp(last_bar).normalize(), side="right"))
+
+
+def stale_lag(last_bar, sessions) -> int:
+    """Số phiên trễ của `last_bar` khi VƯỢT `stale_limit()` (≤ 0 = tắt lọc), không thì 0."""
+    limit = stale_limit()
+    lag = stale_sessions(last_bar, sessions) if limit > 0 else 0
+    return lag if lag > limit else 0
+
+
+def market_sessions(prices_dir, years: int = 2) -> pd.DatetimeIndex:
+    """Lịch phiên = ngày có bar VNINDEX trong kho (`years` thư mục năm mới nhất); chưa có ⇒ rỗng
+    (không lọc). VNINDEX chậm k phiên thì mã bị đếm thiếu k phiên: lọc lỏng đi, không loại oan."""
+    import pyarrow.parquet as pq
+    files = [pf for yd in sorted((Path(prices_dir) / "ticker=VNINDEX").glob("year=*"))[-years:]
+             for pf in yd.glob("*.parquet")]
+    times = [pq.read_table(str(pf), columns=["time"]).column(0).to_pandas() for pf in files]
+    return pd.DatetimeIndex(pd.to_datetime(pd.concat(times)) if times else [])
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -369,6 +412,8 @@ class MarketScreener:
     Không cần gọi API — đọc từ disk, tính indicator, lọc.
     """
 
+    sessions = pd.DatetimeIndex([])     # lịch phiên VNINDEX; rỗng = không lọc mã kho cũ
+
     def __init__(self, warehouse_root: str = "data_warehouse", lookback_days: int = 300):
         self.prices_dir   = Path(warehouse_root) / "prices"
         self.lookback_days = lookback_days
@@ -424,6 +469,16 @@ class MarketScreener:
         # không thể ôi.
         self._ind_cache: "dict[str, tuple[int, dict] | None]" = {}
 
+        # Mã → số phiên trễ: kho đứng im (`stale_lag`) ⇒ không xét preset nào; kho giữ nguyên.
+        self.stale: "dict[str, int]" = {}
+        try:
+            self.sessions = market_sessions(self.prices_dir)
+        except Exception as e:
+            console.log(f"[yellow]⚠ Lịch phiên VNINDEX lỗi ({e}) — không lọc mã kho cũ[/yellow]")
+        else:
+            if not len(self.sessions):
+                console.log("[yellow]⚠ Kho chưa có VNINDEX — không lọc mã kho cũ[/yellow]")
+
     def _indicators_for(self, ticker: str, min_rows: int) -> "dict | None":
         """Chỉ báo của một mã — đọc parquet + tính TỐI ĐA MỘT LẦN mỗi lượt chạy.
 
@@ -433,6 +488,9 @@ class MarketScreener:
         if ticker not in self._ind_cache:
             df = self._load_ticker(ticker)
             if df.empty:
+                self._ind_cache[ticker] = None
+            elif len(self.sessions) and (lag := stale_lag(df["time"].iloc[-1], self.sessions)):
+                self.stale[ticker] = lag
                 self._ind_cache[ticker] = None
             else:
                 ind = _calc_indicators(df)

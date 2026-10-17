@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore")
 # Import từ screener (cùng thư mục)
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
-from vnstock_screener import MarketScreener, PRESETS
+from vnstock_screener import MarketScreener, PRESETS, stale_limit
 
 from rich.console import Console
 from rich.progress import (
@@ -106,6 +106,14 @@ def run_all_presets(
                 "results": [],
                 "error": str(e),
             }
+
+    # Mã kho đứng im bị bỏ khỏi MỌI preset (`stale_lag`) — để dashboard/doctor đọc được.
+    limit = stale_limit()
+    output["stale_excluded"] = {"limit": limit, "count": len(screener.stale),
+                                "tickers": screener.stale}
+    if screener.stale:
+        console.log(f"  ⏸ Bỏ {len(screener.stale):,} mã kho cũ khỏi mọi preset "
+                    f"(bar cuối trễ > {limit} phiên VNINDEX)")
 
     # ── Thống kê ngành ────────────────────────────────────────────────────────
     if screener.industry_map:

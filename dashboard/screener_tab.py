@@ -224,6 +224,11 @@ def render_screener_tab(
                            f"chờ tính lượt sau")
             if errors:
                 st.caption(f"⚠ {len(errors)} mã lỗi — vd {errors[0]}")
+            _stale = st.session_state["live_screener_state"].get("stale")
+            if _stale:
+                from vnstock_screener import stale_limit
+                st.caption(f"⏸ {len(_stale):,} mã bỏ vì kho cũ (bar cuối trễ > {stale_limit()} "
+                           f"phiên) — không nối bar live")
 
             if total_hits_live > 0:
                 # Show summary counts only — click expander for details
@@ -593,9 +598,14 @@ def _live_row(entry: os.DirEntry, ticker: str, prices_dir: Path, state: dict, to
     if t is None or t.date() < today:   # sai dạng / không giờ / phiên đã qua: nhớ, khỏi mở lại
         state["rows"][ticker] = (mtime, None, None)
         return None
-    if ticker not in hists:             # thiếu thư mục / < 60 bar cũng nhớ (None), khỏi dò lại
+    if ticker not in hists:             # thiếu thư mục / < 60 bar / kho cũ cũng nhớ (None)
+        from vnstock_screener import stale_lag
         hist, written_at = _read_recent_history(prices_dir / f"ticker={ticker}")
         hists[ticker] = (hist, written_at) if len(hist) >= _LIVE_MIN_BARS else None
+        # Kho đứng im: nối bar live ngay sau khoảng trống ⇒ chỉ báo nhảy vọt ⇒ hit giả.
+        if hists[ticker] and stale_lag(hist["time"].iloc[-1], state.get("sessions", ())):
+            hists[ticker] = None
+            state["stale"].add(ticker)
     if hists[ticker] is None:
         return None
     hist, written_at = hists[ticker]
@@ -624,13 +634,21 @@ def _scan_live_quotes(quote_dir: Path, prices_dir: Path, state: dict, today: dat
     đắt chỉ làm trong `budget_s` giây; mã bị hoãn giữ row cũ (nếu có) và lượt sau bắt đầu từ
     mã hoãn đầu tiên, không thì mã cuối danh sách đói khi lượt nào cũng hết giờ. Mã lỗi bị
     bỏ, không ghi memo (lượt sau thử lại) nhưng được trả về để fragment báo."""
-    from vnstock_screener import PRESETS, _calc_indicators   # lazy: module kéo `rich`
+    from vnstock_screener import PRESETS, _calc_indicators, market_sessions   # lazy: kéo `rich`
 
     if state.get("day") != today:
         state.clear()
-        state.update(day=today, hist={}, rows={}, cursor="")
+        state.update(day=today, hist={}, rows={}, cursor="", stale=set())
     hits: dict[str, list[dict]] = {p: [] for p in PRESETS if p != "value"}
     scanned, pending, errors, cursor = 0, 0, [], ""
+    # Lịch phiên VNINDEX để bỏ mã kho cũ (`stale_lag`); lỗi ⇒ lượt sau đọc lại.
+    # ponytail: mã đã đọc kho trong lúc lịch lỗi không bị xét lại tới hôm sau; cần thì xoá
+    # `state["hist"]` khi lịch đọc được.
+    if "sessions" not in state:
+        try:
+            state["sessions"] = market_sessions(prices_dir)
+        except Exception as e:
+            errors.append(f"VNINDEX (lịch phiên): {type(e).__name__}: {str(e)[:80]}")
     with os.scandir(quote_dir) as it:
         entries = [e for e in it if e.name.startswith("quote_") and e.name.endswith(".json")]
     entries.sort(key=lambda e: (e.name < state["cursor"], e.name))   # xoay về mã hoãn lượt trước
