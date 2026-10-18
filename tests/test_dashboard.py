@@ -47,6 +47,7 @@ from dashboard.watchlist_io import (                               # noqa: E402
 from vnstock_console_launch import build_ps_command                # noqa: E402
 from vnstock_price_units import (                                  # noqa: E402
     normalize_live_price as _normalize_live_price,
+    normalize_quote_price as _normalize_quote_price,
     normalize_price_units as _normalize_price_units,
 )
 from vnstock_sectors import SECTOR_GROUPS as _SECTOR_GROUPS        # noqa: E402
@@ -121,6 +122,16 @@ class TestNormalizePriceUnits:
         df = pd.DataFrame({"close": [480.0, 510.0, 495.0]})
         assert _normalize_price_units(df)["close"].tolist() == [480.0, 510.0, 495.0]
 
+    def test_float32_columns_like_the_warehouse(self):
+        """Kho lưu OHLC float32. Gán v/1000 (float64) vào cột float32 qua `.loc`: pandas 2
+        FutureWarning, pandas 3 TypeError ⇒ mọi loader gọi helper vỡ trên kho thật."""
+        import warnings
+        df = pd.DataFrame({"close": np.array([25.3, 25.4, 25_450.0, 25.6], dtype="float32")})
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            out = _normalize_price_units(df)
+        assert out["close"].tolist() == pytest.approx([25.3, 25.4, 25.45, 25.6], rel=1e-6)
+
     def test_empty_dataframe(self):
         result = _normalize_price_units(pd.DataFrame())
         assert result.empty
@@ -154,6 +165,24 @@ class TestNormalizeLivePrice:
 
     def test_zero_live(self):
         assert _normalize_live_price(77.7, 0) == 0
+
+
+class TestNormalizeQuotePrice:
+    """Quote live / giá nhập tay ⇒ nghìn đồng, mốc = close kho (đã chuẩn hoá)."""
+
+    @pytest.mark.parametrize("ref, price, want", [
+        (660.0, 660.0, 660.0),         # HLB quote nghìn: ngưỡng cứng >500 từng chia ra 0.66
+        (660.0, 660_000.0, 660.0),     # HLB quote VND
+        (0.3, 300.0, 0.3),             # mã 300 đ quote VND: ngưỡng cứng giữ 300 (= 300 nghìn)
+        (77.7, 77_700.0, 77.7),
+        (77.7, 78.0, 78.0),
+        (0.0, 77_700.0, 77.7),         # không có mốc kho ⇒ ngưỡng như cũ
+        (0.0, 30.0, 30.0),
+        (float("nan"), 77_700.0, 77.7),
+        (77.7, 0.0, 0.0),
+    ])
+    def test_scale(self, ref, price, want):
+        assert _normalize_quote_price(ref, price) == pytest.approx(want)
 
 
 # ── compute_indicators ──────────────────────────────────────────────────────

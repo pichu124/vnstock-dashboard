@@ -2127,20 +2127,17 @@ def _allocation_state_block(alloc: dict) -> str:
 # ── Danh mục đang giữ (position-aware brief) ────────────────────────────────
 
 def _portfolio_last_close(ticker: str, prices_dir: Path) -> float:
-    """Last close for a held ticker from the newest year file (warehouse units)."""
-    import pyarrow.parquet as pq
-    tdir = prices_dir / f"ticker={ticker.upper()}"
-    if not tdir.exists():
-        return 0.0
+    """Close cuối (nghìn đồng) của mã đang giữ, 0.0 khi không có. Đọc qua loader chung
+    `_load_history_from_parquet`: bar mới nhất THEO THỜI GIAN (gộp conflicted copy), đơn vị
+    chuẩn hoá trên cả lịch sử — mã > 500 nghìn (HLB, VNZ) không bị chia 1000."""
     try:
-        for ydir in sorted(tdir.glob("year=*"), reverse=True):
-            for f in sorted(ydir.glob("*.parquet"), reverse=True):
-                s = pq.read_table(str(f), columns=["close"]).to_pandas()["close"]
-                if not s.empty:
-                    return float(s.iloc[-1])
+        from vnstock_strategy import _load_history_from_parquet
+        df = _load_history_from_parquet(ticker, days=0, prices_dir=prices_dir)
+        c = df["close"].astype(float)
+        c = c[c > 0]
+        return float(c.iloc[-1]) if len(c) else 0.0
     except Exception:
         return 0.0
-    return 0.0
 
 
 def load_portfolio_positions(warehouse: "Path | None" = None) -> list[dict]:
@@ -2149,12 +2146,13 @@ def load_portfolio_positions(warehouse: "Path | None" = None) -> list[dict]:
 
     Prices are normalised to nghìn đồng (warehouse convention): the tab stores
     buy_price in raw VND (e.g. 90,000) while warehouse closes are thousands —
-    the >500 threshold reconciles (same convention as _normalize_price_units).
+    `normalize_quote_price` scales buy_price against the last close.
     Best-effort: [] when the file is missing/corrupt; malformed positions are
     skipped. Kill-switch: VNSTOCK_BRIEF_PORTFOLIO=0.
     """
     if os.environ.get("VNSTOCK_BRIEF_PORTFOLIO", "1") == "0":
         return []
+    from vnstock_price_units import normalize_quote_price
     root = Path(warehouse) if warehouse else Path(__file__).parent / "data_warehouse"
     try:
         raw = json.loads((root / "_meta" / "portfolio.json").read_text(encoding="utf-8"))
@@ -2169,10 +2167,7 @@ def load_portfolio_positions(warehouse: "Path | None" = None) -> list[dict]:
             if not tk or qty <= 0 or buy <= 0:
                 continue
             last = _portfolio_last_close(tk, root / "prices")
-            if buy > 500:      # raw VND → nghìn đồng
-                buy = buy / 1000.0
-            if last > 500:     # defensive — warehouse already in thousands
-                last = last / 1000.0
+            buy = normalize_quote_price(last, buy)       # raw VND → nghìn đồng
             pnl = (last / buy - 1) * 100 if last > 0 else None
             out.append({
                 "ticker": tk, "qty": qty, "buy_price": round(buy, 2),

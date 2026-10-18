@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 import vnstock_horizons as hz
+from vnstock_price_units import normalize_price_units
 
 _REPO = Path(__file__).resolve().parent
 _WAREHOUSE = _REPO / "data_warehouse"
@@ -144,8 +145,9 @@ def breadth_history(warehouse: Path, targets: list[date]) -> dict[date, dict]:
         df = read_ticker(td, min_year)
         if len(df) < 5:
             continue
-        x = df["close"].astype(float).to_numpy()
-        x = np.where(x > 500, x / 1000, x)       # vnstock_runner._normalize_prices
+        # Cùng luật với runner (`normalize_price_units` trên cả chuỗi đã đọc): mã > 500 nghìn
+        # (HLB, VNZ) không bị chia 1000.
+        x = normalize_price_units(df)["close"].astype(float).to_numpy()
         t = df["time"].to_numpy().astype("datetime64[D]")
         f = pd.Series(x).ewm(alpha=_EMA_ALPHA, adjust=False).mean().to_numpy()
         hi = np.searchsorted(t, tgt, side="right") - 1

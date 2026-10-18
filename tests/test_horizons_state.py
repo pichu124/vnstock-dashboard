@@ -288,3 +288,15 @@ def test_brief_view_of_a_past_session_uses_the_entry_just_before_it(wh):
     mid = st["published"][-2]
     lp = hs.Latest(state=st, snap=mid, missing=None, expect=date.fromisoformat(mid["as_of"]))
     assert hs.brief_view(lp)["prev"]["as_of"] == st["published"][-3]["as_of"]
+
+
+def test_breadth_keeps_stock_priced_above_500_thousand(tmp_path):
+    """HLB 18/10: giá thật 445 → 660 nghìn. Luật tự chép `x > 500 ⇒ /1000` ra 0.66 ⇒ mã nằm
+    DƯỚI EMA200, lệch runner (đã dùng `normalize_price_units`)."""
+    days = _bdays(date(2025, 9, 1), 250)
+    closes = [445.0] * 220 + [600.0 + i * 2 for i in range(30)]
+    _write(tmp_path, "HHH", days, closes)
+    b = hs.breadth_history(tmp_path, [days[-1]])[days[-1]]
+    assert b["total"] == 1
+    assert b["above_ma200_pct"] == 100.0
+    assert b["advances"] == 1
