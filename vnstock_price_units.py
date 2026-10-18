@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-# Không mã nào trên sàn VN có giá > 500 nghìn VND. Giá OHLC vượt ngưỡng này
-# chắc chắn đang ở đơn vị VND → chia 1000. (VNZ đỉnh lịch sử ~1.4 triệu là
-# UPCoM và đã tách; ngưỡng 500 vẫn là chốt chặn dùng chung toàn repo.)
+# Ô OHLC > 500 là ỨNG VIÊN đơn vị VND. Tiền đề cũ "không mã nào > 500 nghìn" đã SAI
+# (18/10: HLB 660, VNZ 579 nghìn — chia 1000 từng ô làm HLB 20D −99,85%), nên ô chỉ bị
+# chia khi CÒN lệch ~1000 lần so với trung vị các ô ≤ 500 của CHÍNH chuỗi đó.
 PRICE_UNIT_THRESHOLD = 500.0
 
 # Giá live so với close historical: lệch ~1000 lần thì hai bên khác đơn vị.
@@ -32,21 +32,32 @@ _OHLC_COLUMNS = ("open", "high", "low", "close")
 
 
 def normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
-    """Đưa mọi cột OHLC về nghìn VND. Trả DataFrame MỚI, không sửa bản gốc.
+    """Đưa mọi cột OHLC của MỘT mã về nghìn VND. Trả DataFrame MỚI, không sửa bản gốc.
 
-    Chuẩn hoá theo TỪNG Ô chứ không theo cột: một row có thể trộn hai đơn vị.
+    Chuẩn hoá theo TỪNG Ô chứ không theo cột: một row có thể trộn hai đơn vị. Ô > 500 chỉ bị
+    chia 1000 khi gấp ≥ 100 lần trung vị các ô ≤ 500 (mốc nghìn VND của chính chuỗi) — giá
+    thật trên 500 nghìn (HLB, VNZ) và mã penny lưu VND quanh 500 giữ nguyên một thang.
     """
     if df.empty:
         return df
 
     df = df.copy()
-    for col in _OHLC_COLUMNS:
-        if col not in df.columns:
-            continue
-        vals = df[col].astype(float)
-        mask = vals > PRICE_UNIT_THRESHOLD
+    cols = [c for c in _OHLC_COLUMNS if c in df.columns]
+    if not cols:
+        return df
+    vals = df[cols].astype(float)
+    small = vals[(vals > 0) & (vals <= PRICE_UNIT_THRESHOLD)].stack()
+    # ponytail: chuỗi KHÔNG có ô nào ≤ 500 thì không có mốc ⇒ giữ luật cũ (chia hết), vì
+    # mơ hồ giữa penny VND 500–999đ và giá nghìn > 500. Chỗ gọi nên đưa chuỗi DÀI (cả năm)
+    # vào trước khi cắt cửa sổ — VNZ có 30 phiên cuối đều > 500.
+    ref = float(small.median()) if len(small) else None
+    for col in cols:
+        v = vals[col]
+        mask = v > PRICE_UNIT_THRESHOLD
+        if ref is not None:
+            mask &= v >= ref * _LIVE_RATIO_HIGH
         if mask.any():
-            df.loc[mask, col] = vals[mask] / 1000
+            df.loc[mask, col] = v[mask] / 1000
 
     return df
 

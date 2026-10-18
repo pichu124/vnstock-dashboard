@@ -1609,6 +1609,19 @@ def test_gtgd_reads_each_ticker_once_for_all_windows(gtgd_env):
     assert len(gtgd_env) == 3            # AAA, BBB, DDD — E1VFVN30 bị lọc trước khi đọc
 
 
+def test_gtgd_high_priced_stock_counted_in_vnd(gtgd_env, tmp_path):
+    """VNZ 18/10: 30 phiên cuối đều > 500 nghìn ⇒ `close.where(close > 500, …)` coi là VND, GTGD
+    nhỏ đi 1000 lần. Mốc đơn vị phải lấy theo cả chuỗi đã đọc, không theo 20 phiên cuối."""
+    days = pd.bdate_range("2026-08-03", periods=45)
+    d = tmp_path / "data_warehouse" / "prices" / "ticker=HHH" / "year=2026"
+    d.mkdir(parents=True)
+    pd.DataFrame({"time": days, "close": [450.0] * 25 + [600.0] * 20,
+                  "volume": [1_000.0] * 45}).to_parquet(d / "data.parquet", index=False)
+    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_gtgd_daily",
+                         pd=pd, Path=Path)
+    assert ns["_load_gtgd_daily"]()["HHH"].tolist() == [600_000.0 * 1_000] * 20
+
+
 @pytest.mark.parametrize("raw", ["null", "{}", "[1]", '[{"ticker": "VCB"}, "x"]'])
 def test_load_alerts_rejects_json_that_is_not_a_list_of_dicts(alert_env, raw):
     """JSON HỢP LỆ nhưng sai dạng lọt qua ⇒ TypeError/AttributeError ở sidebar và

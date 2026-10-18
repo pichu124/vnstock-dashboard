@@ -165,15 +165,9 @@ MARKET_OVERVIEW_FILE = "market_overview.json"
 
 
 def _normalize_prices(df):
-    """Normalize mixed VND/nghìn VND price units."""
-    df = df.copy()
-    for col in ("open", "high", "low", "close"):
-        if col in df.columns:
-            vals = df[col].astype(float)
-            mask = vals > 500
-            if mask.any():
-                df.loc[mask, col] = vals[mask] / 1000
-    return df
+    """Normalize mixed VND/nghìn VND price units (luật chung ở `vnstock_price_units`)."""
+    from vnstock_price_units import normalize_price_units
+    return normalize_price_units(df)
 
 
 # ── Nhịp gọi API dùng chung cho pool worker ──────────────────────────────
@@ -377,14 +371,13 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
             df = pd.concat(frames, ignore_index=True)
             df["time"] = pd.to_datetime(df["time"])
             df = df.drop_duplicates("time", keep="last").sort_values("time")
+            df = _normalize_prices(df)      # cả 3 năm đã đọc: mốc đơn vị không phụ thuộc cửa sổ
             df = df[df["time"] >= cutoff]
             if len(df) < 5:
                 continue
             _bar_date = df["time"].iloc[-1]
             if _max_data_date is None or _bar_date > _max_data_date:
                 _max_data_date = _bar_date
-
-            df = _normalize_prices(df)
             c = df["close"].astype(float)
             v = df["volume"].astype(float)
             last = float(c.iloc[-1])
