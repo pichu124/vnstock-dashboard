@@ -16,6 +16,7 @@ Không đụng tới Streamlit ở đây: cache (`@st.cache_data`) là chuyện 
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 # Ô OHLC > 500 là ỨNG VIÊN đơn vị VND. Tiền đề cũ "không mã nào > 500 nghìn" đã SAI
@@ -46,11 +47,13 @@ def normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
     if not cols:
         return df
     vals = df[cols].astype(float)
-    small = vals[(vals > 0) & (vals <= PRICE_UNIT_THRESHOLD)].stack()
+    # numpy chứ không `.stack()`: pandas 3 stack GIỮ NaN ⇒ median NaN ⇒ không ô nào bị chia.
+    flat = vals.to_numpy().ravel()
+    small = flat[(flat > 0) & (flat <= PRICE_UNIT_THRESHOLD)]
     # ponytail: chuỗi KHÔNG có ô nào ≤ 500 thì không có mốc ⇒ giữ luật cũ (chia hết), vì
     # mơ hồ giữa penny VND 500–999đ và giá nghìn > 500. Chỗ gọi nên đưa chuỗi DÀI (cả năm)
     # vào trước khi cắt cửa sổ — VNZ có 30 phiên cuối đều > 500.
-    ref = float(small.median()) if len(small) else None
+    ref = float(np.median(small)) if small.size else None
     for col in cols:
         v = vals[col]
         mask = v > PRICE_UNIT_THRESHOLD

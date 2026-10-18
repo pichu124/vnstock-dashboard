@@ -800,13 +800,14 @@ def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
     df = pd.concat(frames, ignore_index=True)
     df["time"] = pd.to_datetime(df["time"])
     df = df.drop_duplicates(subset=["time"], keep="last")
-    if days > 0:
-        cutoff = datetime.now() - timedelta(days=days)
-        df = df[df["time"] >= cutoff]
     df = df.sort_values("time").reset_index(drop=True)
 
-    # Normalize mixed price units (nghìn VND vs VND)
+    # Normalize mixed price units (nghìn VND vs VND) trên CẢ lịch sử rồi mới cắt `days`:
+    # cửa sổ ngắn toàn bar > 500 nghìn (VNZ) không có mốc đơn vị.
     df = _normalize_price_units(df)
+    if days > 0:
+        cutoff = datetime.now() - timedelta(days=days)
+        df = df[df["time"] >= cutoff].reset_index(drop=True)
 
     return df
 
