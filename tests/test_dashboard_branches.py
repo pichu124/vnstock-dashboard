@@ -980,7 +980,21 @@ def test_preset_pct_columns_show_zero_and_hide_nan():
     assert out["20D%"].tolist() == ["—", "+4.0%"]
     assert out["BB%"].tolist() == ["+1.2%", "—"]
     assert out["52W%"].tolist() == ["-2.0%", "0.0%"]
-    assert out["RSI"].tolist() == ["55.0", "—"]   # cột khác giữ nguyên format
+    assert out["RSI"].tolist() == ["55.0", "0.0"]
+
+
+def test_preset_rsi_vol_price_show_zero_and_hide_nan():
+    """RSI 0.0 là số thật (14 phiên không phiên tăng — 18/10 có 13/140 mã oversold như DVM, PLE,
+    KOS) ⇒ "0.0", không phải "—"; Vol× thiếu (mã không khớp lệnh, VHF) ⇒ "—", không phải "nan"."""
+    df_from_preset = load_source_fns("vnstock_dashboard.py", "df_from_preset",
+                                     pd=pd)["df_from_preset"]
+    out = df_from_preset({"results": [
+        {"ticker": "AAA", "rsi_14": 0.0, "vol_spike": None, "last_close": 2.6},
+        {"ticker": "BBB", "rsi_14": 27.46, "vol_spike": 0.0, "last_close": None},
+    ]})
+    assert out["RSI"].tolist() == ["0.0", "27.5"]
+    assert out["Vol×"].tolist() == ["—", "0.0"]
+    assert out["Giá"].tolist() == ["2.6", "—"]
 
 
 # ── Điều hướng tab bằng st.pills ─────────────────────────────────────────────

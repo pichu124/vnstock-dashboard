@@ -2797,9 +2797,9 @@ def df_from_preset(preset_data: dict) -> pd.DataFrame:
             )
     for col in ["RSI", "Vol×"]:
         if col in df.columns:
-            df[col] = df[col].apply(lambda v: f"{v:.1f}" if v else "—")
+            df[col] = df[col].apply(lambda v: "—" if pd.isna(v) else f"{v:.1f}")
     if "Giá" in df.columns:
-        df["Giá"] = df["Giá"].apply(lambda v: f"{v:,.1f}" if v else "—")
+        df["Giá"] = df["Giá"].apply(lambda v: "—" if pd.isna(v) else f"{v:,.1f}")
 
     return df
 
