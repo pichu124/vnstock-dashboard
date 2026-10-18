@@ -29,6 +29,51 @@ from vnstock_sectors import (  # noqa: E402
 )
 
 
+def _live_buy_ratio(q: dict) -> float:
+    """Tỷ lệ mua của MỘT quote live: `volume_profile` (lệnh đã khớp — WSS chỉ
+    có cho futures) → bid/ask depth (lệnh chờ khớp) → 0.5 khi không có gì."""
+    vp = q.get("volume_profile") or []
+    buy = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
+    sell = sum(float(lv.get("sell_vol", 0) or 0) for lv in vp)
+    if buy + sell > 0:
+        return buy / (buy + sell)
+    bv = sum(float(b.get("volume", 0) or 0) for b in q.get("bids") or [] if isinstance(b, dict))
+    av = sum(float(a.get("volume", 0) or 0) for a in q.get("asks") or [] if isinstance(a, dict))
+    return bv / (bv + av) if bv + av > 0 else 0.5
+
+
+def aggregate_live_sectors(quotes: dict, sector_of) -> dict:
+    """Gộp quote live theo ngành → `{ngành: {gtgd, vol, buy_ratio, count}}`.
+
+    `buy_ratio` = Σ buy_r×GTGD / Σ GTGD — cùng trọng số với bảng tĩnh; ngành
+    chưa có GTGD (trước ATO) → 0.5 như bảng tĩnh. Quote hỏng (không phải dict,
+    trường số không đổi được) ⇒ bỏ ĐÚNG mã đó, không làm hỏng cả bảng.
+    """
+    out: dict = {}
+    for tk, q in quotes.items():
+        if not isinstance(q, dict):
+            continue
+        try:
+            price = float(q.get("price", 0) or 0)
+            if price <= 0:
+                continue
+            if price > 500:
+                price /= 1000
+            vol = float(q.get("volume", 0) or 0)
+            buy_r = _live_buy_ratio(q)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        gtgd = price * vol / 1e6
+        s = out.setdefault(sector_of(tk), {"gtgd": 0.0, "vol": 0.0, "buy_w": 0.0, "count": 0})
+        s["gtgd"] += gtgd
+        s["vol"] += vol
+        s["buy_w"] += buy_r * gtgd
+        s["count"] += 1
+    for s in out.values():
+        s["buy_ratio"] = s.pop("buy_w") / s["gtgd"] if s["gtgd"] > 0 else 0.5
+    return out
+
+
 def render_money_flow_tab() -> None:
     """Render the Dòng Tiền tab. Lazy imports Streamlit + dashboard helpers."""
     try:
@@ -56,7 +101,7 @@ def render_money_flow_tab() -> None:
     # vnstock_dashboard has finished initialising before dispatch fires.
     from vnstock_dashboard import (
         PRICES_DIR, SECTOR_ICONS, SECTOR_ORDER, WSS_AVAILABLE,
-        _NN_CACHE_PATH, _NN_DIAG, _ORDER_CACHE_PATH,
+        _NN_CACHE_PATH, _NN_DIAG, _NN_WINDOW_SESSIONS, _ORDER_CACHE_PATH,
         _aggregate_nn_buy_sell_by_window, _aggregate_nn_by_window,
         _batch_load_live_quotes,
         _compute_gtgd_by_window, _compute_money_flow_score,
@@ -87,8 +132,8 @@ def render_money_flow_tab() -> None:
             ("💸 NN flow",         _Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
             ("📊 Order stats",     _Path("data_warehouse/_meta/order_stats_cache.json"), 2 * 3600),
         ])
-    except Exception:
-        pass
+    except Exception as e:
+        st.caption(f"⚠️ Badge độ tươi lỗi: {type(e).__name__}: {e}")
 
     # ── Sidebar controls ─────────────────────────────────────────────────
     with st.sidebar:
@@ -202,7 +247,7 @@ def render_money_flow_tab() -> None:
     # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
     # days, 20D=20 trading days). Always use warehouse for consistency.
     # For 1D, _compute_gtgd_by_window(1) gives the most recent day from parquet.
-    _gtgd_window_days = {0: 1, 7: 5, 30: 20}.get(_mf_days, max(1, _mf_days))
+    _gtgd_window_days = _NN_WINDOW_SESSIONS.get(_mf_days, max(1, _mf_days))
     _gtgd_by_ticker = _compute_gtgd_by_window(_gtgd_window_days)
 
     # ── Fetch order_stats (BigOrder) cho top mã GTGD ─────────────────────
@@ -635,51 +680,17 @@ def render_money_flow_tab() -> None:
                 return
 
             ind_map = _load_industry_map()
-            sector_live = {}
-
+            quotes = {}
             for qf in quote_files:
-                try:
-                    tk = qf.stem.replace("quote_", "")
-                    if not _is_stock(tk) or tk not in ind_map:
-                        continue
-                    q = json.loads(qf.read_text(encoding="utf-8"))
-                    price = float(q.get("price", 0) or 0)
-                    if price <= 0:
-                        continue
-                    if price > 500:
-                        price /= 1000
-                    vol = float(q.get("volume", 0) or 0)
-                    gtgd = price * vol / 1e6
-
-                    # Buy/Sell — try volume_profile first, fall back to bid/ask depth
-                    vp = q.get("volume_profile", [])
-                    total_buy = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
-                    total_sell = sum(float(lv.get("sell_vol", 0) or 0) for lv in vp)
-                    total_vs = total_buy + total_sell
-                    if total_vs > 0:
-                        buy_r = total_buy / total_vs
-                    else:
-                        # Fallback: bid/ask depth from price_board
-                        bids = q.get("bids", [])
-                        asks = q.get("asks", [])
-                        bv = sum(float(b.get("volume", 0) or 0) for b in bids if isinstance(b, dict))
-                        av = sum(float(a.get("volume", 0) or 0) for a in asks if isinstance(a, dict))
-                        buy_r = bv / (bv + av) if (bv + av) > 0 else 0.5
-
-                    sector = _mf_sector(tk, ind_map[tk])
-                    if sector not in sector_live:
-                        sector_live[sector] = {
-                            "gtgd": 0, "vol": 0,
-                            "buy_total": 0, "sell_total": 0, "count": 0,
-                        }
-                    sl = sector_live[sector]
-                    sl["gtgd"] += gtgd
-                    sl["vol"] += vol
-                    sl["buy_total"] += total_buy
-                    sl["sell_total"] += total_sell
-                    sl["count"] += 1
-                except Exception:
+                tk = qf.stem.replace("quote_", "")
+                if not _is_stock(tk) or tk not in ind_map:
                     continue
+                try:
+                    quotes[tk] = json.loads(qf.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue  # WSS đang ghi dở file — vòng 15s sau đọc lại
+            sector_live = aggregate_live_sectors(
+                quotes, lambda tk: _mf_sector(tk, ind_map[tk]))
 
             if not sector_live:
                 st.caption("⏳ Đang chờ data...")
@@ -700,8 +711,7 @@ def render_money_flow_tab() -> None:
                 if sec not in sector_live:
                     continue
                 sl = sector_live[sec]
-                total_vs = sl["buy_total"] + sl["sell_total"]
-                buy_pct = (sl["buy_total"] / total_vs * 100) if total_vs > 0 else 50
+                buy_pct = sl["buy_ratio"] * 100
                 sell_pct = 100 - buy_pct
                 buy_color = "#10b981" if buy_pct > 55 else (
                     "#ef4444" if buy_pct < 45 else "#9ca3af")
@@ -728,7 +738,8 @@ def render_money_flow_tab() -> None:
             st.caption(
                 f"🔄 Cập nhật mỗi 15s | "
                 f"{sum(s['count'] for s in sector_live.values())} mã | "
-                f"Chỉ dựa trên Buy/Sell volume (không có NN ròng real-time)"
+                f"Buy/Sell = KL đặt mua/bán chờ khớp (bid/ask) từng mã, gộp ngành "
+                f"theo trọng số GTGD (không có NN ròng real-time)"
             )
 
         _live_money_flow_fragment()

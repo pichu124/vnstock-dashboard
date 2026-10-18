@@ -119,8 +119,8 @@ def render_strategy_panel() -> None:
                                 + "; ".join(_val.get("reasons") or []),
                                 icon="🎲",
                             )
-                except Exception:
-                    pass
+                except Exception as _ev:
+                    st.caption(f"⚠ kiểm định chống-ăn-may disabled: {type(_ev).__name__}: {_ev}")
 
                 # Món 2: sức khỏe live (win-rate rec thật vs backtest)
                 try:
@@ -142,8 +142,8 @@ def render_strategy_panel() -> None:
                             "reconcile tới: " + "; ".join(_hl.get("reasons") or []),
                             icon="🔻",
                         )
-                except Exception:
-                    pass
+                except Exception as _eh:
+                    st.caption(f"⚠ sức khỏe live disabled: {type(_eh).__name__}: {_eh}")
 
                 # Tầng vị thế 20 phiên (13/08) — chạy song song, ghế riêng.
                 try:
@@ -169,15 +169,15 @@ def render_strategy_panel() -> None:
                             "`python vnstock_train.py --strategy-only --tier position`")
                 except TypeError:
                     pass    # vnstock_memory cũ chưa có tier — bỏ qua
-                except Exception:
-                    pass
+                except Exception as _ep:
+                    st.caption(f"⚠ tầng vị thế disabled: {type(_ep).__name__}: {_ep}")
 
                 with st.expander("Xem params & code", expanded=False):
                     try:
                         _params = _json.loads(_active.get("params_json") or "{}")
                         st.code(_json.dumps(_params, indent=2, ensure_ascii=False), language="json")
-                    except Exception:
-                        pass
+                    except Exception as _ej:
+                        st.caption(f"⚠ params disabled: {type(_ej).__name__}: {_ej}")
                     _code = _active.get("code") or ""
                     if _code:
                         st.code(_code[:1500] + ("…" if len(_code) > 1500 else ""), language="python")
@@ -394,8 +394,8 @@ def render_strategy_panel() -> None:
                     _open_cols.insert(8, "Giá HT")
                     _open_cols.insert(9, "L/L tạm")
                     _open_cols.insert(10, "SL trailing")
-                except Exception:
-                    pass
+                except Exception as _em:
+                    st.caption(f"⚠ L/L tạm (MTM) disabled: {type(_em).__name__}: {_em}")
                 try:
                     from vnstock_strategy import (
                         load_sizing_config as _lsc,
@@ -414,8 +414,8 @@ def render_strategy_panel() -> None:
                             return f"{s['qty']:,} cp{_tag}"
                         _df_opens["KL gợi ý"] = _df_opens.apply(_kl_hint, axis=1)
                         _open_cols.insert(8, "KL gợi ý")
-                except Exception:
-                    pass
+                except Exception as _ek:
+                    st.caption(f"⚠ KL gợi ý disabled: {type(_ek).__name__}: {_ek}")
 
                 st.dataframe(
                     _df_opens[_open_cols],

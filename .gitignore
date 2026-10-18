@@ -18,10 +18,17 @@ vnstock-agent-guide-main/
 # Muốn viết AGENTS.md thật thì gỡ dòng này hoặc `git add -f`.
 AGENTS.md
 files.zip
-lwc.min.js
 industry_classification_20260405.csv
 static/today_bars/*.json
 !.claude/commands/
 !.claude/commands/**
 run_daily*.log
 _cafef_dump/
+
+# Bộ agent team (Agents-Team-coding)
+!.claude/agents/
+!.claude/hooks/
+!.claude/audit-watch.txt
+
+# Bằng chứng của verifier (Agents-Team-coding)
+artifacts/

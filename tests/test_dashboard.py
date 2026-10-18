@@ -285,10 +285,26 @@ class TestWatchlistIO:
         result = _load_watchlist(path)
         assert result == ["FPT", "HPG", "VCB"]
 
-    def test_corrupt_json_returns_empty(self, tmp_path):
+    def test_corrupt_json_raises(self, tmp_path):
+        """File hỏng KHÔNG được đọc thành [] — nút Thêm sẽ ghi đè cả watchlist."""
         path = tmp_path / "watchlist.json"
         path.write_text("{ this is not valid json", encoding="utf-8")
-        assert _load_watchlist(path) == []
+        with pytest.raises(ValueError):
+            _load_watchlist(path)
+
+    @pytest.mark.parametrize("payload", [
+        "null",                                   # gốc không phải object
+        '["VCB", "FPT"]',                         # list thay vì {"tickers": [...]}
+        '{"tickers": "VCB"}',                     # tickers không phải list
+        '{"tickers": ["VCB", 1]}',                # mã không phải chuỗi
+    ])
+    def test_wrong_shape_raises_value_error(self, tmp_path, payload):
+        """JSON hợp lệ nhưng sai dạng từng ném AttributeError (caller chỉ bắt
+        OSError/ValueError ⇒ sập tab) hoặc lọt chuỗi "VCB" thành 3 "mã"."""
+        path = tmp_path / "watchlist.json"
+        path.write_text(payload, encoding="utf-8")
+        with pytest.raises(ValueError, match="sai định dạng"):
+            _load_watchlist(path)
 
 
 # ── launch_in_new_console PowerShell command generation ──────────────────────
@@ -458,13 +474,17 @@ class TestScoreBarHtml:
         html = _score_bar_html(60)
         assert "VÀO" in html
         assert "#10b981" in html
-        assert "right:50%" in html  # bar grows from center-right
+        # Thanh mọc từ vạch giữa SANG PHẢI: neo mép trái ở 50%. (Bản cũ ghim
+        # "right:50%" — neo mép PHẢI ở giữa nên thanh dương mọc sang trái, và
+        # assert âm "left:50%" luôn đúng nhờ chính cái vạch giữa.)
+        assert "left:50%;width:30.0%" in html
+        assert "right:50%" not in html
 
     def test_negative_score_contains_label(self):
         html = _score_bar_html(-60)
         assert "RA" in html
         assert "#ef4444" in html
-        assert "left:50%" in html  # bar grows from center-left
+        assert "right:50%;width:30.0%" in html  # mọc từ vạch giữa sang trái
 
     def test_zero_score(self):
         html = _score_bar_html(0)

@@ -95,3 +95,46 @@ def test_bars_only_in_the_conflicted_copy_are_not_lost(year_dir):
         d / "prices (conflicted copy).parquet", index=False)
     out = _load_history_from_parquet("AAA", days=0, prices_dir=root)
     assert len(out) == len(days)
+
+
+# ── Dashboard: `load_price_history` (chart + phân tích từng mã) ─────────────
+
+def _dashboard_loader(prices_dir):
+    from datetime import datetime, timedelta
+
+    import pyarrow.parquet as pq
+
+    from tests.test_dashboard_branches import load_source_fns
+    from vnstock_price_units import normalize_price_units
+
+    return load_source_fns(
+        "vnstock_dashboard.py", "load_price_history",
+        PRICES_DIR=prices_dir, pq=pq, pd=pd, datetime=datetime,
+        timedelta=timedelta, _normalize_price_units=normalize_price_units,
+    )["load_price_history"]
+
+
+def test_dashboard_history_does_not_double_count_conflicted_copy(year_dir):
+    root, d = year_dir
+    days = _days()
+    px = [100.0 + i for i in range(len(days))]
+    _bars(days, px).to_parquet(d / "prices.parquet", index=False)
+    _bars(days, px).to_parquet(
+        d / "prices (PICHU's conflicted copy 2026-08-19).parquet", index=False)
+    out = _dashboard_loader(root)("AAA")
+    assert len(out) == len(days), "bar bị đếm hai lần"
+    assert out["time"].is_unique
+
+
+def test_dashboard_history_newer_file_wins(year_dir):
+    import os
+
+    root, d = year_dir
+    days = _days()
+    old, new = d / "prices.parquet", d / "prices (conflicted copy).parquet"
+    _bars(days, [100.0] * len(days)).to_parquet(old, index=False)
+    _bars(days, [55.0] * len(days)).to_parquet(new, index=False)
+    os.utime(new, (0, 2_000_000))
+    os.utime(old, (0, 1_000_000))
+    out = _dashboard_loader(root)("AAA")
+    assert out["close"].tolist() == [55.0] * len(days)

@@ -15,6 +15,8 @@ import pytest
 import vnstock_assets as va
 import vnstock_assets_view as av
 
+from tests.conftest import needs
+
 TODAY = date(2026, 10, 10)            # thứ Bảy — vàng nội có giá, dầu/USD dừng ở thứ Sáu
 T = "2026-10-10T09:00:00"
 
@@ -151,6 +153,7 @@ def fake_st(monkeypatch):
     return st, mod
 
 
+@needs("plotly")
 def test_assets_tab_renders_every_section(fake_st):
     st, mod = fake_st
     _seed()
@@ -163,6 +166,54 @@ def test_assets_tab_renders_every_section(fake_st):
     captions = " ".join(str(c.args[0]) for c in st.caption.call_args_list)
     assert "ẩn: 4 phiên kể từ số EIA" in captions                  # lý do ẩn WTI giao ngay hiện ra
     assert "neo Fed 121.38" in captions
+
+
+@needs("plotly")
+def test_assets_tab_rerun_does_not_reread_store(monkeypatch):
+    """Đổi radio/rerun không được đọc lại parquet (~47 lần `va.load`/lượt); kho có file mới ⇒ đọc
+    lại. Streamlit giả biến `cache_data` thành hàm đồng nhất ⇒ ở đây thay bằng cache THẬT khoá theo
+    tham số (trả bản sao như Streamlit) để soi đúng khoá làm tươi của tab."""
+    import copy
+
+    from tests.test_tab_render_smoke import _fake_streamlit
+    st = _fake_streamlit()
+
+    def _cache_data(*a, **k):
+        def deco(f):
+            memo = {}
+
+            def wrapper(*args, **kw):
+                key = repr((args, sorted(kw.items())))
+                if key not in memo:
+                    memo[key] = f(*args, **kw)
+                return copy.deepcopy(memo[key])
+            return wrapper
+        return deco
+    st.cache_data = _cache_data
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    sys.modules.pop("dashboard.assets_tab", None)
+    mod = importlib.import_module("dashboard.assets_tab")
+    monkeypatch.setattr(mod, "date", _FixedDate)
+    monkeypatch.setattr(av, "date", _FixedDate)
+    _seed()
+    loads = []
+    real_load = va.load
+    monkeypatch.setattr(va, "load", lambda key, **kw: loads.append(key) or real_load(key, **kw))
+
+    def render():
+        st.metric.reset_mock()
+        mod.render_assets_tab()
+        assert not st.warning.called and not st.error.called
+        return [(c.args, c.kwargs) for c in st.metric.call_args_list]
+
+    first = render()
+    n = len(loads)
+    assert n > 0 and render() == first and len(loads) == n        # rerun: 0 lần đọc kho, số y hệt
+    _w("DXY", [va._row("2026-10-09", 110.0, "yahoo")])
+    loads.clear()
+    third = render()
+    assert loads and third != first                                 # kho đổi ⇒ đọc lại, số mới
+    assert "110.00" in str(third)
 
 
 def test_assets_tab_empty_store_tells_how_to_fill(fake_st):
@@ -198,3 +249,23 @@ def test_agreement_table_dashes_when_no_common_day(monkeypatch):
     assert (empty["Lệch lớn nhất %"], empty["Lệch ngày cuối %"], empty["Ngưỡng %"]) == ("—", "—", "0.8")
     assert (ok["Lệch lớn nhất %"], ok["Lệch ngày cuối %"], ok["Lệch > ngưỡng / 5 phiên"]) == ("0.288", "-0.288", "0/5")
     assert "None" not in df.astype(str).to_string()
+
+
+@pytest.mark.parametrize("stateful,expect", [
+    (True, ["Dầu"]),                                  # streamlit có `on_change`: chỉ tab mở
+    (False, ["Vàng", "Dầu", "USD", "Liên kết"]),      # bản cũ: chạy hết như trước
+])
+def test_assets_subtabs_run_only_open_tab_when_supported(fake_st, monkeypatch, stateful, expect):
+    from tests.test_tab_render_smoke import _stateful_tabs
+    st, mod = fake_st
+    _seed()
+    ran = []
+    for fn, tag in (("_render_gold", "Vàng"), ("_render_oil", "Dầu"),
+                    ("_render_usd", "USD"), ("_render_links", "Liên kết")):
+        monkeypatch.setattr(mod, fn, lambda va_, av_, start, tag=tag: ran.append(tag))
+    if stateful:
+        st.tabs = _stateful_tabs(open_idx=1)
+
+    mod.render_assets_tab()
+
+    assert ran == expect

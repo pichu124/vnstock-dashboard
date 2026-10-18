@@ -18,10 +18,34 @@ in depth + tài liệu bài học tại chỗ); trùng với đây là vô hại
 """
 from __future__ import annotations
 
+from importlib.machinery import PathFinder
+from importlib.util import find_spec
+
 import pytest
 
 import vnstock_macro as _mac
 import vnstock_price_fallback as _fb
+
+# CI (.github/workflows/tests.yml) chỉ cài gói tối thiểu. Test kéo thư viện
+# ngoài đó thì SKIP kèm tên thư viện — xét bằng import được thật, không bằng env.
+# updater/classifier/warehouse import được khi có vnstock_data HOẶC vnstock.
+HAS_VNSTOCK_SDK = find_spec("vnstock_data") is not None or find_spec("vnstock") is not None
+VNSTOCK_SKIP_REASON = "cần vnstock hoặc vnstock_data — CI tối thiểu không cài"
+needs_vnstock = pytest.mark.skipif(not HAS_VNSTOCK_SDK, reason=VNSTOCK_SKIP_REASON)
+
+
+def _installed(module: str) -> bool:
+    try:
+        return find_spec(module) is not None
+    except ValueError:
+        # sys.modules giữ bản GIẢ không __spec__ (test_dashboard gắn MagicMock vào
+        # "streamlit" lúc thu thập) ⇒ tìm thẳng trên sys.path.
+        return PathFinder.find_spec(module) is not None
+
+
+def needs(module: str):
+    return pytest.mark.skipif(not _installed(module),
+                              reason=f"cần {module} — CI tối thiểu không cài")
 
 
 @pytest.fixture(autouse=True)

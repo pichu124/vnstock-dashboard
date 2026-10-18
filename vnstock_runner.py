@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore")
 # Import từ screener (cùng thư mục)
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
-from vnstock_screener import MarketScreener, PRESETS
+from vnstock_screener import MarketScreener, PRESETS, stale_limit
 
 from rich.console import Console
 from rich.progress import (
@@ -106,6 +106,15 @@ def run_all_presets(
                 "results": [],
                 "error": str(e),
             }
+
+    # Mã kho đứng im bị bỏ khỏi MỌI preset (`stale_lag`) — để dashboard/doctor đọc được.
+    limit = stale_limit()
+    # `sessions` 0 = kho thiếu lịch VNINDEX ⇒ lọc KHÔNG chạy (count 0 không có nghĩa kho sạch).
+    output["stale_excluded"] = {"limit": limit, "count": len(screener.stale),
+                                "tickers": screener.stale, "sessions": len(screener.sessions)}
+    if screener.stale:
+        console.log(f"  ⏸ Bỏ {len(screener.stale):,} mã kho cũ khỏi mọi preset "
+                    f"(bar cuối trễ > {limit} phiên VNINDEX)")
 
     # ── Thống kê ngành ────────────────────────────────────────────────────────
     if screener.industry_map:
@@ -258,11 +267,43 @@ def excl_missing_totals(totals: dict, gtgd_by_ticker: dict, missing: list) -> di
             for d, t in totals.items()}
 
 
-def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
-    """
-    Compute sector metrics + breadth indicators from warehouse parquet.
-    Returns dict ready to JSON-serialize → market_overview.json.
-    Dashboard reads this file for instant load.
+# 3M = 60 phiên (như Net BS "3m" = tail(60)). Feed TopStock chỉ kéo ~20 phiên nên
+# cửa sổ 90 ngày phủ ĐÚNG dữ liệu của 30 ngày: "NN 3M" từng bằng hệt "NN 1M" và
+# analyzer đọc thành xu hướng (cờ "NN ACCUMULATING: pace 1M nhanh hơn avg 3M").
+_NN_3M_MIN_SESSIONS = 60
+
+
+def _nn_windows(nn_df: pd.DataFrame) -> tuple:
+    """(nn_w, nn_m, nn_3m, nn_data_date): {mã: tỷ VND} của 5/20/60 phiên gần nhất.
+
+    Phiên = ngày phân biệt CÓ trong dữ liệu NN (như `vnstock_dashboard._nn_window`),
+    không đếm ngày lịch: `≥ mốc − 7 ngày` lấy cả mốc ⇒ "NN 1T" thành 6 phiên. Neo ở
+    ngày mới nhất có dữ liệu, không phải đồng hồ: feed trễ như batch EOD (BĐS NN
+    ~-5,277 ngày 09/06 hai phiên sau vẫn -5,275).
+    Dưới `_NN_3M_MIN_SESSIONS` phiên thì nn_3m rỗng ⇒ cột NN 3M = None."""
+    nn_w, nn_m, nn_3m = {}, {}, {}
+    if nn_df is None or nn_df.empty:
+        return nn_w, nn_m, nn_3m, None
+    dates = pd.to_datetime(nn_df["date"]).dt.normalize()
+    sessions = dates.drop_duplicates().nlargest(_NN_3M_MIN_SESSIONS)
+    windows = [(5, nn_w), (20, nn_m)]
+    if len(sessions) >= _NN_3M_MIN_SESSIONS:
+        windows.append((_NN_3M_MIN_SESSIONS, nn_3m))
+    for n, result_map in windows:
+        filtered = nn_df[dates.isin(sessions.head(n))]
+        for sym, val in filtered.groupby("symbol")["net_value"].sum().items():
+            result_map[sym] = round(val / 1e9, 1)  # → tỷ VND
+    return nn_w, nn_m, nn_3m, sessions.iloc[0].date().isoformat()
+
+
+def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
+                          fetch_net_bs=None) -> dict:
+    """Sector metrics + breadth + GTGD từ kho parquet → dict của market_overview.json.
+
+    KHÔNG gọi mạng, KHÔNG ghi file — dashboard (Tầng 2) gọi thẳng khi file runner
+    ghi đã cũ. Dữ liệu ngoài kho do bên gọi đưa vào, thiếu thì cột tương ứng None:
+      fetch_nn()             → DataFrame [symbol, date, net_value (VND)]
+      fetch_net_bs(tickers)  → {mã: {"1w", "1m", "3m", "6m"}} (triệu cp)
     """
     import numpy as np
     import pyarrow.parquet as pq
@@ -325,13 +366,17 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         try:
             frames = []
             for yd in sorted(td.glob("year=*"))[-3:]:
-                for pf in yd.glob("*.parquet"):
+                # mtime CŨ→MỚI + khử trùng giữ bản MỚI: Dropbox có thể đẻ "(… conflicted
+                # copy …).parquet" cạnh file chính — cùng ngữ nghĩa
+                # `vnstock_strategy._read_ticker_dir`, không thì KLGD/GTGD đếm 2 lần.
+                for pf in sorted(yd.glob("*.parquet"), key=lambda f: f.stat().st_mtime):
                     frames.append(pq.read_table(str(pf),
                         columns=["time", "close", "volume", "high", "low"]).to_pandas())
             if not frames:
                 continue
-            df = pd.concat(frames).sort_values("time")
+            df = pd.concat(frames, ignore_index=True)
             df["time"] = pd.to_datetime(df["time"])
+            df = df.drop_duplicates("time", keep="last").sort_values("time")
             df = df[df["time"] >= cutoff]
             if len(df) < 5:
                 continue
@@ -481,188 +526,21 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     merged = tick_df.merge(ind_df, on="ticker", how="left")
     merged["industry"] = merged["industry"].fillna("Khác")
 
-    # Fetch foreign net flow (TopStock API) for NN ròng columns
-    nn_w, nn_m, nn_3m = {}, {}, {}
-    nn_data_date = None
-    try:
-        from vnstock_data import TopStock
-        from datetime import timedelta as _td
-        ts = TopStock()
-        all_nn_rows = []
-        today_d = date.today()
-        days_fetched = 0
-        calendar_day = 0
-        while days_fetched < 20 and calendar_day < 40:
-            dt = today_d - _td(days=calendar_day)
-            calendar_day += 1
-            if dt.weekday() >= 5:
-                continue
-            dt_str = dt.strftime("%Y-%m-%d")
-            for fetch_fn in (ts.foreign_buy, ts.foreign_sell):
-                try:
-                    nn_df_day = fetch_fn(date=dt_str, limit=100)
-                    if nn_df_day is not None and not nn_df_day.empty:
-                        for _, r in nn_df_day.iterrows():
-                            all_nn_rows.append({
-                                "symbol": str(r.get("symbol", "")),
-                                "date": dt,
-                                "net_value": float(r.get("net_value", 0)),
-                            })
-                except Exception:
-                    continue
-            days_fetched += 1
+    # NN ròng + Net BS là nguồn NGOÀI kho: bên gọi đưa vào, thiếu ⇒ cột None.
+    nn_w, nn_m, nn_3m, nn_data_date = {}, {}, {}, None
+    if fetch_nn is not None:
+        try:
+            nn_df = fetch_nn()
+            nn_w, nn_m, nn_3m, nn_data_date = _nn_windows(nn_df)
+            if nn_data_date:
+                console.log(f"  NN data: {len(nn_df)} records, đến ngày {nn_data_date}")
+        except Exception as e:
+            console.log(f"  [yellow]⚠ NN data fetch error: {e}[/yellow]")
 
-        if all_nn_rows:
-            nn_df_all = pd.DataFrame(all_nn_rows)
-            nn_df_all["date"] = pd.to_datetime(nn_df_all["date"])
-            # Anchor the rolling windows to the LATEST date foreign data actually
-            # exists for — NOT wall-clock today. The TopStock feed lags like the
-            # EOD batch, so a wall-clock cutoff slides forward over empty recent
-            # days and freezes the figure near the last real date (observed BĐS
-            # NN ~-5,277 on 09/06 still showing -5,275 two sessions later).
-            _nn_anchor = nn_df_all["date"].max()
-            nn_data_date = _nn_anchor.date().isoformat()
-            for days, result_map in ((7, nn_w), (30, nn_m), (90, nn_3m)):
-                cutoff = _nn_anchor - pd.Timedelta(days=days)
-                filtered = nn_df_all[nn_df_all["date"] >= cutoff]
-                agg_val = filtered.groupby("symbol")["net_value"].sum()
-                for sym, val in agg_val.items():
-                    result_map[sym] = round(val / 1e9, 1)  # → tỷ VND
-            console.log(f"  NN data: {len(all_nn_rows)} records, đến ngày {nn_data_date}")
-    except ImportError:
-        console.log("  [dim]vnstock_data not installed — NN data skipped[/dim]")
-    except Exception as e:
-        console.log(f"  [yellow]⚠ NN data fetch error: {e}[/yellow]")
-
-    # Fetch aggressive order flow (Net Buy-Sell) per ticker via order_stats()
     nb_data: dict = {}
-    _NB_CACHE_PATH = Path(warehouse) / "_meta" / "net_bs_cache.json"
-    _NB_CACHE_TTL_H = 12  # reuse cache if younger than 12 hours
-    try:
-        from vnstock_data import Trading
-        import time as _nb_time
-
-        # Check cache first
-        _nb_cache_hit = False
-        if _NB_CACHE_PATH.exists():
-            try:
-                _nb_cached = json.loads(_NB_CACHE_PATH.read_text(encoding="utf-8"))
-                _nb_age_h = (_nb_time.time() - _NB_CACHE_PATH.stat().st_mtime) / 3600
-                if _nb_age_h < _NB_CACHE_TTL_H:
-                    nb_data = _nb_cached.get("data", {})
-                    console.log(
-                        f"  Net BS: loaded from cache ({_nb_age_h:.1f}h old, "
-                        f"{len(nb_data)} tickers)"
-                    )
-                    _nb_cache_hit = True
-            except Exception:
-                pass
-
-        if not _nb_cache_hit:
-            _t0_nb = _nb_time.time()
-            _top_tickers = [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))]
-
-            # ── Gọi SONG SONG có nhịp, thay vì tuần tự có sleep ───────────
-            # Bản cũ: `for tk in ...: order_stats(tk); sleep(0.15)`. Với
-            # ~1.000 mã đó là **sàn 150 giây chỉ để NGỦ**, cộng round-trip
-            # mạng cũng nối tiếp nhau ⇒ vài trăm giây nữa. Trong khi hạn mức
-            # Sponsor là 600 req/phút = 10 req/s: đường tuần tự dùng chưa tới
-            # 1/10 quota mà vẫn chậm.
-            #
-            # Nay: pool worker + MỘT bộ nhịp dùng chung. Tổng tốc độ bị chặn ở
-            # `_NB_RATE_PER_SEC` bất kể bao nhiêu worker (bộ nhịp giữ mốc
-            # "lượt kế tiếp" dưới khoá, còn `sleep` thì nằm NGOÀI khoá nên
-            # worker không chặn nhau). Sàn thời gian nay là HẠN MỨC, không
-            # phải độ trễ nối tiếp.
-            #
-            # ⚠️ CỐ Ý KHÔNG đụng TTL 12h của cache: phát chạy mỗi ~24h nên
-            # cache LUÔN nguội ở đường đêm — nhưng đó là ĐÚNG. `Net BS 1T` là
-            # tổng 5 phiên; xài lại cache hôm qua là thiếu mất phiên hôm nay,
-            # một lỗi số liệu IM LẶNG. Cache chỉ để cứu lượt chạy lại trong
-            # cùng buổi tối, và nó làm đúng việc đó.
-            _nb_workers = _nb_pool_size()
-            _nb_pacer = _RatePacer(_NB_RATE_PER_SEC)
-            _nb_fail = 0
-
-            def _nb_fetch_one(tk: str) -> "tuple[str, dict | None, bool]":
-                """(mã, số liệu | None, có LỖI không). Chạy trong worker."""
-                from vnstock_ratelimit import call_with_rate_limit_retry
-                _nb_pacer.wait()
-                try:
-                    os_df = call_with_rate_limit_retry(
-                        lambda: Trading(symbol=tk).order_stats(), retries=2)
-                except Exception:
-                    # Nuốt im lặng như bản cũ là MẤT DATA không dấu vết: mã bị
-                    # hạn mức chặn biến mất khỏi nb_data mà không ai biết.
-                    return tk, None, True
-                if os_df is None or os_df.empty:
-                    return tk, None, False        # thật sự không có data
-                try:
-                    os_df = os_df.sort_values("trading_date")
-                    bv = pd.to_numeric(os_df["total_buy_trade_volume"],
-                                       errors="coerce").fillna(0)
-                    sv = pd.to_numeric(os_df["total_sell_trade_volume"],
-                                       errors="coerce").fillna(0)
-                    net = bv - sv
-                    return tk, {
-                        "1w": round(float(net.tail(5).sum())   / 1e6, 1),
-                        "1m": round(float(net.tail(20).sum())  / 1e6, 1),
-                        "3m": round(float(net.tail(60).sum())  / 1e6, 1),
-                        "6m": round(float(net.tail(120).sum()) / 1e6, 1),
-                    }, False
-                except Exception:
-                    return tk, None, True
-
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(), MofNCompleteColumn(),
-                TaskProgressColumn(), TimeElapsedColumn(),
-                console=console,
-            ) as _nb_progress:
-                _nb_task = _nb_progress.add_task(
-                    f"Net BS ({_nb_workers} luồng)...", total=len(_top_tickers))
-                with ThreadPoolExecutor(max_workers=_nb_workers) as _nb_pool:
-                    _futs = [_nb_pool.submit(_nb_fetch_one, tk) for tk in _top_tickers]
-                    for _fut in as_completed(_futs):
-                        try:
-                            tk, val, failed = _fut.result()
-                        except Exception:
-                            _nb_fail += 1
-                            _nb_progress.update(_nb_task, advance=1)
-                            continue
-                        if val is not None:
-                            nb_data[tk] = val
-                        if failed:
-                            _nb_fail += 1
-                        _nb_progress.update(_nb_task, description=f"[cyan]{tk:6s}[/cyan]",
-                                            advance=1)
-
-            # Save cache
-            try:
-                # Cache thuần (TTL 12h) nên mất không sao — nhưng file này ở
-                # trong file đã vào lưới `_MUST_BE_ATOMIC`, và lưới soi theo
-                # FILE chứ không theo điểm ghi. Nguyên tử luôn cho khỏi phải
-                # cấy ngoại lệ vào lưới (ngoại lệ là chỗ lỗi thật hay trốn).
-                from vnstock_parquet_io import write_json_atomic
-                write_json_atomic(
-                    {"generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                     "data": nb_data},
-                    _NB_CACHE_PATH)
-            except Exception:
-                pass
-            _nb_secs = _nb_time.time() - _t0_nb
-            _nb_rate = len(_top_tickers) / _nb_secs if _nb_secs > 0 else 0
-            console.log(
-                f"  Net Buy-Sell: {len(nb_data)}/{len(_top_tickers)} tickers "
-                f"({_nb_secs:.0f}s · {_nb_rate:.1f} req/s · {_nb_workers} luồng"
-                + (f" · {_nb_fail} LỖI" if _nb_fail else "") + ") → cached"
-            )
-    except ImportError:
-        console.log("  [dim]vnstock_data not installed — Net BS data skipped[/dim]")
-    except Exception as e:
-        console.log(f"  [yellow]⚠ Net BS fetch error: {e}[/yellow]")
+    if fetch_net_bs is not None:
+        nb_data = fetch_net_bs(
+            [r["ticker"] for r in sorted(rows, key=lambda r: -r.get("mktcap", 0))])
 
     # Aggregate by industry
     def agg(grp):
@@ -759,9 +637,10 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
     tick_display["NN 1T (tỷ)"] = tick_display["ticker"].map(nn_w)
     tick_display["NN 1M (tỷ)"] = tick_display["ticker"].map(nn_m)
     tick_display["NN 3M (tỷ)"] = tick_display["ticker"].map(nn_3m)
-    tick_display["Giá 1T %"] = tick_display["chg5"].round(1)
-    tick_display["Giá 1M %"] = tick_display["chg20"].round(1)
-    tick_display["Giá 3M %"] = tick_display["chg60"].round(1)
+    # Kho mới (mọi mã < 61 bar) ⇒ chg60 toàn None = cột object, `.round` ném TypeError
+    tick_display["Giá 1T %"] = pd.to_numeric(tick_display["chg5"], errors="coerce").round(1)
+    tick_display["Giá 1M %"] = pd.to_numeric(tick_display["chg20"], errors="coerce").round(1)
+    tick_display["Giá 3M %"] = pd.to_numeric(tick_display["chg60"], errors="coerce").round(1)
     tick_display = tick_display.rename(columns={"ticker": "Mã", "industry": "Ngành"})
 
     # Custom sector groups ("Họ VIN", "Họ M", …): group these ticker families as
@@ -823,6 +702,179 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         "breadth": breadth,
         "tickers": tick_display.to_dict(orient="records"),
     }
+
+
+def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
+    """Bản của bước screener: `build_market_overview` + NN ròng (TopStock) + Net
+    Buy-Sell (order_stats, cache `_meta/net_bs_cache.json`). Trả dict, chưa ghi
+    market_overview.json — việc đó của `save_market_overview`."""
+
+    def _fetch_nn() -> pd.DataFrame:
+        """NN ròng ~20 phiên gần nhất: TopStock foreign_buy + foreign_sell."""
+        try:
+            from vnstock_data import TopStock
+        except ImportError:
+            console.log("  [dim]vnstock_data not installed — NN data skipped[/dim]")
+            return pd.DataFrame()
+        from datetime import date, timedelta as _td
+        ts = TopStock()
+        all_nn_rows = []
+        today_d = date.today()
+        days_fetched = 0
+        calendar_day = 0
+        while days_fetched < 20 and calendar_day < 40:
+            dt = today_d - _td(days=calendar_day)
+            calendar_day += 1
+            if dt.weekday() >= 5:
+                continue
+            dt_str = dt.strftime("%Y-%m-%d")
+            for fetch_fn in (ts.foreign_buy, ts.foreign_sell):
+                try:
+                    nn_df_day = fetch_fn(date=dt_str, limit=100)
+                    if nn_df_day is not None and not nn_df_day.empty:
+                        for _, r in nn_df_day.iterrows():
+                            all_nn_rows.append({
+                                "symbol": str(r.get("symbol", "")),
+                                "date": dt,
+                                "net_value": float(r.get("net_value", 0)),
+                            })
+                except Exception:
+                    continue
+            days_fetched += 1
+        return pd.DataFrame(all_nn_rows)
+
+    def _fetch_net_bs(_top_tickers: list) -> dict:
+        """Net Buy-Sell theo mã qua order_stats(): song song có nhịp, cache 12h."""
+        nb_data: dict = {}
+        _NB_CACHE_PATH = Path(warehouse) / "_meta" / "net_bs_cache.json"
+        _NB_CACHE_TTL_H = 12  # reuse cache if younger than 12 hours
+        try:
+            from vnstock_data import Trading
+            import time as _nb_time
+
+            # Check cache first
+            _nb_cache_hit = False
+            if _NB_CACHE_PATH.exists():
+                try:
+                    _nb_cached = json.loads(_NB_CACHE_PATH.read_text(encoding="utf-8"))
+                    _nb_age_h = (_nb_time.time() - _NB_CACHE_PATH.stat().st_mtime) / 3600
+                    if _nb_age_h < _NB_CACHE_TTL_H:
+                        nb_data = _nb_cached.get("data", {})
+                        console.log(
+                            f"  Net BS: loaded from cache ({_nb_age_h:.1f}h old, "
+                            f"{len(nb_data)} tickers)"
+                        )
+                        _nb_cache_hit = True
+                except Exception:
+                    pass
+
+            if not _nb_cache_hit:
+                _t0_nb = _nb_time.time()
+
+                # ── Gọi SONG SONG có nhịp, thay vì tuần tự có sleep ───────────
+                # Bản cũ: `for tk in ...: order_stats(tk); sleep(0.15)`. Với
+                # ~1.000 mã đó là **sàn 150 giây chỉ để NGỦ**, cộng round-trip
+                # mạng cũng nối tiếp nhau ⇒ vài trăm giây nữa. Trong khi hạn mức
+                # Sponsor là 600 req/phút = 10 req/s: đường tuần tự dùng chưa tới
+                # 1/10 quota mà vẫn chậm.
+                #
+                # Nay: pool worker + MỘT bộ nhịp dùng chung. Tổng tốc độ bị chặn ở
+                # `_NB_RATE_PER_SEC` bất kể bao nhiêu worker (bộ nhịp giữ mốc
+                # "lượt kế tiếp" dưới khoá, còn `sleep` thì nằm NGOÀI khoá nên
+                # worker không chặn nhau). Sàn thời gian nay là HẠN MỨC, không
+                # phải độ trễ nối tiếp.
+                #
+                # ⚠️ CỐ Ý KHÔNG đụng TTL 12h của cache: phát chạy mỗi ~24h nên
+                # cache LUÔN nguội ở đường đêm — nhưng đó là ĐÚNG. `Net BS 1T` là
+                # tổng 5 phiên; xài lại cache hôm qua là thiếu mất phiên hôm nay,
+                # một lỗi số liệu IM LẶNG. Cache chỉ để cứu lượt chạy lại trong
+                # cùng buổi tối, và nó làm đúng việc đó.
+                _nb_workers = _nb_pool_size()
+                _nb_pacer = _RatePacer(_NB_RATE_PER_SEC)
+                _nb_fail = 0
+
+                def _nb_fetch_one(tk: str) -> "tuple[str, dict | None, bool]":
+                    """(mã, số liệu | None, có LỖI không). Chạy trong worker."""
+                    from vnstock_ratelimit import call_with_rate_limit_retry
+                    _nb_pacer.wait()
+                    try:
+                        os_df = call_with_rate_limit_retry(
+                            lambda: Trading(symbol=tk).order_stats(), retries=2)
+                    except Exception:
+                        # Nuốt im lặng như bản cũ là MẤT DATA không dấu vết: mã bị
+                        # hạn mức chặn biến mất khỏi nb_data mà không ai biết.
+                        return tk, None, True
+                    if os_df is None or os_df.empty:
+                        return tk, None, False        # thật sự không có data
+                    try:
+                        os_df = os_df.sort_values("trading_date")
+                        bv = pd.to_numeric(os_df["total_buy_trade_volume"],
+                                           errors="coerce").fillna(0)
+                        sv = pd.to_numeric(os_df["total_sell_trade_volume"],
+                                           errors="coerce").fillna(0)
+                        net = bv - sv
+                        return tk, {
+                            "1w": round(float(net.tail(5).sum())   / 1e6, 1),
+                            "1m": round(float(net.tail(20).sum())  / 1e6, 1),
+                            "3m": round(float(net.tail(60).sum())  / 1e6, 1),
+                            "6m": round(float(net.tail(120).sum()) / 1e6, 1),
+                        }, False
+                    except Exception:
+                        return tk, None, True
+
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(), MofNCompleteColumn(),
+                    TaskProgressColumn(), TimeElapsedColumn(),
+                    console=console,
+                ) as _nb_progress:
+                    _nb_task = _nb_progress.add_task(
+                        f"Net BS ({_nb_workers} luồng)...", total=len(_top_tickers))
+                    with ThreadPoolExecutor(max_workers=_nb_workers) as _nb_pool:
+                        _futs = [_nb_pool.submit(_nb_fetch_one, tk) for tk in _top_tickers]
+                        for _fut in as_completed(_futs):
+                            try:
+                                tk, val, failed = _fut.result()
+                            except Exception:
+                                _nb_fail += 1
+                                _nb_progress.update(_nb_task, advance=1)
+                                continue
+                            if val is not None:
+                                nb_data[tk] = val
+                            if failed:
+                                _nb_fail += 1
+                            _nb_progress.update(_nb_task, description=f"[cyan]{tk:6s}[/cyan]",
+                                                advance=1)
+
+                # Save cache
+                try:
+                    # Cache thuần (TTL 12h) nên mất không sao — nhưng file này ở
+                    # trong file đã vào lưới `_MUST_BE_ATOMIC`, và lưới soi theo
+                    # FILE chứ không theo điểm ghi. Nguyên tử luôn cho khỏi phải
+                    # cấy ngoại lệ vào lưới (ngoại lệ là chỗ lỗi thật hay trốn).
+                    from vnstock_parquet_io import write_json_atomic
+                    write_json_atomic(
+                        {"generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                         "data": nb_data},
+                        _NB_CACHE_PATH)
+                except Exception:
+                    pass
+                _nb_secs = _nb_time.time() - _t0_nb
+                _nb_rate = len(_top_tickers) / _nb_secs if _nb_secs > 0 else 0
+                console.log(
+                    f"  Net Buy-Sell: {len(nb_data)}/{len(_top_tickers)} tickers "
+                    f"({_nb_secs:.0f}s · {_nb_rate:.1f} req/s · {_nb_workers} luồng"
+                    + (f" · {_nb_fail} LỖI" if _nb_fail else "") + ") → cached"
+                )
+        except ImportError:
+            console.log("  [dim]vnstock_data not installed — Net BS data skipped[/dim]")
+        except Exception as e:
+            console.log(f"  [yellow]⚠ Net BS fetch error: {e}[/yellow]")
+        return nb_data
+
+    return build_market_overview(warehouse, fetch_nn=_fetch_nn, fetch_net_bs=_fetch_net_bs)
 
 
 def _pick_gtgd_session(gtgd_by_date: dict, now=None) -> tuple:

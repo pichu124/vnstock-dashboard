@@ -21,8 +21,11 @@ def render_agent_settings() -> None:
         _changed_configs: list[dict] = []
 
         import os as _os
-        for _cfg in _agent_configs:
+        # Key theo CHỈ SỐ dòng: "➕ Thêm agent" luôn tạo type trùng ⇒ key theo
+        # type nổ StreamlitDuplicateElementKey ở lượt rerun kế.
+        for _i, _cfg in enumerate(_agent_configs):
             _atype = _cfg.get("type", "")
+            _k = f"{_i}_{_atype}"
             _aname = _cfg.get("name", _atype)
             # Detect key status
             _cls = AGENT_REGISTRY.get(_atype)
@@ -47,25 +50,25 @@ def render_agent_settings() -> None:
             with _col_en:
                 _enabled = st.checkbox(
                     "Bật", value=_cfg.get("enabled", False),
-                    key=f"_brief_en_{_atype}",
+                    key=f"_brief_en_{_k}",
                     disabled=not _key_ok,
                     help="Cần điền API key vào .env trước" if not _key_ok else "",
                 )
             with _col_model:
                 _model = st.text_input(
                     "Model", value=_cfg.get("model", ""),
-                    key=f"_brief_model_{_atype}",
+                    key=f"_brief_model_{_k}",
                     placeholder="e.g. claude-haiku-4-5-20251001",
                 )
             with _col_test:
                 st.markdown("<div style='margin-top:28px'></div>",
                             unsafe_allow_html=True)
-                if st.button("🔌 Test", key=f"_brief_ping_{_atype}",
+                if st.button("🔌 Test", key=f"_brief_ping_{_k}",
                              disabled=not _key_ok,
                              help="Gửi tin nhắn ngắn để kiểm tra key và model"):
                     if _cls:
                         _agent_inst = _cls(
-                            model=st.session_state.get(f"_brief_model_{_atype}",
+                            model=st.session_state.get(f"_brief_model_{_k}",
                                                         _cfg.get("model", "")),
                             name=_aname,
                         )

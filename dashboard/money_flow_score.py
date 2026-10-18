@@ -50,7 +50,8 @@ def score_bar_html(score: float) -> str:
     """Render mini bar HTML cho score."""
     label, color = score_label(score)
     width = min(abs(score), 80)
-    direction = "right" if score >= 0 else "left"
+    # Neo mép thanh ở vạch giữa: dương neo mép TRÁI (mọc sang phải), âm neo mép PHẢI.
+    direction = "left" if score >= 0 else "right"
     return (
         f'<div style="display:flex;align-items:center;gap:6px">'
         f'<div style="width:80px;height:14px;background:#1f2937;border-radius:7px;'

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
@@ -543,6 +543,14 @@ def refresh_news(
         except Exception:
             pass
 
+    if not all_news:
+        # fetch_ticker_news nuốt mọi lỗi thành [] ⇒ 0 tin = mạng/nguồn hỏng. Ghi [] sẽ đè
+        # cache cũ (đi Dropbox sang cả hai máy) và làm mtime "tươi" cho doctor.
+        import logging
+        logging.getLogger("vnstock_news").warning(
+            "refresh_news: 0 tin cho %d mã — giữ nguyên %s", total, NEWS_CACHE_PATH.name)
+        return all_news
+
     save_news_cache(all_news)
     _set_memory_cache(all_news)
     return all_news
@@ -650,6 +658,11 @@ def news_for_ticker(ticker: str, news: list[dict] | None = None) -> list[dict]:
 
 
 # ── AI context formatter ───────────────────────────────────────────────────
+# Hôm nay chưa có tin ⇒ brief lấy tin trong chừng này ngày lịch trước đó (T2 sáng
+# vẫn thấy tin T6); cũ hơn hay không có ngày thì bỏ, thà không có khối tin.
+NEWS_FALLBACK_DAYS = 3
+
+
 def news_context_block(
     tickers: list[str] | None = None,
     max_items: int = 20,
@@ -665,10 +678,10 @@ def news_context_block(
         return ""
 
     today = date_filter or date.today().isoformat()
-    # Use today's news; if empty, fall back to most recent 3 days
     filtered = [n for n in news if n.get("_date_sort", "") >= today]
     if not filtered:
-        filtered = news  # fall back to whatever we have
+        since = (date.fromisoformat(today) - timedelta(days=NEWS_FALLBACK_DAYS)).isoformat()
+        filtered = [n for n in news if n.get("_date_sort", "") >= since]
 
     if tickers:
         upper = {t.upper() for t in tickers}

@@ -21,6 +21,8 @@ import pytest
 
 import vnstock_ohlc_repair as ohlc
 
+from tests.conftest import needs_vnstock
+
 
 def _df(rows):
     return pd.DataFrame(rows, columns=["time", "open", "high", "low", "close"])
@@ -184,6 +186,7 @@ def test_doctor_badge_goes_quiet_once_the_repairs_are_old(tmp_path, monkeypatch)
 
 # ── Đường ghi thật ──────────────────────────────────────────────────────────
 
+@needs_vnstock
 def test_write_path_repairs_before_the_contract_can_quarantine(tmp_path,
                                                                monkeypatch):
     """Bất biến CỐT LÕI: bar dở phải QUA được hợp đồng, không rơi vào hàng đợi."""
@@ -209,6 +212,7 @@ def test_write_path_repairs_before_the_contract_can_quarantine(tmp_path,
     assert ohlc.load_repairs(tmp_path)["total"] == 1
 
 
+@needs_vnstock
 def test_write_path_still_quarantines_a_truly_broken_bar(tmp_path, monkeypatch):
     import vnstock_updater as up
 
@@ -226,6 +230,7 @@ def test_write_path_still_quarantines_a_truly_broken_bar(tmp_path, monkeypatch):
     assert quarantined, "bar hỏng phải vẫn bị cách ly"
 
 
+@needs_vnstock
 def test_kill_switch_restores_the_old_quarantine_behaviour(tmp_path, monkeypatch):
     import vnstock_updater as up
 

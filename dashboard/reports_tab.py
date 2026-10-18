@@ -13,6 +13,8 @@ Streamlit lazy-import trong render (mirror money_flow_tab) để module import
 """
 from __future__ import annotations
 
+from datetime import date
+
 _STATUS = {"ok": "✅ vào phân tích", "meta": "📥 thiếu metadata",
            "scan": "🖼 không trích được chữ (scan/ảnh)"}   # PDF lẫn DOCX (04/10)
 
@@ -23,6 +25,26 @@ def _row_status(rp, rec: dict) -> str:
     if rec.get("no_text_layer"):
         return _STATUS["scan"]
     return _STATUS["meta"]
+
+
+def _date_error(s: str) -> "str | None":
+    """Lỗi của ô ngày (rỗng = không lỗi). `vnstock_reports` gặp ngày hỏng chỉ
+    print ra console rồi bỏ qua — UI phải tự nói."""
+    if not s.strip():
+        return None
+    try:
+        d = date.fromisoformat(s.strip())
+    except ValueError:
+        return f"Ngày '{s}' sai định dạng — gõ YYYY-MM-DD (vd 2026-10-16)."
+    return f"Ngày '{s}' ở tương lai." if d > date.today() else None
+
+
+def _show_result(st, key: str) -> None:
+    """Thông báo của lượt trước: st.success/error gọi ngay trước st.rerun()
+    bị xoá trắng, nên lưu vào session_state rồi hiện ở lượt sau."""
+    res = st.session_state.pop(key, None)
+    if res:
+        getattr(st, res[0])(res[1])
 
 
 def render_reports_subtab() -> None:
@@ -46,13 +68,17 @@ def _render_ingest(st, rp) -> None:
     c1, c2 = st.columns(2)
     source = c1.text_input("Nguồn (CTCK/chuyên gia)", key="_rp_source")
     report_date = c2.text_input("Ngày báo cáo (YYYY-MM-DD)", key="_rp_date")
+    date_err = _date_error(report_date)
+    if date_err:
+        st.error(date_err)
     title = st.text_input("Tiêu đề (tùy chọn)", key="_rp_title")
     meta = {"source": source or None, "report_date": report_date or None,
             "title": title or None}
 
     up = st.file_uploader("Upload báo cáo (PDF/DOCX)", type=["pdf", "docx"],
                           key="_rp_pdf")
-    if up is not None and st.button("➕ Thêm file vào thư viện", key="_rp_add_pdf"):
+    if up is not None and st.button("➕ Thêm file vào thư viện", key="_rp_add_pdf",
+                                    disabled=bool(date_err)):
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as td:
@@ -63,12 +89,13 @@ def _render_ingest(st, rp) -> None:
 
     url = st.text_input("… hoặc dán URL báo cáo (fetch qua Jina Reader — cần mạng)",
                         key="_rp_url")
-    if url and st.button("➕ Thêm từ URL", key="_rp_add_url"):
+    if url and st.button("➕ Thêm từ URL", key="_rp_add_url", disabled=bool(date_err)):
         _ingest_feedback(st, rp, rp.add_url(url, **meta))
 
     text = st.text_area("… hoặc dán thẳng nội dung báo cáo", key="_rp_text",
                         height=120)
-    if text.strip() and st.button("➕ Thêm từ text", key="_rp_add_text"):
+    if text.strip() and st.button("➕ Thêm từ text", key="_rp_add_text",
+                                  disabled=bool(date_err)):
         _ingest_feedback(st, rp, rp.add_text(text, **meta))
 
 
@@ -101,6 +128,7 @@ def _render_library(st, rp) -> None:
     } for r in reports]), hide_index=True, use_container_width=True)
 
     # Bổ sung metadata / xóa — cho báo cáo đã ingest
+    _show_result(st, "_rp_meta_result")
     ids = [r["id"] for r in reports]
     rid = st.selectbox("Chọn báo cáo", options=ids, key="_rp_sel",
                        format_func=lambda i: next(
@@ -110,11 +138,21 @@ def _render_library(st, rp) -> None:
     c1, c2, c3 = st.columns([2, 2, 1])
     new_src = c1.text_input("Sửa nguồn", key="_rp_fix_src")
     new_date = c2.text_input("Sửa ngày (YYYY-MM-DD)", key="_rp_fix_date")
-    if (new_src or new_date) and c3.button("💾 Lưu meta", key="_rp_save_meta"):
-        rp.set_meta(rid, source=new_src or None, report_date=new_date or None)
+    fix_err = _date_error(new_date)
+    if fix_err:
+        st.error(fix_err)
+    if (new_src or new_date) and c3.button("💾 Lưu meta", key="_rp_save_meta",
+                                           disabled=bool(fix_err)):
+        rec = rp.set_meta(rid, source=new_src or None, report_date=new_date or None)
+        st.session_state["_rp_meta_result"] = (
+            ("success", f"Đã lưu meta `{rid}` — {_row_status(rp, rec)}") if rec
+            else ("error", f"Không lưu được meta `{rid}` — xem log terminal."))
         st.rerun()
     _render_vision(st, rp, next((r for r in reports if r["id"] == rid), None))
-    if st.button("🗑 Xóa báo cáo đã chọn", key="_rp_remove"):
+    # Xoá cả file gốc trong kho, selectbox mặc định là báo cáo mới nhất ⇒ phải tick.
+    # Key theo id: đổi lựa chọn hay xoá xong thì ô tự bỏ tick.
+    sure = st.checkbox(f"Tôi chắc chắn xoá `{rid}` (cả file gốc)", key=f"_rp_remove_sure_{rid}")
+    if st.button("🗑 Xóa báo cáo đã chọn", key="_rp_remove", disabled=not sure) and sure:
         rp.remove(rid)
         st.rerun()
 
@@ -151,14 +189,17 @@ def _render_digest(st, rp) -> None:
         st.error("Không tìm thấy `vnstock_report_digest.py`.")
         return
 
+    _show_result(st, "_rp_digest_result")
     pending = [r for r in rp.load_for_analysis() if not r.get("digest")]
     if pending:
         st.caption(f"{len(pending)} báo cáo đủ điều kiện chưa có digest.")
         if st.button(f"🧠 Digest {len(pending)} báo cáo (gọi LLM — Claude Code "
                      "khi engine=claude, rồi key Claude/GPT, free fallback)", key="_rp_digest"):
-            done = dg.refresh()
-            st.success(f"Đã digest {len(done)} báo cáo.") if done else \
-                st.error("Không digest được — kiểm tra key .env / mạng.")
+            with st.spinner(f"Đang digest {len(pending)} báo cáo (gọi LLM — có thể vài phút)…"):
+                done = dg.refresh()
+            st.session_state["_rp_digest_result"] = (
+                ("success", f"Đã digest {len(done)} báo cáo.") if done
+                else ("error", "Không digest được — kiểm tra key .env / mạng."))
             st.rerun()
     else:
         # 04/10: user tìm nút không thấy — nút chỉ hiện khi CÓ báo cáo chờ.

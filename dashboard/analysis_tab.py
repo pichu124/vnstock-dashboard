@@ -20,6 +20,10 @@ the dashboard module has finished initialising.
 
 from __future__ import annotations
 
+# Lưu alert lỗi bấy nhiêu lần LIÊN TIẾP ⇒ `_alert_checker` ngừng gửi Telegram (không lưu
+# được dấu "đã bắn" thì 10s sau lại gửi lặp) tới khi lưu lại được.
+_ALERT_SAVE_FAIL_MAX = 3
+
 
 def render_analysis_tab() -> None:
     """Render the Phân tích tab. Lazy imports Streamlit + dashboard helpers."""
@@ -42,7 +46,7 @@ def render_analysis_tab() -> None:
             sys.modules['vnstock_dashboard'] = _m
 
     from vnstock_dashboard import (
-        WSS_AVAILABLE,
+        ALERTS_PATH, WSS_AVAILABLE,
         _get_wss_singleton, _merge_live_quote, _normalize_live_price,
         check_and_fire_alerts, fetch_volume_profile_direct, fmt_pct,
         get_all_listed_symbols, get_all_tickers, get_tech_signals,
@@ -53,7 +57,7 @@ def render_analysis_tab() -> None:
         load_price_history,
         render_chart, render_metric_row, render_order_book,
         render_signal_badge, render_volume_profile,
-        resample_ohlcv, save_alerts,
+        log, resample_ohlcv, save_alerts,
         data,
     )
     try:
@@ -119,9 +123,12 @@ def render_analysis_tab() -> None:
                     help="Danh sách futures đang có live data (10 mức order book)"
                 )
                 if _fut_pick and _fut_pick != "— chọn —":
-                    if st.button(f"Phân tích {_fut_pick} →",
-                                 use_container_width=True, key="anal_fut_go"):
-                        st.session_state["analyze_ticker"] = _fut_pick
+                    # Callback chạy TRƯỚC lượt render nên còn được trả selectbox về "" —
+                    # không thì `ticker_input or …` dưới kia để mã cũ thắng nút này.
+                    st.button(f"Phân tích {_fut_pick} →",
+                              use_container_width=True, key="anal_fut_go",
+                              on_click=st.session_state.update,
+                              kwargs={"ticker_sidebar": "", "analyze_ticker": _fut_pick})
 
         st.divider()
         st.markdown("### ⏱ Khoảng thời gian")
@@ -163,11 +170,23 @@ def render_analysis_tab() -> None:
         st.divider()
         st.markdown("### 🔔 Price Alerts")
 
-        _alerts = load_alerts()
+        try:
+            _alerts, _alerts_broken = load_alerts(), False
+        except (OSError, ValueError) as _e:
+            _alerts, _alerts_broken = [], True
+            st.error(f"Không đọc được file alert `{ALERTS_PATH}` ({_e}). Đã khoá Tạo/Xoá "
+                     "alert để không ghi đè — sửa hoặc khôi phục file (Dropbox: lịch sử "
+                     "phiên bản / bản conflicted copy) rồi tải lại trang.")
         _active_alerts = [a for a in _alerts if not a.get("fired")]
         _fired_alerts = [a for a in _alerts if a.get("fired")]
 
         st.caption(f"{len(_active_alerts)} active · {len(_fired_alerts)} fired")
+        _save_fails = st.session_state.get("_alert_save_fails", 0)
+        # Không còn alert active thì không có gì bị chặn gửi — bộ đếm giữ nguyên để
+        # alert kế tiếp vẫn phải qua lượt dò.
+        if _save_fails >= _ALERT_SAVE_FAIL_MAX and _active_alerts:
+            st.error(f"Lưu alert vừa bắn vào `{ALERTS_PATH}` lỗi {_save_fails} lần liền — đã "
+                     "NGỪNG gửi Telegram (không thì cứ 10s gửi lặp). Lưu lại được là tự gửi tiếp.")
 
         # Telegram config
         _tg_token = st.text_input("Telegram Bot Token", type="password",
@@ -199,18 +218,26 @@ def render_analysis_tab() -> None:
                 key="alert_target",
                 help="Giá (VND) cho above/below, % cho change, số cổ phiếu cho volume"
             )
-            if st.button("✅ Tạo alert", key="alert_create", use_container_width=True):
+            if st.button("✅ Tạo alert", key="alert_create", use_container_width=True,
+                         disabled=_alerts_broken):
                 if _al_ticker and _al_target > 0:
-                    _alerts.append({
-                        "ticker": _al_ticker,
-                        "condition": _al_cond,
-                        "target": _al_target,
-                        "fired": False,
-                        "created_at": __import__("datetime").datetime.now().isoformat(
-                            timespec="seconds"),
-                    })
-                    save_alerts(_alerts)
-                    st.rerun()
+                    # Đọc LẠI file như nút Xoá: nối vào bản chụp `_alerts` là trả alert
+                    # `_alert_checker` vừa bắn về "chưa bắn", Telegram bắn lại.
+                    try:
+                        _on_disk = load_alerts()
+                    except (OSError, ValueError) as _e:
+                        st.error(f"Không đọc lại được `{ALERTS_PATH}` ({_e}) — chưa tạo alert.")
+                    else:
+                        if save_alerts([*_on_disk, {
+                            "ticker": _al_ticker,
+                            "condition": _al_cond,
+                            "target": _al_target,
+                            "fired": False,
+                            "created_at": __import__("datetime").datetime.now().isoformat(
+                                timespec="seconds"),
+                        }]):
+                            st.rerun()
+                        st.error(f"Không lưu được `{ALERTS_PATH}` — chưa tạo alert.")
 
         # List active alerts
         if _active_alerts:
@@ -232,8 +259,16 @@ def render_analysis_tab() -> None:
         if _fired_alerts:
             if st.button(f"🗑 Xoá {len(_fired_alerts)} alerts đã triggered",
                          key="alert_clear", use_container_width=True):
-                save_alerts(_active_alerts)
-                st.rerun()
+                # Đọc LẠI file: `_alert_checker` có thể vừa bắn + lưu alert sau bản chụp
+                # ở trên — ghi `_active_alerts` cũ là trả nó về "chưa bắn", Telegram bắn lại.
+                try:
+                    _on_disk = load_alerts()
+                except (OSError, ValueError) as _e:
+                    st.error(f"Không đọc lại được `{ALERTS_PATH}` ({_e}) — chưa xoá gì.")
+                else:
+                    if save_alerts([a for a in _on_disk if not a.get("fired")]):
+                        st.rerun()
+                    st.error(f"Không lưu được `{ALERTS_PATH}` — chưa xoá gì.")
 
     # ── Xác định ticker cần phân tích ─────────────────────────────────────────────
     ticker = ticker_input or st.session_state.get("analyze_ticker", "")
@@ -333,7 +368,6 @@ def render_analysis_tab() -> None:
                          type="primary" if _active else "secondary",
                          use_container_width=True):
                 st.session_state["tf"] = _val
-                st.cache_data.clear()
                 st.rerun()
     tf = st.session_state["tf"]
 
@@ -389,19 +423,21 @@ def render_analysis_tab() -> None:
         if chart_df.empty:
             st.warning(f"Không lấy được dữ liệu {tf}. Hiển thị daily.")
             chart_df = _merge_today_bar(df)
-    elif tf == "1W":
+    elif tf in ("1W", "1M"):
         # Resample từ daily warehouse (stable hơn API 1W) — merge today first
-        chart_df = resample_ohlcv(_merge_today_bar(df), "W")
-    elif tf == "1M":
-        chart_df = resample_ohlcv(_merge_today_bar(df), "ME")
+        _days_df = _merge_today_bar(df)
+        chart_df = resample_ohlcv(_days_df, "W" if tf == "1W" else "ME")
     else:
         chart_df = _merge_today_bar(df)
 
     # Surface data range so user can verify live freshness — stale data is
     # the most common cause of "chart không update" reports.
     if not chart_df.empty:
-        _t0 = chart_df["time"].iloc[0]
-        _t1 = chart_df["time"].iloc[-1]
+        # 1W/1M: pandas gắn nhãn kỳ bằng ngày CUỐI kỳ (CN, cuối tháng — tương lai) ⇒
+        # lấy ngày phiên thật từ khung ngày trước khi resample.
+        _span = _days_df if tf in ("1W", "1M") else chart_df
+        _t0 = _span["time"].iloc[0]
+        _t1 = _span["time"].iloc[-1]
         _fmt = "%d/%m %H:%M" if tf in ("1m","5m","15m","30m","1H") else "%d/%m/%Y"
         st.caption(
             f"📅 Data: {_t0.strftime(_fmt)} → {_t1.strftime(_fmt)} "
@@ -507,7 +543,7 @@ def render_analysis_tab() -> None:
                     return
                 live_q = load_live_quote(ticker)
                 if live_q:
-                    intra = _merge_live_quote(intra, live_q)
+                    intra = _merge_live_quote(intra, live_q, tf)
                 last = intra.iloc[-1]
                 bar = {
                     "time":   int(last["time"].timestamp()),
@@ -533,7 +569,7 @@ def render_analysis_tab() -> None:
         _live_q_chart = load_live_quote(ticker)
         _chart_df_live = load_intraday(ticker, interval=tf)
         if _live_q_chart and not _chart_df_live.empty:
-            _chart_df_live = _merge_live_quote(_chart_df_live, _live_q_chart)
+            _chart_df_live = _merge_live_quote(_chart_df_live, _live_q_chart, tf)
         _vp_chart = None
         if _live_q_chart:
             _vp_chart = _live_q_chart.get("volume_profile", [])
@@ -558,26 +594,58 @@ def render_analysis_tab() -> None:
     if _live_on:
         @st.fragment(run_every=10)
         def _alert_checker():
-            _al = load_alerts()
+            try:
+                _al = load_alerts()
+            except (OSError, ValueError) as e:
+                # Không gửi, không ghi: lưu lúc này = đè file hỏng; sidebar đã báo lỗi
+                log.warning("Bỏ qua kiểm alert — không đọc được %s: %s", ALERTS_PATH, e)
+                return
             _active = [a for a in _al if not a.get("fired")]
             if not _active:
                 return
+            if st.session_state.get("_alert_save_fails", 0) >= _ALERT_SAVE_FAIL_MAX:
+                # Đã ngừng gửi: dò đúng đường lưu sau khi bắn (đọc lại rồi ghi). Dò được thì
+                # gửi, nhưng chỉ chừa MỘT lần lỗi — Dropbox lúc khoá lúc nhả không kéo theo
+                # 3 tin trùng.
+                try:
+                    _probe_ok = save_alerts(load_alerts())
+                except (OSError, ValueError):
+                    _probe_ok = False
+                if not _probe_ok:
+                    st.error(f"Không lưu được `{ALERTS_PATH}` — đã ngừng gửi Telegram alert "
+                             "tới khi lưu lại được.")
+                    return
+                st.session_state["_alert_save_fails"] = _ALERT_SAVE_FAIL_MAX - 1
             _tg_t = st.session_state.get("_tg_token", "")
             _tg_c = st.session_state.get("_tg_chat", "")
+            _was_fired = [bool(a.get("fired")) for a in _al]
             updated = check_and_fire_alerts(_al, _tg_t, _tg_c)
-            _newly_fired = [a for a in updated
-                            if a.get("fired") and a.get("fired_at")
-                            and a not in _al]
-            # Chỉ save nếu có alert mới triggered
-            if any(a.get("fired") and not _al[i].get("fired")
-                   for i, a in enumerate(updated) if i < len(_al)):
-                save_alerts(updated)
-                for a in updated:
-                    if a.get("fired") and a.get("message"):
-                        if not any(old.get("fired") and old.get("ticker") == a["ticker"]
-                                   and old.get("condition") == a["condition"]
-                                   for old in _al):
-                            st.toast(f"🔔 {a['ticker']}: {a.get('message', 'Alert triggered!')[:100]}")
+            _fresh = [a for a, was in zip(updated, _was_fired)
+                      if a.get("fired") and not was]
+            # Không lưu thì lượt sau đọc lại thấy chưa bắn ⇒ Telegram lặp mỗi 10s
+            if _fresh:
+                # Đọc LẠI rồi gộp: gửi Telegram mất vài giây, alert user vừa tạo (hoặc máy
+                # kia thêm qua Dropbox) trong lúc đó không được bị `updated` cũ ghi đè.
+                try:
+                    _on_disk = load_alerts()
+                except (OSError, ValueError) as e:
+                    log.warning("Không lưu alert vừa bắn — đọc lại %s lỗi: %s", ALERTS_PATH, e)
+                    st.session_state["_alert_save_fails"] = (
+                        st.session_state.get("_alert_save_fails", 0) + 1)
+                else:
+                    def _key(a):
+                        return (a.get("ticker"), a.get("condition"), a.get("target"),
+                                a.get("created_at"))
+                    _shot = {_key(a): a for a in _fresh}
+                    _fields = ("fired", "fired_at", "fired_price", "message")
+                    _saved = save_alerts([
+                        {**a, **{k: _shot[_key(a)][k] for k in _fields}}
+                        if _key(a) in _shot and not a.get("fired") else a
+                        for a in _on_disk])
+                    st.session_state["_alert_save_fails"] = (
+                        0 if _saved else st.session_state.get("_alert_save_fails", 0) + 1)
+                for a in _fresh:
+                    st.toast(f"🔔 {a['ticker']}: {a.get('message', 'Alert triggered!')[:100]}")
 
         _alert_checker()
 
@@ -681,13 +749,18 @@ def render_analysis_tab() -> None:
                 tmp.replace(out)  # atomic — readers never see partial JSON
             except Exception as _ex:
                 print(f"[today_bar_writer] {ticker}: {_ex}", file=_sys.stderr)
-        _today_bar_writer()
+        # 1W/1M: nhãn kỳ là ngày CUỐI kỳ > hôm nay ⇒ JS bỏ bar hôm nay (`b.time < lastT`),
+        # bộ ghi chỉ gọi VCI vô ích.
+        _live_url = None
+        if tf in ("1D", "All"):
+            _today_bar_writer()
+            _live_url = f"/app/static/today_bars/{ticker}.json"
 
         # Chart with JS-side live polling — see render_chart docstring.
         render_chart(
             chart_df, ticker,
             height=st.session_state.get("chart_height_anal", 850),
-            live_url=f"/app/static/today_bars/{ticker}.json",
+            live_url=_live_url,
         )
 
     # ── Intraday Replay ───────────────────────────────────────────────────────
@@ -722,10 +795,11 @@ def render_analysis_tab() -> None:
         # the chart's JS polling can update the last candle in place.
         # Produces a TradingView-style ticking 1D chart during the session
         # without requiring the user to enable Live Mode (which adds WSS
-        # subscription overhead). Daily/weekly/monthly only — intraday
-        # timeframes without Live Mode use whatever chart_df was loaded.
+        # subscription overhead). Daily only — intraday timeframes without
+        # Live Mode use whatever chart_df was loaded; 1W/1M thì JS luôn bỏ bar
+        # hôm nay (nhãn kỳ là ngày CUỐI kỳ > hôm nay) nên đừng gọi VCI.
         _idle_url = None
-        if tf in ("1D", "1W", "1M", "All"):
+        if tf in ("1D", "All"):
             @st.fragment(run_every=10)
             def _idle_today_bar_writer():
                 import json as _json
@@ -950,7 +1024,7 @@ def render_analysis_tab() -> None:
                             f'padding:6px 0;border-bottom:1px solid #1a2234;font-size:13px">'
                             f'<span style="color:#9ca3af">{label}</span>'
                             f'<span style="color:{color};font-family:IBM Plex Mono,monospace">'
-                            f'{val:.2f} {unit}</span>'
+                            f'{val:,.2f} {unit}</span>'
                             f'</div>',
                             unsafe_allow_html=True
                         )
@@ -996,11 +1070,9 @@ def render_analysis_tab() -> None:
                 unsafe_allow_html=True
             )
 
-        # Consensus
-        ts = tech.get("tech_score", 0)
-        fund_score_val = fund_score if load_fund and not fund.get("error") and fund_score is not None else 0
-        weight_t, weight_f = (0.5, 0.5) if not load_fund else (0.4, 0.6)
-        composite = round(ts * weight_t + fund_score_val * weight_f, 2)
+        # Consensus — fund_score chỉ có khi tải được và tính được (API lỗi ⇒ None)
+        composite, _weights_lbl = composite_score(tech.get("tech_score", 0),
+                                                  fund_score if load_fund else None)
 
         rec_label = (
             "STRONG BUY 🟢🟢" if composite > 0.6 else
@@ -1014,7 +1086,7 @@ def render_analysis_tab() -> None:
         st.markdown(
             f'<div class="card" style="border:1px solid {rec_color}40;margin-top:12px">'
             f'<div class="card-title">Khuyến nghị tổng hợp '
-            f'{"(40% tech + 60% fund)" if load_fund else "(chỉ technical)"}'
+            f'{_weights_lbl}'
             f'</div>'
             f'<div style="font-size:24px;font-weight:600;color:{rec_color};margin:8px 0">'
             f'{rec_label}</div>'
@@ -1136,13 +1208,13 @@ def render_analysis_tab() -> None:
                     _tp = _r.get("tp")
                     _sl = _r.get("sl")
                     _mc1, _mc2, _mc3 = st.columns(3)
-                    _mc1.metric("📍 Entry", f"{_e:,.0f}" if _e else "—")
+                    _mc1.metric("📍 Entry", f"{_e:,.2f}" if _e else "—")
                     _mc2.metric(
-                        "🎯 Take Profit", f"{_tp:,.0f}" if _tp else "—",
+                        "🎯 Take Profit", f"{_tp:,.2f}" if _tp else "—",
                         delta=f"{(_tp / _e - 1)*100:+.1f}%" if _tp and _e else None,
                     )
                     _mc3.metric(
-                        "🛑 Cut Loss", f"{_sl:,.0f}" if _sl else "—",
+                        "🛑 Cut Loss", f"{_sl:,.2f}" if _sl else "—",
                         delta=f"{(_sl / _e - 1)*100:+.1f}%" if _sl and _e else None,
                         delta_color="inverse",
                     )
@@ -1235,3 +1307,14 @@ def render_analysis_tab() -> None:
                                 st.markdown(f"[🔗 Nguồn gốc]({_nlink})")
         except Exception as _ne:
             st.caption(f"Không tải được tin tức: {type(_ne).__name__}")
+
+
+def composite_score(tech_score: float, fund_score: float | None) -> tuple[float, str]:
+    """Điểm khuyến nghị tổng hợp + nhãn ĐÚNG trọng số đã dùng.
+
+    Không có điểm cơ bản (tắt toggle, API lỗi, không tiêu chí nào) ⇒ 100% tech: chia
+    đôi với một nửa bằng 0 thì tech tối đa +1.00 chỉ ra +0.50, không bao giờ tới STRONG.
+    """
+    if fund_score is None:
+        return round(tech_score, 2), "(chỉ technical)"
+    return round(tech_score * 0.4 + fund_score * 0.6, 2), "(40% tech + 60% fund)"

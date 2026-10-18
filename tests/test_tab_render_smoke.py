@@ -27,6 +27,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import needs
+
 ROOT = Path(__file__).resolve().parent.parent
 _SECTORS = ["Ngân hàng", "Thép & Kim loại", "Công nghệ"]
 
@@ -76,6 +78,16 @@ def _fake_streamlit():
     st.feedback = lambda *a, **k: None
     st.data_editor = lambda df=None, *a, **k: df
     return st
+
+
+def _stateful_tabs(open_idx):
+    """`st.tabs` của streamlit có tab lười (1.56: `on_change` + `.open`): chỉ tab `open_idx` mở."""
+    def tabs(labels, *, key=None, on_change="ignore"):
+        out = [_Ctx() for _ in labels]
+        for i, t in enumerate(out):
+            t.open = (i == open_idx) if on_change != "ignore" else None
+        return out
+    return tabs
 
 
 def _sector_df():
@@ -353,3 +365,306 @@ class TestAllocationBriefButtonBranch:
         st = self._st_pressed()
         _render_brief(st)
         assert st.error.called                # báo lỗi tử tế, không crash
+
+
+def test_agent_settings_two_rows_same_type_have_unique_keys(render_env, monkeypatch):
+    """Nút "➕ Thêm agent" luôn tạo type TRÙNG (defaults đã đủ mọi type). Key
+    widget đặt theo type ⇒ lượt rerun kế nổ StreamlitDuplicateElementKey, mất
+    cả khối brief — và lỗi dính mãi vì file cấu hình nằm trong kho dùng chung."""
+    import vnstock_brief as vb
+    monkeypatch.setattr(vb, "load_agent_configs", lambda: [
+        {"type": "gemini", "name": "Gemini A", "model": "m-a", "enabled": True},
+        {"type": "gemini", "name": "Gemini B", "model": "m-b", "enabled": False},
+    ])
+    st = render_env
+    seen: set = set()
+
+    def _unique(fn):
+        def wrapped(*a, key=None, **k):
+            if key is not None:
+                if key in seen:
+                    raise RuntimeError(f"StreamlitDuplicateElementKey: {key}")
+                seen.add(key)
+            return fn(*a, key=key, **k)
+        return wrapped
+
+    for name in ("checkbox", "text_input", "button", "selectbox"):
+        setattr(st, name, _unique(getattr(st, name)))
+
+    _load("dashboard.brief_agent_settings").render_agent_settings()
+
+
+def test_accuracy_widget_does_not_rank_tiny_sample_first(render_env, monkeypatch):
+    """Lỗi họ 13/08 ("0/2 hiện 0%"): widget in thẳng accuracy thô và trao 🥇
+    cho agent mới chấm 1 brief. Agent 1/1 không được hiện "100%" và không được
+    đứng trên agent đã chấm 12/20."""
+    import vnstock_brief as vb
+    monkeypatch.setattr(sys.modules["vnstock_memory"], "recent_briefs",
+                        lambda *a, **k: [{"agent_name": "x"}])
+
+    def _slot(n_match, n_eval):
+        return {"n_total": n_eval, "n_evaluated": n_eval, "n_match": n_match,
+                "accuracy": n_match / n_eval, "stance_dist": {},
+                "reliable": n_eval >= vb._ACCURACY_MIN_SAMPLE}
+    monkeypatch.setattr(vb, "agent_accuracy_summary", lambda *a, **k: {
+        "Lucky": _slot(1, 1), "Steady": _slot(12, 20)})
+
+    st = render_env
+    _load("dashboard.brief_accuracy_panel").render_accuracy_widget()
+
+    cards = [str(c.args[0]) for c in st.markdown.call_args_list
+             if c.args and "<div" in str(c.args[0])]
+    assert len(cards) == 2, cards
+    assert "Steady" in cards[0] and "🥇" in cards[0]
+    assert "100%" not in cards[1] and "🥇" not in cards[1]
+
+
+def test_brief_panels_read_vnindex_once_per_rerun(render_env, monkeypatch):
+    """Widget accuracy + Lịch sử brief từng đọc parquet VNINDEX 3 lần MỖI lượt
+    rerun tab Thị trường (widget qua `agent_accuracy_summary`; Lịch sử qua
+    `_load_vnindex_closes` rồi `agent_accuracy_summary` đọc LẠI), không cache,
+    chạy cả khi expander đóng."""
+    import functools
+    from datetime import date
+    import vnstock_brief as vb
+    calls = []
+    closes = pd.Series([1200.0, 1210.0], index=[date(2026, 10, 14), date(2026, 10, 15)])
+    monkeypatch.setattr(vb, "_load_vnindex_closes", lambda: calls.append(1) or closes)
+    monkeypatch.setattr(sys.modules["vnstock_memory"], "recent_briefs", lambda *a, **k: [
+        {"agent_name": "A", "brief_date": "2026-10-14",
+         "output": "## TLDR\nStance ngày mai: TĂNG."}])
+    st = render_env
+    memo = {}   # như Streamlit thật: cache theo HÀM, sống qua các lần bọc lại
+    st.cache_data = lambda *a, **k: (lambda f: memo.setdefault(f, functools.cache(f)))
+    said = _said_captions(st)
+
+    _load("dashboard.brief_accuracy_panel").render_accuracy_widget()
+    _load("dashboard.brief_history_panel").render_brief_history()
+
+    assert not [s for s in said if "disabled" in s.lower()], said
+    assert len(calls) == 1
+    cards = [str(c.args[0]) for c in st.markdown.call_args_list
+             if c.args and "matched" in str(c.args[0])]
+    assert cards and "1 / 1 matched" in cards[0]    # chuỗi nạp sẵn tới được phép chấm
+
+
+def _fake_brief_db(rows_by_id):
+    """`vnstock_memory._conn()` giả: chỉ trả hàng khi truy vấn ĐÚNG id."""
+    from contextlib import contextmanager
+
+    class _Cur:
+        def __init__(self, row):
+            self._row = row
+
+        def fetchone(self):
+            return self._row
+
+    class _Conn:
+        def execute(self, sql, params=()):
+            return _Cur(next((rows_by_id[p] for p in params if p in rows_by_id), None))
+
+    @contextmanager
+    def _conn():
+        yield _Conn()
+    return _conn
+
+
+def test_brief_runner_rating_uses_returned_brief_id(render_env, monkeypatch):
+    """Brief lưu theo ngày PHIÊN, ô ⭐ cũ dò theo `now().date()` ⇒ T7/CN (hay
+    sau nửa đêm) ô chấm sao im lặng biến mất. Id đã có sẵn ở `_brief_ids`."""
+    import vnstock_stance_track
+    monkeypatch.setattr(vnstock_stance_track, "summary_line", lambda *a, **k: None)
+    monkeypatch.setattr(sys.modules["vnstock_memory"], "_conn",
+                        _fake_brief_db({7: {"id": 7, "user_rating": None}}))
+    st = render_env
+    st.session_state["_brief_results"] = {"A": ("brief text", None),
+                                          "_brief_ids": {"A": 7}}
+    st.session_state["_brief_type"] = "afternoon"
+    keys = []
+    st.select_slider = lambda label, options=(), value=None, key=None, **k: (
+        keys.append(key) or value)
+
+    _load("dashboard.brief_run_panel").render_brief_runner()
+
+    assert "_rate_7_v" in keys
+
+
+def _said_captions(st):
+    said = []
+    st.caption = lambda *a, **k: said.append(str(a[0]) if a else "")
+    return said
+
+
+def test_strategy_panel_reports_broken_block_instead_of_hiding(render_env, monkeypatch):
+    """Khối con lỗi từng `except: pass` ⇒ kiểm định / tầng vị thế biến mất
+    không dấu vết. Phải hạ xuống caption "disabled" kèm lỗi."""
+    import vnstock_strategy
+    monkeypatch.setattr(vnstock_strategy, "strategy_health",
+                        lambda *a, **k: {"state": "insufficient"})
+    mem = sys.modules["vnstock_memory"]
+    monkeypatch.setattr(mem, "get_active_family", lambda *a, **k: {
+        "id": 1, "name": "S1", "family_id": "f1", "params_json": "{}"})
+
+    def _boom(*a, **k):
+        raise RuntimeError("db hỏng")
+    monkeypatch.setattr(mem, "latest_backtest", _boom)
+    said = _said_captions(render_env)
+
+    _load("dashboard.brief_strategy_panel").render_strategy_panel()
+
+    assert [s for s in said if "disabled" in s and "db hỏng" in s], said
+
+
+def test_brief_runner_reports_broken_stance_track(render_env, monkeypatch):
+    import vnstock_stance_track
+
+    def _boom(*a, **k):
+        raise RuntimeError("sổ stance hỏng")
+    monkeypatch.setattr(vnstock_stance_track, "summary_line", _boom)
+    st = render_env
+    st.session_state["_brief_results"] = {"A": ("brief text", None)}
+    said = _said_captions(st)
+
+    _load("dashboard.brief_run_panel").render_brief_runner()
+
+    assert [s for s in said if "disabled" in s and "sổ stance hỏng" in s], said
+
+
+def _markdowns(st):
+    return [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+
+
+def test_top_volume_card_picks_the_highest_vol20_sector(render_env, monkeypatch):
+    """Bảng ngành sắp theo VỐN HOÁ, nên `iloc[0]` là ngành vốn hoá lớn nhất chứ
+    không phải ngành KLGD cao nhất. Thẻ phải chọn theo "Vol Avg 20"."""
+    sectors = _sector_df()
+    sectors["Vol Avg 20"] = [1.0, 50.0, 3.0]          # max ở dòng 2, không phải dòng đầu
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(sectors, _index_df()))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    card = [m for m in _markdowns(st) if "Ngành KLGD cao nhất" in m]
+    assert card and "Thép & Kim" in card[0] and "Vol 20: 50M cp" in card[0], card
+
+
+@needs("plotly")  # chart ngành chỉ vẽ khi có plotly (market_tab ~1182)
+def test_sector_price_chart_does_not_clip_large_moves(render_env, monkeypatch):
+    """Trục x cố định [-30, 30] cắt mất ngành chạy ±42% khỏi khung."""
+    sectors = _sector_df()
+    sectors["Giá 1M %"] = [42.0, -5.0, 3.0]
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(sectors, _index_df()))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    bars = [c.args[0] for c in st.plotly_chart.call_args_list
+            if c.args and any(getattr(t, "orientation", None) == "h" for t in c.args[0].data)]
+    assert bars, "Không thấy chart biến động giá theo ngành"
+    lo, hi = bars[0].layout.xaxis.range
+    assert lo <= -42 and hi >= 42
+
+
+def test_index_table_title_matches_rows_shown(render_env, monkeypatch):
+    """Tiêu đề ghi "(30 phiên)" trong khi bảng chỉ in 20 dòng."""
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard(None, _index_df()))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    title = [m for m in _markdowns(st) if "Diễn biến chỉ số thị trường" in m]
+    assert title == ["#### 📈 Diễn biến chỉ số thị trường (20 phiên)"]
+
+
+def test_regime_failure_is_visible_not_silent(render_env, monkeypatch):
+    """`except Exception: pass` làm khối regime biến mất im lặng — user không
+    phân biệt được "không có regime" với "regime hỏng"."""
+    reg = types.ModuleType("vnstock_regime")
+
+    def _boom():
+        raise RuntimeError("boom")
+    reg.load_regime = _boom
+    monkeypatch.setitem(sys.modules, "vnstock_regime", reg)
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard())
+    st = render_env
+    said = []
+    st.caption = lambda *a, **k: said.append(str(a[0]) if a else "")
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert "⚠️ Market regime lỗi: RuntimeError: boom" in said, said
+
+
+@pytest.mark.parametrize("fresh,expect", [
+    ({"reason": "intraday", "overview_time": "11:02", "overview_date": "2026-10-16"},
+     "chốt giữa phiên 11:02"),
+    ({"reason": "prev_session", "overview_time": "15:30", "overview_date": "2026-10-15"},
+     "phiên trước (2026-10-15)"),
+])
+def test_freshness_badge_flags_intraday_and_previous_session(render_env, monkeypatch,
+                                                             fresh, expect):
+    """Bất biến CLAUDE.md: overview cùng phiên mà chốt trước 15:05 là GIỮA PHIÊN
+    ⇒ stale. Badge cũ chỉ so mtime với 24h nên file ghi lúc 11:00 trông "tươi"."""
+    import vnstock_brief as vb
+    monkeypatch.setattr(vb, "market_data_freshness", lambda *a, **k: {
+        "stale": True, "data_date": "2026-10-16", "stale_blocks": [], **fresh})
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard())
+    st = render_env
+    said = []
+    st.caption = lambda *a, **k: said.append(str(a[0]) if a else "")
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert [s for s in said if expect in s], said
+
+
+def test_custom_group_row_gets_a_sparkline(render_env, monkeypatch):
+    """Sparkline gom mã theo cột `Ngành` GỐC nên dòng nhóm tuỳ biến ("Họ VIN")
+    luôn hiện "—" dù có đủ giá VIC/VHM."""
+    sectors = _sector_df()
+    sectors.loc[0, "Ngành"] = "Họ VIN"
+    idx = _index_df()
+    stub = _stub_dashboard(sectors, idx)
+    stub.load_price_history = lambda tk, days=0: pd.DataFrame(
+        {"time": idx["time"], "close": np.linspace(100, 130, len(idx))})
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
+
+    ticks = _ticker_df()
+    ticks["Mã"] = ["VIC", "VHM", "FPT"]
+    ticks["Ngành"] = ["Bất động sản", "Bất động sản", "Công nghệ"]
+    ticks["Vốn hoá (tỷ)"] = [400_000.0, 300_000.0, 200_000.0]
+    st = render_env
+    st.session_state["_mkt_ticker_data"] = ticks
+    _load("dashboard.market_tab").render_market_tab()
+
+    tbl = [m for m in _markdowns(st) if "α 30d vs VNINDEX" in m]
+    assert tbl, "Bảng ngành không có cột sparkline"
+    row = [r for r in tbl[0].split("<tr") if "Họ VIN" in r]
+    assert row and "<svg" in row[0], "Dòng Họ VIN không có sparkline"
+
+
+def test_quant_filters_load_once_per_render_with_drilldown_open(render_env, monkeypatch):
+    """Drill-down + nhận định từng đọc sổ cách ly / sổ cổ tức MỖI BÊN một lần
+    (2 lượt đọc đĩa mỗi rerun). Nạp một lần trong render rồi truyền xuống."""
+    from collections import Counter
+    calls = Counter()
+    ma = sys.modules["vnstock_market_analyzer"]
+    monkeypatch.setattr(ma, "load_quarantine_tickers",
+                        lambda: calls.update(["quarantine"]) or set(), raising=False)
+    monkeypatch.setattr(ma, "load_recent_exdiv",
+                        lambda days_back=7: calls.update(["exdiv"]) or {}, raising=False)
+    monkeypatch.setattr(sys.modules["vnstock_session_stats"], "load_session_stats_history",
+                        lambda *a, **k: calls.update(["session"]) or {}, raising=False)
+    # Fake analyzer thiếu hàm này + trả dict ⇒ drill-down ném TRƯỚC khi tới loader.
+    monkeypatch.setattr(ma, "_sector_technical_summary", lambda df, presets: "", raising=False)
+    monkeypatch.setattr(ma, "compute_scores", lambda df, **k: pd.DataFrame(
+        {"composite": np.linspace(1, -1, len(df))}, index=df.index))
+    import vnstock_brief as vb   # badge độ tươi đọc session stats khi kho trống — tách ra
+    monkeypatch.setattr(vb, "market_data_freshness", lambda *a, **k: {"stale": False})
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(_sector_df(), _index_df()))
+    st = render_env
+    st.session_state["_mkt_ticker_data"] = _ticker_df()
+    st.selectbox = lambda label, options=(), **k: (
+        "Ngân hàng" if "ngành" in str(label).lower() and "Ngân hàng" in list(options)
+        else (list(options)[0] if len(options) else None))
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert calls == {"quarantine": 1, "exdiv": 1, "session": 1}, calls

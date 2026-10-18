@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Check thật của vnstock-dashboard cho đội agent.
+# Mặc định chạy đúng danh sách `--fast` trong run.py (cmd_test), nhưng gọi pytest trực tiếp
+# để KHÔNG ghi data_warehouse/_meta/test_status.json (badge dùng chung giữa hai máy).
+#   CHECK_FULL=1  chạy toàn bộ tests/ (như trước khi mở PR)
+#   PYTHON=...    chỉ định interpreter
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+
+py="${PYTHON:-}"
+if [ -z "$py" ]; then
+  # Venv của dự án nằm ở thư mục nhà (C:\Users\<tài khoản>\.venv, cả hai máy). Stop hook chạy
+  # không kích hoạt venv, nên phải tìm thẳng ở đó (15/10: chặn 3 lần vì chỉ thấy Python hệ thống).
+  for c in .venv/Scripts/python.exe .venv/bin/python "${HOME:-}/.venv/Scripts/python.exe" "${HOME:-}/.venv/bin/python" python3 python py; do
+    if "$c" -c 'import pytest' >/dev/null 2>&1; then
+      py="$c"
+      break
+    fi
+  done
+fi
+if [ -z "$py" ]; then
+  echo "Không tìm thấy Python có pytest. Kích hoạt venv hoặc đặt PYTHON=..." >&2
+  exit 1
+fi
+
+# Chạy pytest trong đúng môi trường như `python run.py test` (cmd_test đặt PYTHONIOENCODING=utf-8):
+# thiếu biến này, tiến trình con in tiếng Việt trên Windows dùng cp1252 và lỗi UnicodeEncodeError.
+export PYTHONIOENCODING=utf-8
+
+if [ "${CHECK_FULL:-0}" = 1 ]; then
+  exec "$py" -m pytest tests/ -q -p no:cacheprovider
+fi
+
+fast="$("$py" - <<'PYEOF'
+import ast, pathlib
+tree = ast.parse(pathlib.Path("run.py").read_text(encoding="utf-8"))
+for fn in ast.walk(tree):
+    if isinstance(fn, ast.FunctionDef) and fn.name == "cmd_test":
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.List)
+                    and any(getattr(t, "id", None) == "test_paths" for t in node.targets)
+                    and len(node.value.elts) > 1):
+                print("\n".join(e.value for e in node.value.elts if isinstance(e, ast.Constant)))
+                raise SystemExit
+PYEOF
+)"
+# Python trên Windows in xuống dòng kiểu \r\n: bỏ \r, không thì pytest nhận "tests/x.py\r" và báo không thấy file.
+fast="$(printf '%s' "$fast" | tr -d '\r')"
+if [ -z "$fast" ]; then
+  echo "Không đọc được danh sách --fast trong run.py (cmd_test.test_paths). Sửa script này cho khớp run.py." >&2
+  exit 1
+fi
+# shellcheck disable=SC2086
+exec "$py" -m pytest $fast -q -p no:cacheprovider

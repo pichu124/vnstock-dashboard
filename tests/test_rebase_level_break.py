@@ -35,6 +35,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from tests.conftest import needs_vnstock
+
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "rebase_ticker_history.py"
 _spec = importlib.util.spec_from_file_location("rebase_ticker_history_lb", _SCRIPT)
 R = importlib.util.module_from_spec(_spec)
@@ -183,6 +185,7 @@ class TestEndToEnd:
         monkeypatch.setattr(ppb, "fetch_source", lambda tk, d0, d1: _as_source(src))
         return tmp_path, src, pq
 
+    @needs_vnstock
     def test_the_ticker_is_no_longer_stuck(self, stuck, capsys):
         """Trước bản vá: cả ba bộ dò im ⇒ rơi vào nhánh lệch-đều ⇒
         `--whole-series` từ chối vì lởm chởm ⇒ **không đường nào chữa được**."""
@@ -192,6 +195,7 @@ class TestEndToEnd:
         assert rc == 0, out
         assert "MỨC lệch DỪNG tại" in out
 
+    @needs_vnstock
     def test_the_whole_history_lands_on_the_source_basis(self, stuck):
         root, src, pq = stuck
         R._rebase_one("ACE", root, apply=True)
@@ -199,12 +203,14 @@ class TestEndToEnd:
         assert got["close"].tolist() == pytest.approx(src["close"].tolist())
         assert R._residual_level(root / "prices", "ACE", src) is None
 
+    @needs_vnstock
     def test_it_needs_no_whole_series_flag(self, stuck):
         """Đây là vách THẬT ⇒ đi đường vách, không cần cờ ghi-đè-trọn-lịch-sử.
         Bắt user gõ cờ mạnh tay cho một ca không cần là dạy sai thói quen."""
         root, _, _ = stuck
         assert R._rebase_one("ACE", root, apply=True, whole_series=False) == 0
 
+    @needs_vnstock
     def test_dry_run_still_writes_nothing(self, stuck):
         root, _, pq = stuck
         before = pq.read_bytes()

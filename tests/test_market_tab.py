@@ -80,3 +80,13 @@ def test_render_takes_no_positional_args():
                            inspect.Parameter.VAR_KEYWORD)
     ]
     assert required == []
+
+
+@pytest.mark.parametrize("series,expect", [
+    (([5.0, -27.0], [12.0]), [-30.0, 30.0]),          # |x|×1.1 ≤ 30 → giữ khung cũ
+    (([42.0, -10.0], []), [-46.2, 46.2]),             # vượt → nới 10% quanh giá trị lớn nhất
+    (([1.0], [float("nan"), -50.0]), [-55.0, 55.0]),  # điểm 3M cũng tính, NaN bỏ qua
+])
+def test_symmetric_xrange(series, expect):
+    from dashboard.market_tab import _symmetric_xrange
+    assert _symmetric_xrange(*series) == pytest.approx(expect)

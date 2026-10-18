@@ -41,6 +41,16 @@ from __future__ import annotations
 _HEATMAP_WIDTH_SPAN = 300.0
 
 
+def _symmetric_xrange(*series, floor: float = 30.0) -> list:
+    """Trục x đối xứng quanh 0 cho chart % ngành: ±max(floor, max|x|×1.1).
+
+    Mọi |x|×1.1 ≤ floor → giữ khung cũ [-30, 30]; ngành chạy ±42% thì nới
+    ra thay vì bị cắt khỏi khung. NaN bỏ qua (`v == v`)."""
+    peak = max((abs(float(v)) for s in series for v in s if v == v), default=0.0)
+    r = max(floor, peak * 1.1)
+    return [-r, r]
+
+
 def render_market_tab() -> None:
     """Render the Thị trường tab. Lazy imports Streamlit + dashboard helpers."""
     try:
@@ -108,7 +118,9 @@ def render_market_tab() -> None:
             ticker_data: dict = {}
             for ticker, cap in tickers_caps[:3]:
                 try:
-                    df = load_price_history(str(ticker), days=n_days + 15)
+                    # NGÀY LỊCH tính từ hôm nay: n+15 hụt 30 phiên quanh Tết (nghỉ
+                    # ~5 phiên) hoặc khi xem cuối tuần ⇒ gốc mã lệch gốc VNINDEX.
+                    df = load_price_history(str(ticker), days=n_days * 2)
                     if df.empty or "close" not in df.columns:
                         continue
                     df["_d"] = df["time"].dt.date.astype(str)
@@ -138,6 +150,22 @@ def render_market_tab() -> None:
             result[sector] = [round(s - v, 2) for s, v in zip(sector_cumret, vni_cumret)]
         return result
 
+    @st.cache_data(ttl=300, show_spinner=False)
+    def _overview_freshness() -> dict:
+        """Cache vì `effective_trading_date` đọc VNINDEX + bars live của phiên."""
+        from vnstock_brief import market_data_freshness
+        return market_data_freshness()
+
+    @st.cache_data(ttl=600, show_spinner=False)
+    def _quant_inputs() -> dict:
+        """Sổ cách ly + GDKHQ 7 ngày + lịch sử session — đọc đĩa, dùng chung
+        drill-down và nhận định ⇒ nạp MỘT lần (khoá = kwarg của quant_lines)."""
+        from vnstock_market_analyzer import load_quarantine_tickers, load_recent_exdiv
+        from vnstock_session_stats import load_session_stats_history
+        return {"quarantined": load_quarantine_tickers(),
+                "exdiv_map": load_recent_exdiv(days_back=7),
+                "session_hist": load_session_stats_history()}
+
     col_title_m, col_ref_m = st.columns([6,1])
     with col_title_m:
         st.markdown("### 🌏 Tổng quan thị trường theo ngành")
@@ -154,8 +182,16 @@ def render_market_tab() -> None:
             ("💸 NN flow",         Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
             ("⏱ Session stats",    Path("data_warehouse/_meta/market_session_stats.json"), 1 * 3600),
         ])
-    except Exception:
-        pass
+        # mtime < 24h chưa đủ: overview chốt TRƯỚC 15:05 của phiên là giữa phiên.
+        _fr = _overview_freshness()
+        if _fr["stale"]:
+            _why = (f"chốt giữa phiên {_fr['overview_time']} — chưa trọn"
+                    if _fr["reason"] == "intraday"
+                    else f"là phiên trước ({_fr['overview_date']}) — chưa có")
+            st.caption(f"⚠️ Market overview {_why} phiên {_fr['data_date']} "
+                       f"(độ rộng, dòng tiền ngành, regime).")
+    except Exception as e:
+        st.caption(f"⚠️ Badge độ tươi lỗi: {type(e).__name__}: {e}")
 
     # ── Live Market Heatmap (VN30 real-time) ──────────────────────────────
     if st.session_state.get("live_mode") and WSS_AVAILABLE:
@@ -328,7 +364,8 @@ def render_market_tab() -> None:
         idx_df = load_index_overview(days=90)
 
     if not idx_df.empty:
-        st.markdown("#### 📈 Diễn biến chỉ số thị trường (30 phiên)")
+        _idx_rows = idx_df.head(20)
+        st.markdown(f"#### 📈 Diễn biến chỉ số thị trường ({len(_idx_rows)} phiên)")
         _indices = ["VNINDEX", "VN30", "HNXINDEX", "HNX30"]
         _idx_avail = [i for i in _indices if i in idx_df.columns]
 
@@ -358,7 +395,7 @@ def render_market_tab() -> None:
             sub_header += f'<th style="{_th};font-size:9px">GTGD (tỷ)</th>'
 
         rows_idx = []
-        for i, (_, row) in enumerate(idx_df.head(20).iterrows()):
+        for i, (_, row) in enumerate(_idx_rows.iterrows()):
             bg = "#0d1117" if i % 2 == 0 else "#111827"
             date_str = pd.Timestamp(row["time"]).strftime("%Y-%m-%d")
             cells = f'<td style="{_td}color:#9ca3af">{date_str}</td>'
@@ -481,8 +518,8 @@ def render_market_tab() -> None:
     try:
         if _badges := _horizon_badges():
             st.markdown(" &nbsp;·&nbsp; ".join(f"**{b}**" for b in _badges))
-    except Exception:
-        pass
+    except Exception as e:
+        st.caption(f"⚠️ Brief 3 khung lỗi: {type(e).__name__}: {e}")
 
     # ── F5: Market regime detector ───────────────────────────────────────────
     try:
@@ -537,8 +574,8 @@ def render_market_tab() -> None:
                     st.caption("Không có gợi ý cho regime này.")
 
         st.divider()
-    except Exception:
-        pass   # regime block is optional; never crash the tab
+    except Exception as e:   # regime là khối phụ: không kéo sập tab, nhưng phải NÓI ra
+        st.caption(f"⚠️ Market regime lỗi: {type(e).__name__}: {e}")
 
     # ── Market Overview theo ngành (dữ liệu đã load ở trên) ─────────────────
     if mkt_df.empty:
@@ -549,7 +586,11 @@ def render_market_tab() -> None:
         total_sectors = len(mkt_df)
         total_mktcap  = mkt_df["Vốn hoá (tỷ)"].sum() if "Vốn hoá (tỷ)" in mkt_df.columns else 0
         total_vol20   = mkt_df["Vol Avg 20"].sum()
-        top_sector    = str(mkt_df.iloc[0]["Ngành"])
+        # Bảng sắp theo vốn hoá ⇒ iloc[0] KHÔNG phải ngành KLGD cao nhất.
+        _vol20 = mkt_df["Vol Avg 20"].dropna()
+        top_row = mkt_df.loc[_vol20.idxmax()] if not _vol20.empty else None
+        top_sector = str(top_row["Ngành"]) if top_row is not None else "—"
+        top_vol20 = f'{float(top_row["Vol Avg 20"]):.0f}M cp' if top_row is not None else "—"
 
         with c1:
             st.markdown(f'<div class="metric-card"><div class="label">Số ngành</div><div class="value">{total_sectors}</div><div class="sub">đã phân loại</div></div>', unsafe_allow_html=True)
@@ -558,9 +599,15 @@ def render_market_tab() -> None:
         with c3:
             st.markdown(f'<div class="metric-card"><div class="label">KLGD TB 20 ngày</div><div class="value">{total_vol20:,.0f}M</div><div class="sub">triệu cổ phiếu</div></div>', unsafe_allow_html=True)
         with c4:
-            st.markdown(f'<div class="metric-card"><div class="label">Ngành KLGD cao nhất</div><div class="value">{top_sector[:14]}</div><div class="sub">Vol 20: {float(mkt_df.iloc[0]["Vol Avg 20"]):.0f}M cp</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="metric-card"><div class="label">Ngành KLGD cao nhất</div><div class="value">{top_sector[:14]}</div><div class="sub">Vol 20: {top_vol20}</div></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
+
+        try:
+            _qin = _quant_inputs()
+        except Exception as e:   # drill-down chạy không bộ lọc, nhận định tự nạp lại
+            _qin = {}
+            st.caption(f"⚠️ Bộ lọc quant lỗi: {type(e).__name__}: {e}")
 
         # ── Drill-down + Sort controls ────────────────────────────────────────
         _ctrl1, _ctrl2, _ctrl3 = st.columns([4, 2, 1])
@@ -654,14 +701,23 @@ def render_market_tab() -> None:
                         and "Vốn hoá (tỷ)" in _tick_data_spark.columns
                         and "VNINDEX" in _idx_long_spark.columns):
                     # Build sector → top 3 tickers by cap
-                    _sec_tickers: dict = {}
-                    for _sname, _grp in _tick_data_spark.groupby("Ngành"):
+                    def _top3_by_cap(_grp):
                         _sorted_grp = _grp.sort_values("Vốn hoá (tỷ)", ascending=False)
-                        _sec_tickers[_sname] = [
+                        return [
                             [str(r["Mã"]), float(r["Vốn hoá (tỷ)"])]
                             for _, r in _sorted_grp.head(3).iterrows()
                             if r.get("Mã") and r.get("Vốn hoá (tỷ)")
                         ]
+                    _sec_tickers: dict = {
+                        _sname: _top3_by_cap(_grp)
+                        for _sname, _grp in _tick_data_spark.groupby("Ngành")}
+                    # Nhóm tuỳ biến ("Họ VIN", "Họ M") không có trong cột `Ngành`
+                    # gốc của bảng mã → lấy mã theo định nghĩa nhóm.
+                    from vnstock_sectors import rows_for_sector, tickers_in_group
+                    for _sname in mkt_df["Ngành"]:
+                        if tickers_in_group(_sname):
+                            _sec_tickers[_sname] = _top3_by_cap(
+                                rows_for_sector(_tick_data_spark, _sname))
                     # Build VNINDEX close dict (date → close)
                     _vni_col = _idx_long_spark[["VNINDEX"]].copy()
                     if hasattr(_idx_long_spark.index, "strftime"):
@@ -680,8 +736,9 @@ def render_market_tab() -> None:
                             _json.dumps(_vni_dict),
                             n_days=30,
                         )
-            except Exception:
+            except Exception as e:
                 _sparklines = {}
+                st.caption(f"⚠️ Sparkline α 30d lỗi: {type(e).__name__}: {e}")
 
             # ── Bảng ngành (sorted) ───────────────────────────────────────────
             _has_sparklines = bool(_sparklines)
@@ -767,8 +824,6 @@ def render_market_tab() -> None:
                             build_preset_sets as _bps,
                             _sector_technical_summary as _sts,
                             compute_index_returns as _cir,
-                            load_quarantine_tickers as _lqt,
-                            load_recent_exdiv as _lred,
                         )
                         # Load screener presets
                         try:
@@ -784,9 +839,9 @@ def render_market_tab() -> None:
                                 _dd_idx_ret = _cir(_idx_long_dd, index_col="VNINDEX")
                         except Exception:
                             pass
-                        # Quarantine + ex-div filters
-                        _quarantined = _lqt()
-                        _exdiv = _lred(days_back=7)
+                        # Quarantine + ex-div filters (nạp sẵn ở `_qin`)
+                        _quarantined = _qin.get("quarantined", set())
+                        _exdiv = _qin.get("exdiv_map", {})
 
                         _sec_scores = _cs(sector_df, presets=_presets,
                                           index_returns=_dd_idx_ret, exdiv_map=_exdiv)
@@ -1073,6 +1128,7 @@ def render_market_tab() -> None:
             idx_df if not idx_df.empty else None,
             idx_long=idx_df,
             tick_data=st.session_state.get("_mkt_ticker_data"),
+            quant_inputs=_qin,
         )
         st.markdown(commentary)
         st.caption("⚠️ Nhận định tự động dựa trên dữ liệu kỹ thuật, không phải khuyến nghị đầu tư.")
@@ -1146,7 +1202,9 @@ def render_market_tab() -> None:
                     font=dict(color="#9ca3af", size=11),
                     xaxis=dict(gridcolor="#1f2937", zeroline=True,
                                zerolinecolor="#374151", zerolinewidth=2,
-                               ticksuffix="%", range=[-30, 30]),
+                               ticksuffix="%",
+                               range=_symmetric_xrange(chart_df["Giá 1M %"],
+                                                       chart_df.get("Giá 3M %", ()))),
                     yaxis=dict(gridcolor="#1f2937"),
                     margin=dict(l=0, r=80, t=20, b=20),
                     legend=dict(bgcolor="#111827", bordercolor="#1f2937", borderwidth=1),

@@ -20,6 +20,8 @@ import pytest
 
 import vnstock_rollup as rl
 
+from tests.conftest import needs_vnstock
+
 
 @pytest.fixture()
 def status_file(tmp_path, monkeypatch):
@@ -108,6 +110,7 @@ def _updater_mod():
     return vu
 
 
+@needs_vnstock
 def test_partial_run_is_recorded_but_never_counts_as_done(status_file):
     """Đêm 14/09: VCI timeout, 1.524 mã vẫn vào kho qua KBS + 181 lỗi, marker
     đứng ở 11/09 vì bản cũ chỉ ghi khi lỗi = 0 ⇒ doctor đọc thành "updater
@@ -130,6 +133,7 @@ def test_partial_run_is_recorded_but_never_counts_as_done(status_file):
     assert done is False
 
 
+@needs_vnstock
 def test_clean_run_marks_success_with_today_and_zero_errors(status_file):
     vu = _updater_mod()
     upd = vu.updater_status_update(
@@ -174,6 +178,7 @@ def _now_today(hh, mm=0):
     return _dt.combine(rl.get_today_vn(), _time(hh, mm))
 
 
+@needs_vnstock
 def test_morning_catchup_does_not_block_the_evening_sync(status_file):
     """Timeline (1): marker của lượt chạy bù 08:20 hôm nay phủ phiên TRƯỚC ⇒
     lượt 18:00 hôm nay KHÔNG được bỏ qua; lượt bù thứ hai lúc 09:00 thì có."""
@@ -189,6 +194,7 @@ def test_morning_catchup_does_not_block_the_evening_sync(status_file):
     assert rl.is_already_done_today("updater", now=_now_today(9, 0))[0] is True
 
 
+@needs_vnstock
 @pytest.mark.parametrize("day", [rl.date(2026, 9, 15), rl.date(2026, 9, 19)])   # T3 và T7
 def test_evening_marker_still_skips_a_second_run_the_same_evening(status_file, day):
     """Lượt 19:05 rồi lượt 21:00 cùng ngày phủ cùng phiên (T7: cả hai là T6)
@@ -215,6 +221,7 @@ def test_legacy_marker_without_covered_session_is_read_by_run_time(status_file):
     assert rl.is_already_done_today("updater", now=_now_today(18, 0))[0] is True
 
 
+@needs_vnstock
 def test_weekend_catchup_covers_friday_and_sunday_skips(status_file):
     """Timeline (2): chạy bù T7 10:00 (với --force) phủ T6 ⇒ CN bỏ qua, T2
     18:00 chạy lại (phủ T2)."""
@@ -242,6 +249,7 @@ def test_rollup_manual_date_marker_does_not_hide_tonights_rollup(status_file):
     assert rl.is_already_done_today("rollup", now=_dt(2026, 9, 15, 20, 30))[0] is True
 
 
+@needs_vnstock
 def test_covered_session_uses_the_start_time_and_survives_bad_input(capsys):
     """Lượt vắt qua 15:05 (bắt đầu 13:30, xong 15:10) đã fetch bar dở dang của
     phiên hôm nay ở những mã đầu ⇒ phiên phủ tính theo giờ BẮT ĐẦU. `now` rác

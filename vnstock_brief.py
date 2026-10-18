@@ -5430,8 +5430,11 @@ def agent_accuracy_summary(
     briefs: list[dict],
     horizon_days: int = 1,
     neutral_threshold_pct: float = 0.5,
+    closes: "pd.Series | None" = None,
 ) -> dict:
     """Aggregate per-agent accuracy across a list of past briefs.
+
+    `closes`: chuỗi VNINDEX nạp sẵn (như `evaluate_brief_accuracy`); None ⇒ tự nạp.
 
     Returns:
         {
@@ -5444,7 +5447,8 @@ def agent_accuracy_summary(
           }
         }
     """
-    closes = _load_vnindex_closes()
+    if closes is None:
+        closes = _load_vnindex_closes()
 
     by_agent: dict[str, dict] = {}
     for b in briefs:
