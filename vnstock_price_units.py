@@ -60,7 +60,8 @@ def normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
         if ref is not None:
             mask &= v >= ref * _LIVE_RATIO_HIGH
         if mask.any():
-            df.loc[mask, col] = v[mask] / 1000
+            # Gán cả cột float64: kho lưu float32, `.loc` gán float64 vào đó thì pandas 3 TypeError.
+            df[col] = v.mask(mask, v / 1000)
 
     return df
 
@@ -85,3 +86,16 @@ def normalize_live_price(historical_last_close: float, live_price: float) -> flo
         # Live thấp hơn ~1000x → historical đang ở VND
         return live_price * 1000.0
     return live_price
+
+
+def normalize_quote_price(ref_close: float, price: float) -> float:
+    """Giá quote live / nhập tay ⇒ NGHÌN đồng. Bảng giá trả VND, nến 1m dự phòng trả nghìn.
+
+    Có mốc `ref_close` (close kho ĐÃ qua `normalize_price_units`, nghìn) ⇒ theo tỷ lệ như
+    `normalize_live_price`: HLB quote 660 giữ 660, mã 300 đ quote VND 300 ra 0.3 — ngưỡng
+    cứng `> 500 ⇒ /1000` sai cả hai. Không mốc (mã chưa có kho) ⇒ ngưỡng như ô không mốc
+    của `normalize_price_units`.
+    """
+    if ref_close > 0:
+        return normalize_live_price(ref_close, price)
+    return price / 1000.0 if price > PRICE_UNIT_THRESHOLD else price

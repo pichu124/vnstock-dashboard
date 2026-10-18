@@ -27,6 +27,7 @@ from vnstock_sectors import (  # noqa: E402
     CUSTOM_SECTOR_ORDER as _CUSTOM_SECTOR_ORDER,
     custom_sector_for as _custom_sector_for,
 )
+from vnstock_price_units import normalize_quote_price  # noqa: E402
 
 
 def _live_buy_ratio(q: dict) -> float:
@@ -42,8 +43,11 @@ def _live_buy_ratio(q: dict) -> float:
     return bv / (bv + av) if bv + av > 0 else 0.5
 
 
-def aggregate_live_sectors(quotes: dict, sector_of) -> dict:
+def aggregate_live_sectors(quotes: dict, sector_of, ref_close: dict | None = None) -> dict:
     """Gộp quote live theo ngành → `{ngành: {gtgd, vol, buy_ratio, count}}`.
+
+    Giá quote về nghìn đồng theo mốc `ref_close` {mã: close kho, nghìn} — xem
+    `vnstock_price_units.normalize_quote_price`; mã thiếu mốc dùng ngưỡng.
 
     `buy_ratio` = Σ buy_r×GTGD / Σ GTGD — cùng trọng số với bảng tĩnh; ngành
     chưa có GTGD (trước ATO) → 0.5 như bảng tĩnh. Quote hỏng (không phải dict,
@@ -57,8 +61,7 @@ def aggregate_live_sectors(quotes: dict, sector_of) -> dict:
             price = float(q.get("price", 0) or 0)
             if price <= 0:
                 continue
-            if price > 500:
-                price /= 1000
+            price = normalize_quote_price((ref_close or {}).get(tk, 0.0), price)
             vol = float(q.get("volume", 0) or 0)
             buy_r = _live_buy_ratio(q)
         except (AttributeError, TypeError, ValueError):
@@ -103,7 +106,7 @@ def render_money_flow_tab() -> None:
         PRICES_DIR, SECTOR_ICONS, SECTOR_ORDER, WSS_AVAILABLE,
         _NN_CACHE_PATH, _NN_DIAG, _NN_WINDOW_SESSIONS, _ORDER_CACHE_PATH,
         _aggregate_nn_buy_sell_by_window, _aggregate_nn_by_window,
-        _batch_load_live_quotes,
+        _batch_load_live_quotes, _load_last_closes,
         _compute_gtgd_by_window, _compute_money_flow_score,
         _fetch_foreign_net_flow, _fetch_order_stats_batch,
         _get_sector, _is_stock, _load_industry_map,
@@ -252,6 +255,9 @@ def render_money_flow_tab() -> None:
 
     # ── Fetch order_stats (BigOrder) cho top mã GTGD ─────────────────────
     _live_quotes = _batch_load_live_quotes(_warehouse_tickers_all)
+    # Mốc đơn vị quote live cho fragment 15s: lấy ở thân tab, close kho chỉ đổi cuối ngày —
+    # fragment tự gọi thì hết TTL cache là chính lượt 15s phải quét lại cả kho (~24s).
+    _ref_close = _load_last_closes()
 
     def _pick_gtgd(tk):
         """Warehouse-based GTGD for all windows (1D/5D/20D)."""
@@ -690,7 +696,7 @@ def render_money_flow_tab() -> None:
                 except (OSError, ValueError):
                     continue  # WSS đang ghi dở file — vòng 15s sau đọc lại
             sector_live = aggregate_live_sectors(
-                quotes, lambda tk: _mf_sector(tk, ind_map[tk]))
+                quotes, lambda tk: _mf_sector(tk, ind_map[tk]), _ref_close)
 
             if not sector_live:
                 st.caption("⏳ Đang chờ data...")

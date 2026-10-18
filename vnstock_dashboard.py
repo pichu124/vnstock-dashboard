@@ -393,10 +393,11 @@ _GTGD_SESSIONS = 20   # cửa sổ dài nhất tab Dòng Tiền (20D)
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def _load_gtgd_daily() -> dict:
-    """GTGD (VND, close × volume) từng phiên của `_GTGD_SESSIONS` phiên gần nhất
-    từ warehouse parquet: {ticker: ndarray phiên cũ → mới}. Mỗi mã đọc MỘT lần
-    cho mọi cửa sổ — cache theo `window_days` từng quét toàn kho mỗi lần đổi."""
+def _load_daily_tail() -> dict:
+    """Close (NGHÌN đồng, đã chuẩn hoá) + volume của `_GTGD_SESSIONS` phiên gần nhất từ
+    warehouse parquet: {ticker: (close, volume) ndarray phiên cũ → mới}. Mỗi mã đọc MỘT lần
+    cho mọi cửa sổ GTGD lẫn mốc đơn vị quote live — cache theo `window_days` từng quét toàn
+    kho mỗi lần đổi."""
     import pyarrow.parquet as pq
     prices_dir = Path("data_warehouse") / "prices"
     if not prices_dir.exists():
@@ -425,12 +426,27 @@ def _load_gtgd_daily() -> dict:
             # Mốc đơn vị theo cả 2 năm đã đọc rồi mới cắt: VNZ có 30 phiên cuối đều > 500 nghìn.
             from vnstock_price_units import normalize_price_units
             df = normalize_price_units(df.sort_values("_date")).tail(_GTGD_SESSIONS)
-            close = df["close"] * 1000
             vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(float)
-            result[ticker] = (close * vol).to_numpy()
+            result[ticker] = (df["close"].to_numpy(), vol.to_numpy())
         except Exception:
             continue
     return result
+
+
+def _load_gtgd_daily() -> dict:
+    """GTGD (VND, close × volume) từng phiên: {ticker: ndarray phiên cũ → mới}."""
+    return {tk: c * 1000 * v for tk, (c, v) in _load_daily_tail().items()}
+
+
+def _load_last_closes() -> dict:
+    """{ticker: close DƯƠNG cuối (nghìn đồng)} — mốc đơn vị cho quote live
+    (`normalize_quote_price`). Bar cuối close NaN/0 thì lùi về bar trước."""
+    out = {}
+    for tk, (c, _v) in _load_daily_tail().items():
+        pos = c[c > 0]
+        if len(pos):
+            out[tk] = float(pos[-1])
+    return out
 
 
 def _compute_gtgd_by_window(window_days: int) -> dict:
@@ -552,6 +568,7 @@ def _batch_load_live_quotes(tickers: list) -> dict:
 
     live_dir = Path("data_warehouse/_live")
     result = {"_ts": datetime.now().timestamp()}
+    refs = _load_last_closes()
 
     for tk in tickers:
         qpath = live_dir / f"quote_{tk}.json"
@@ -562,8 +579,7 @@ def _batch_load_live_quotes(tickers: list) -> dict:
             price = float(q.get("price", 0) or 0)
             if price <= 0:
                 continue
-            if price > 500:
-                price /= 1000
+            price = _normalize_quote_price(refs.get(tk, 0.0), price)
             vol = float(q.get("volume", 0) or 0)
             gtgd = price * vol / 1e6
 
@@ -767,6 +783,7 @@ html, body, [class*="css"] {
 from vnstock_price_units import (  # noqa: E402
     normalize_live_price as _normalize_live_price,
     normalize_price_units as _normalize_price_units_raw,
+    normalize_quote_price as _normalize_quote_price,
 )
 
 # Logic chuẩn hoá đơn vị giá ở `vnstock_price_units` (module thuần). Ở đây chỉ

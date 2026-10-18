@@ -97,6 +97,19 @@ def test_bars_only_in_the_conflicted_copy_are_not_lost(year_dir):
     assert len(out) == len(days)
 
 
+def test_strategy_history_short_window_keeps_high_priced_stock(tmp_path):
+    """VNZ 18/10: cắt `days` TRƯỚC khi chuẩn hoá ⇒ cửa sổ toàn bar > 500 nghìn không còn mốc,
+    rơi về luật cũ chia hết (0.579). Backtest/grading rec đọc qua đây."""
+    days = list(pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=80).date)
+    bars = _bars(days, [450.0] * 60 + [600.0] * 20)
+    for year, grp in bars.groupby(pd.to_datetime(bars["time"]).dt.year):
+        d = tmp_path / "ticker=AAA" / f"year={year}"
+        d.mkdir(parents=True)
+        grp.to_parquet(d / "prices.parquet", index=False)
+    out = _load_history_from_parquet("AAA", days=17, prices_dir=tmp_path)
+    assert len(out) and (out["close"] == 600.0).all()
+
+
 # ── Dashboard: `load_price_history` (chart + phân tích từng mã) ─────────────
 
 def _dashboard_loader(prices_dir):

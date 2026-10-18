@@ -12,7 +12,7 @@ import vnstock_brief as vb
 
 def _wh(tmp_path, close=27.1):
     """Tiny warehouse: portfolio.json (tab schema, buy_price in raw VND) +
-    one HPG year file (close in nghìn đồng)."""
+    one HPG year file (OHLCV như kho thật, close in nghìn đồng)."""
     (tmp_path / "_meta").mkdir(parents=True)
     (tmp_path / "_meta" / "portfolio.json").write_text(json.dumps([
         {"ticker": "HPG", "quantity": 1000, "buy_price": 25300},
@@ -23,7 +23,8 @@ def _wh(tmp_path, close=27.1):
     ydir.mkdir(parents=True)
     pd.DataFrame({
         "time": pd.to_datetime(["2026-07-02", "2026-07-03"]),
-        "close": [26.0, close],
+        "open": [26.0, close], "high": [26.0, close], "low": [26.0, close],
+        "close": [26.0, close], "volume": [1e5, 1e5],
     }).to_parquet(ydir / "prices.parquet")
     return tmp_path
 
@@ -38,6 +39,44 @@ def test_load_portfolio_positions_normalises_units_and_computes_pnl(tmp_path):
     assert p["buy_price"] == 25.3          # 25,300 VND → nghìn đồng
     assert p["last_close"] == 27.1
     assert p["pnl_pct"] == pytest.approx(7.1, abs=0.05)
+
+
+def _wh_one(tmp_path, ticker, buy_price, closes):
+    (tmp_path / "_meta").mkdir(parents=True)
+    (tmp_path / "_meta" / "portfolio.json").write_text(json.dumps(
+        [{"ticker": ticker, "quantity": 100, "buy_price": buy_price}]), encoding="utf-8")
+    ydir = tmp_path / "prices" / f"ticker={ticker}" / "year=2026"
+    ydir.mkdir(parents=True)
+    pd.DataFrame({
+        "time": pd.bdate_range("2026-08-03", periods=len(closes)),
+        "open": closes, "high": closes, "low": closes, "close": closes, "volume": 1e5,
+    }).to_parquet(ydir / "prices.parquet")
+    return tmp_path
+
+
+def test_load_portfolio_positions_high_priced_stock_not_divided(tmp_path):
+    """HLB 18/10: giá thật 660 nghìn. Luật cũ `last > 500 ⇒ /1000` ra 0.66 ⇒ PnL ≈ −99,9%."""
+    wh = _wh_one(tmp_path, "HLB", 600_000, [445.0] * 30 + [660.0] * 5)
+    p = vb.load_portfolio_positions(warehouse=wh)[0]
+    assert p["buy_price"] == 600.0
+    assert p["last_close"] == 660.0
+    assert p["pnl_pct"] == pytest.approx(10.0)
+
+
+def test_load_portfolio_positions_last_bar_in_raw_vnd(tmp_path):
+    """Kho trộn đơn vị: bar cuối lưu VND thô (27.100) giữa chuỗi nghìn đồng."""
+    wh = _wh_one(tmp_path, "HPG", 25_300, [26.0] * 20 + [27_100.0])
+    p = vb.load_portfolio_positions(warehouse=wh)[0]
+    assert p["last_close"] == 27.1
+    assert p["pnl_pct"] == pytest.approx(7.1, abs=0.05)
+
+
+def test_load_portfolio_positions_penny_buy_price_in_vnd(tmp_path):
+    """Mã 300 đ: buy 300 VND không > 500 nên luật cũ giữ 300 (= 300 nghìn) ⇒ PnL −99,9%."""
+    wh = _wh_one(tmp_path, "AVF", 300, [0.3] * 20 + [0.33])
+    p = vb.load_portfolio_positions(warehouse=wh)[0]
+    assert p["buy_price"] == 0.3
+    assert p["pnl_pct"] == pytest.approx(10.0)
 
 
 def test_load_portfolio_positions_missing_ticker_data_keeps_position(tmp_path):

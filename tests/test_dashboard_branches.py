@@ -1586,9 +1586,9 @@ def gtgd_env(tmp_path, monkeypatch):
 
 def test_gtgd_windows_match_old_per_window_scan(gtgd_env):
     import functools
-    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_gtgd_daily",
-                         "_compute_gtgd_by_window", pd=pd, Path=Path)
-    ns["_load_gtgd_daily"] = functools.lru_cache(maxsize=None)(ns["_load_gtgd_daily"])
+    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_daily_tail",
+                         "_load_gtgd_daily", "_compute_gtgd_by_window", pd=pd, Path=Path)
+    ns["_load_daily_tail"] = functools.lru_cache(maxsize=None)(ns["_load_daily_tail"])
     for n in (0, 1, 5, 20):
         old = _gtgd_by_window_old(n)
         assert old, n
@@ -1599,11 +1599,11 @@ def test_gtgd_reads_each_ticker_once_for_all_windows(gtgd_env):
     """Đổi 1D→5D→20D từng quét toàn kho 3 lần (cache riêng theo window_days)."""
     import functools
     fn = next(n for n in _DASH_TREE.body
-              if isinstance(n, ast.FunctionDef) and n.name == "_load_gtgd_daily")
+              if isinstance(n, ast.FunctionDef) and n.name == "_load_daily_tail")
     assert any(ast.unparse(d).startswith("st.cache_data(") for d in fn.decorator_list)
-    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_gtgd_daily",
-                         "_compute_gtgd_by_window", pd=pd, Path=Path)
-    ns["_load_gtgd_daily"] = functools.lru_cache(maxsize=None)(ns["_load_gtgd_daily"])
+    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_daily_tail",
+                         "_load_gtgd_daily", "_compute_gtgd_by_window", pd=pd, Path=Path)
+    ns["_load_daily_tail"] = functools.lru_cache(maxsize=None)(ns["_load_daily_tail"])
     for n in (1, 5, 20):
         ns["_compute_gtgd_by_window"](n)
     assert len(gtgd_env) == 3            # AAA, BBB, DDD — E1VFVN30 bị lọc trước khi đọc
@@ -1617,9 +1617,46 @@ def test_gtgd_high_priced_stock_counted_in_vnd(gtgd_env, tmp_path):
     d.mkdir(parents=True)
     pd.DataFrame({"time": days, "close": [450.0] * 25 + [600.0] * 20,
                   "volume": [1_000.0] * 45}).to_parquet(d / "data.parquet", index=False)
-    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_gtgd_daily",
-                         pd=pd, Path=Path)
+    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_daily_tail",
+                         "_load_gtgd_daily", "_load_last_closes", pd=pd, Path=Path)
     assert ns["_load_gtgd_daily"]()["HHH"].tolist() == [600_000.0 * 1_000] * 20
+    assert ns["_load_last_closes"]()["HHH"] == 600.0     # mốc đơn vị quote live: NGHÌN đồng
+
+
+def test_last_close_skips_trailing_bar_without_close(gtgd_env, tmp_path):
+    """Bar cuối close NaN/0 (`fillna(0)`) ⇒ mốc 0 ⇒ quote nghìn của HLB (660) rơi về ngưỡng
+    cứng thành 0,66. Mốc phải là close DƯƠNG cuối cùng."""
+    days = pd.bdate_range("2026-08-03", periods=30)
+    d = tmp_path / "data_warehouse" / "prices" / "ticker=HHH" / "year=2026"
+    d.mkdir(parents=True)
+    pd.DataFrame({"time": days, "close": [450.0] * 25 + [660.0] * 4 + [float("nan")],
+                  "volume": [1_000.0] * 30}).to_parquet(d / "data.parquet", index=False)
+    ns = load_source_fns("vnstock_dashboard.py", "_GTGD_SESSIONS", "_load_daily_tail",
+                         "_load_last_closes", pd=pd, Path=Path)
+    assert ns["_load_last_closes"]()["HHH"] == 660.0
+
+
+def test_batch_live_quotes_price_unit_follows_warehouse_close(tmp_path, monkeypatch):
+    """Bảng mã tab Dòng Tiền: ngưỡng cứng `price > 500 ⇒ /1000` chia quote nghìn của HLB (660)
+    còn 0.66 và hiểu quote VND 300 của mã 300 đ là 300 nghìn. Mốc = close kho."""
+    from datetime import datetime
+
+    from vnstock_price_units import normalize_quote_price
+
+    live = tmp_path / "data_warehouse" / "_live"
+    live.mkdir(parents=True)
+    for tk, price in (("HLB", 660.0), ("AVF", 300.0), ("VCB", 90_000.0), ("NEW", 25_000.0)):
+        (live / f"quote_{tk}.json").write_text(
+            json.dumps({"price": price, "volume": 1_000_000}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    ns = load_source_fns(
+        "vnstock_dashboard.py", "_batch_load_live_quotes",
+        st=types.SimpleNamespace(session_state={}), datetime=datetime, Path=Path, json=json,
+        _load_last_closes=lambda: {"HLB": 650.0, "AVF": 0.3, "VCB": 89.0},
+        _normalize_quote_price=normalize_quote_price)
+    out = ns["_batch_load_live_quotes"](["HLB", "AVF", "VCB", "NEW"])
+    assert {tk: out[tk]["price"] for tk in ("HLB", "AVF", "VCB", "NEW")} == pytest.approx(
+        {"HLB": 660.0, "AVF": 0.3, "VCB": 90.0, "NEW": 25.0})
 
 
 @pytest.mark.parametrize("raw", ["null", "{}", "[1]", '[{"ticker": "VCB"}, "x"]'])

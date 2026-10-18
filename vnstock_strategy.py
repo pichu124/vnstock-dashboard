@@ -889,14 +889,13 @@ def _read_ticker_dir(base: Path, days: int) -> pd.DataFrame:
     df["time"] = pd.to_datetime(df["time"])
     if len(frames) > 1:
         df = df.drop_duplicates(subset=["time"], keep="last")
-    if days > 0:
-        df = df[df["time"] >= _dt.now() - _td(days=days)]
     df = df.sort_values("time").reset_index(drop=True)
-    try:
-        from vnstock_runner import _normalize_prices
-        df = _normalize_prices(df)
-    except Exception:
-        pass
+    # Chuẩn hoá đơn vị trên CẢ lịch sử rồi mới cắt `days`: cửa sổ ngắn toàn bar > 500 nghìn
+    # (VNZ 18/10) không có mốc ≤ 500 ⇒ luật chung rơi về chia hết (0.579).
+    from vnstock_price_units import normalize_price_units
+    df = normalize_price_units(df)
+    if days > 0:
+        df = df[df["time"] >= _dt.now() - _td(days=days)].reset_index(drop=True)
     return df
 
 

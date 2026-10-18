@@ -82,6 +82,7 @@ def _stub_mf_dashboard(prices_dir):
     m._aggregate_nn_by_window = lambda raw, days: {}
     m._aggregate_nn_buy_sell_by_window = lambda raw, days: {}
     m._batch_load_live_quotes = lambda tickers: {}
+    m._load_last_closes = lambda: {}
     m._compute_gtgd_by_window = lambda n: {}
     m._compute_money_flow_score = lambda *a, **k: 0.0
     m._fetch_foreign_net_flow = lambda **k: pd.DataFrame()
@@ -164,3 +165,20 @@ def test_live_sectors_skip_only_the_broken_quote():
     assert s["count"] == 2
     assert s["gtgd"] == pytest.approx(90.0)
     assert s["buy_ratio"] == pytest.approx(0.75)
+
+
+def test_live_sector_price_unit_follows_warehouse_close():
+    """Ngưỡng cứng `price > 500 ⇒ /1000`: quote nghìn của mã > 500 nghìn (HLB 660) bị chia
+    còn 0.66, mã 300 đ quote VND 300 bị hiểu 300 nghìn ⇒ GTGD ngành lệch 1000×.
+    Mốc đơn vị phải là close kho."""
+    import pytest
+
+    from dashboard.money_flow_tab import aggregate_live_sectors
+
+    def q(price):
+        return {"price": price, "volume": 1_000_000, "bids": [], "asks": []}
+
+    out = aggregate_live_sectors(
+        {"HLB": q(660.0), "AVF": q(300.0), "VCB": q(90_000), "NEW": q(25_000)},
+        lambda tk: "X", ref_close={"HLB": 650.0, "AVF": 0.3, "VCB": 89.0})
+    assert out["X"]["gtgd"] == pytest.approx(660 + 0.3 + 90 + 25)   # NEW: chưa có kho ⇒ ngưỡng
