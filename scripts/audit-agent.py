@@ -9,6 +9,8 @@ Chỉ đọc. Lập báo cáo markdown (hoặc JSON) gồm:
   F. lỗi hook của kit
   G. người từ chối mà guard không hỏi, H. lệnh đã chạy lúc guard không hỏi mà bản hiện tại hỏi
      (guard chưa nạp, workspace chưa trust, matcher thiếu tool, hoặc bản cũ)
+  I. lần bạn phải sửa agent (ngắt, từ chối kèm lời, câu sửa): ứng viên cho /correct
+  J. chỉ số theo tuần × dự án: lượt hỏi, lần sửa, Stop gate chặn, kết luận của verifier và reviewer
 Thường gọi qua scripts/audit-agent.sh (để có bash chạy lại guard). Cần Python 3.8+, chỉ thư viện chuẩn.
 Mặc định soát dự án ở thư mục hiện tại; --all soát mọi dự án trên máy (khi kit cài dạng plugin).
 """
@@ -22,6 +24,7 @@ import statistics
 import subprocess
 import sys
 import time
+import unicodedata
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -30,6 +33,28 @@ SHELL_TOOLS = ("Bash", "PowerShell")
 # Guard của chính bộ kit chứa script này: dùng cho dự án không có bản guard riêng (kit cài dạng plugin).
 KIT_GUARD = Path(__file__).resolve().parent.parent / ".claude" / "hooks" / "guard-irreversible.sh"
 REJECT_PREFIX = "The user doesn't want to proceed"
+REJECT_SAID = "the user said:"  # từ chối kèm lời: phần sau là lời bạn gõ
+INTERRUPT_PREFIX = "[Request interrupted by user"  # có biến thể "... for tool use]"
+COMMAND_TAG = re.compile(r"<command-(message|name)>")  # slash command: chữ dò lấy từ <command-args>
+# Ngữ cảnh máy chèn TRƯỚC lời bạn trong cùng tin (file đang mở trong IDE, system-reminder): bỏ đi, giữ phần sau.
+CONTEXT_PREFIX = re.compile(r"^(?:\s*<(ide_[\w-]+|system-reminder)>.*?</\1>)*\s*", re.DOTALL)
+# Tin mở bằng các thẻ này là máy ghi (lệnh ! và output, lệnh /local, báo task xong); mở bằng < khác là bạn dán vào.
+MACHINE_TAGS = ("<local-command-", "<bash-input>", "<bash-stdout>", "<bash-stderr>", "<task-notification>")
+# Báo cáo cuối của subagent (2.1.300+) đi qua tool này chứ không qua block text: dòng KẾT LUẬN nằm trong input.
+HANDBACK_TOOL = "SubagentHandback"
+VERDICT_RE = re.compile(r"KẾT LUẬN:\W*(PASS|FAIL|INCONCLUSIVE|KHÔNG CHẶN|CHẶN)\b")
+# Câu bạn gõ để sửa agent (mục I). Dò bằng từ khoá nên có thể khớp thừa; đừng thêm cụm hay gặp trong câu hỏi
+# thường ("đúng không", "lỗi sai chính tả"). Chữ được chuẩn hoá NFC và gộp khoảng trắng trước khi so.
+CORRECTION_RE = re.compile(
+    r"\b(sai rồi|bị sai|làm sai|vẫn sai|vẫn lỗi|vẫn còn lỗi|vẫn bị|lại lỗi|lại sai|chưa đúng|không đúng"
+    r"|không phải thế|không phải vậy|nhầm rồi|bạn nhầm|bạn quên|đã bảo rồi|đã bảo là|tôi bảo rồi|nói rồi mà"
+    # không có "tôi đã bảo" (bảo vệ, bảo mật) hay "vẫn chưa được/chạy" (hỏi trạng thái: "vẫn chưa được merge à?")
+    r"|lần thứ hai|vẫn không được|vẫn ko được|vẫn không chạy"
+    r"|ko đúng|k đúng|ko phải thế|ko phải vậy"  # gõ tắt "ko"
+    r"|sai roi|van loi|van sai|khong dung|chua dung|nham roi"  # gõ không dấu
+    r"|wrong|incorrect|not what i|still (broken|failing|wrong)|you forgot|i told you)\b",
+    re.IGNORECASE)
+FIX_KINDS = ("interrupt", "reject_note", "correction")
 
 # Danh sách nghi ngờ RỘNG hơn guard: ý kiến thứ hai để tìm chỗ guard bỏ sót. Khớp thừa chỉ thêm
 # một dòng vào báo cáo. Thêm mẫu riêng của dự án trong .claude/audit-watch.txt (regex<TAB>nhãn).
@@ -224,6 +249,8 @@ class Session:
         self.stop_releases = 0
         self.bad_lines = 0
         self.old_entries = 0
+        self.events = {}       # mục I, J: khoá khử trùng -> dict {kind, ts, cwd, file, ...}
+        self.file_state = {}   # trong file đang đọc: agent đã trả lời chưa, tool gọi gần nhất, kết luận gần nhất, dòng đang xét
 
 
 def agent_type(path):
@@ -253,6 +280,7 @@ def norm_path(p):
 def parse(path, s, cutoff, only_under=None):
     """only_under: chỉ nhận lệnh có cwd nằm trong thư mục này (file của thư mục phiên khác, cùng tiền tố)."""
     who = agent_type(path)
+    s.file_state = {"assistant": False, "doing": "", "tools": {}, "verdict": None}
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             try:
@@ -261,13 +289,122 @@ def parse(path, s, cutoff, only_under=None):
                     parse_entry(e, s, path, who, cutoff, only_under)
             except (ValueError, AttributeError, TypeError, KeyError):
                 s.bad_lines += 1  # JSON hỏng hoặc sai hình dạng: đếm, không làm hỏng cả lượt
+    v = s.file_state["verdict"]
+    role = who[len("agent-team:"):] if who.startswith("agent-team:") else who
+    if v and role in ("verifier", "reviewer") and in_scope(v["entry"].get("cwd"), only_under):
+        add_event(s, v["entry"], path, "verdict", agent=role, verdict=v["verdict"])
+
+
+def in_scope(cwd, only_under):
+    return only_under is None or (norm_path(cwd or "") + "/").startswith(only_under + "/")
+
+
+def add_event(s, e, path, kind, **extra):
+    if ts_of(e) is None:
+        return  # không có giờ thì không xếp được vào tuần nào
+    st = s.file_state
+    if st.get("entry") is not e:
+        st["entry"], st["emitted"] = e, collections.Counter()
+    n = st["emitted"][kind]  # thứ tự trong dòng: một stop_hook_summary có thể có nhiều lần chặn
+    st["emitted"][kind] += 1
+    ev = dict(kind=kind, ts=e["timestamp"], cwd=e.get("cwd") or "", file=str(path), **extra)
+    key = (e["uuid"], kind, n) if e.get("uuid") else (kind, ev["ts"], ev["cwd"], tuple(sorted(extra.items())), n)
+    # Một dòng phiên có thể nằm ở nhiều file (bản chép khi worker khởi động lại hay resume, có khi ghi cwd mới):
+    # đếm một lần. Bản đọc sau ghi đè, như s.calls ở mục A–H, để cả báo cáo quy dòng đó về cùng một cwd.
+    s.events[key] = ev
+
+
+def clip(text, n=200):
+    one = " ".join(text.split())
+    return one if len(one) <= n else one[: n - 1] + "…"
+
+
+def tool_summary(c, wire):
+    """Tool và lệnh hoặc file nó đụng tới, để biết agent đang làm gì lúc bị ngắt hay từ chối."""
+    inp = wire.get(c.get("id")) or c.get("input") or {}
+    name = c.get("name") or "?"
+    if isinstance(inp, dict) and isinstance(inp.get("command"), str):
+        return f"{name}: {short(inp['command'], 100)}"
+    if isinstance(inp, dict) and isinstance(inp.get("file_path"), str):
+        return f"{name}: {inp['file_path']}"
+    return name
+
+
+def track_assistant(e, msg, s, fresh):
+    st = s.file_state
+    st["assistant"] = True
+    wire = e.get("wireToolInputs") if isinstance(e.get("wireToolInputs"), dict) else {}
+    content = msg.get("content")
+    for c in content if isinstance(content, list) else []:
+        if not isinstance(c, dict):
+            continue
+        text = c.get("text") if c.get("type") == "text" else None
+        if c.get("type") == "tool_use":
+            st["doing"] = st["tools"][c.get("id")] = tool_summary(c, wire)
+            if c.get("name") == HANDBACK_TOOL and isinstance(c.get("input"), dict):
+                text = c["input"].get("message")
+        found = VERDICT_RE.findall(unicodedata.normalize("NFC", text)) if fresh and isinstance(text, str) else []
+        if found:
+            st["verdict"] = {"verdict": found[-1], "entry": {"timestamp": e.get("timestamp"), "cwd": e.get("cwd"), "uuid": e.get("uuid")}}
+
+
+def human_text(e, content):
+    """Chữ của một tin bạn gõ, đã bỏ ngữ cảnh máy chèn ở đầu từng block; None nếu cả tin do máy chèn (isMeta, tóm tắt compact, ...)."""
+    if e.get("isMeta") or e.get("isCompactSummary") or e.get("isVisibleInTranscriptOnly"):
+        return None
+    origin = e.get("origin")  # bản cũ (Windows 2.1.296) không có origin: vẫn là tin người
+    if isinstance(origin, dict) and origin.get("kind") != "human":
+        return None
+    if isinstance(content, str):
+        return CONTEXT_PREFIX.sub("", content, count=1)
+    if isinstance(content, list):
+        parts = (CONTEXT_PREFIX.sub("", c["text"], count=1) for c in content
+                 if isinstance(c, dict) and c.get("type") == "text" and isinstance(c.get("text"), str))
+        return "\n".join(p for p in parts if p)
+    return None
+
+
+def track_user(e, msg, s, path, who, only_under):
+    if not in_scope(e.get("cwd"), only_under):
+        return
+    st = s.file_state
+    content = msg.get("content")
+    if isinstance(content, list) and any(isinstance(c, dict) and c.get("type") == "tool_result" for c in content):
+        for c in content:
+            if isinstance(c, dict) and c.get("type") == "tool_result" and c.get("is_error"):
+                txt = " ".join(texts_of(c.get("content"))).strip()
+                words = clip(txt.split(REJECT_SAID, 1)[1]) if txt.startswith(REJECT_PREFIX) and REJECT_SAID in txt else ""
+                if words:
+                    add_event(s, e, path, "reject_note", doing=st["tools"].get(c.get("tool_use_id"), ""), text=words)
+        return
+    text = human_text(e, content)
+    if text is None:
+        return
+    text = unicodedata.normalize("NFC", text).lstrip()
+    if text.startswith(INTERRUPT_PREFIX):
+        add_event(s, e, path, "interrupt", doing=st["doing"])
+        return
+    if text.startswith(MACHINE_TAGS):
+        return
+    if COMMAND_TAG.match(text):
+        m = re.search(r"<command-args>(.*?)</command-args>", text, re.DOTALL)
+        text = m.group(1) if m else ""
+    if who != "phiên chính":
+        return  # tin "user" trong file subagent là lead gửi, không phải bạn gõ
+    one = " ".join(text.split())
+    add_event(s, e, path, "prompt", text=clip(one))  # chữ để khử trùng dòng không có uuid
+    if st["assistant"] and CORRECTION_RE.search(one):
+        add_event(s, e, path, "correction", text=clip(one))
 
 
 def parse_entry(e, s, path, who, cutoff, only_under):
     t = e.get("type")
     msg = e.get("message") or {}
     when = ts_of(e)
-    if when is not None and when < cutoff:
+    fresh = when is None or when >= cutoff
+    if t == "assistant" and isinstance(msg, dict):
+        track_assistant(e, msg, s, fresh)  # cả dòng cũ: câu sửa ở đầu cửa sổ --since vẫn biết agent đã trả lời trước đó
+    if not fresh:
         s.old_entries += 1
         return
     if t == "assistant":
@@ -276,7 +413,7 @@ def parse_entry(e, s, path, who, cutoff, only_under):
             if isinstance(c, dict) and c.get("type") == "tool_use" and c.get("name") in SHELL_TOOLS:
                 inp = wire.get(c.get("id")) or c.get("input") or {}
                 cmd = inp.get("command") if isinstance(inp, dict) else None
-                cwd_ok = only_under is None or (norm_path(e.get("cwd") or "") + "/").startswith(only_under + "/")
+                cwd_ok = in_scope(e.get("cwd"), only_under)
                 if cmd and cwd_ok:
                     s.calls[c["id"]] = {"tool": c["name"], "command": cmd, "cwd": e.get("cwd") or "",
                                         "ts": e.get("timestamp") or "", "file": str(path), "who": who,
@@ -294,6 +431,7 @@ def parse_entry(e, s, path, who, cutoff, only_under):
                 call["rejected_by"] = "người" if user_no else ("cấu hình" if config_no else "")
                 if isinstance(pd, dict):
                     call["permission"] = pd
+        track_user(e, msg, s, path, who, only_under)
     elif t == "attachment":
         a = e.get("attachment") or {}
         at = a.get("type") or ""
@@ -324,6 +462,8 @@ def parse_entry(e, s, path, who, cutoff, only_under):
             if isinstance(err, str):
                 for m in re.finditer(r"check\.sh đang đỏ.*?lần chặn (\d+)/(\d+)", err, re.DOTALL):
                     s.stop_blocks.append(f"{m.group(1)}/{m.group(2)}")
+                    if in_scope(e.get("cwd"), only_under):
+                        add_event(s, e, path, "stop_block")
 
 
 def repo_root(cwd):
@@ -338,6 +478,53 @@ def repo_root(cwd):
     except (OSError, ValueError):
         pass
     return None
+
+
+def project_name(cwd):
+    """Dự án của một sự kiện: thư mục repo chứa cwd, worktree quy về repo chính. Cwd không có trên máy này
+    (vd C:\\x\\y đọc trên Linux) thì tên thư mục cuối."""
+    cwd = re.split(r"[\\/]\.claude[\\/]worktrees[\\/]", cwd or "", maxsplit=1)[0]  # worktree của Claude Code
+    try:
+        here = bool(cwd) and Path(cwd).is_absolute() and Path(cwd).exists()  # đường dẫn tương đối sẽ bị hiểu theo thư mục hiện tại
+    except (OSError, ValueError):
+        here = False
+    r = repo_root(cwd) if here else None
+    if r is not None:
+        try:  # worktree git: .git là file "gitdir: <repo chính>/.git/worktrees/<tên>" (đường dẫn có thể tương đối)
+            git = (r / ".git").read_text(encoding="utf-8", errors="replace") if (r / ".git").is_file() else ""
+        except OSError:
+            git = ""
+        m = re.match(r"gitdir:\s*(.+?)[\\/]\.git[\\/]worktrees[\\/]", git)
+        return (Path(os.path.normpath(r / m.group(1))).name if m else "") or r.name
+    parts = [x for x in re.split(r"[\\/]+", cwd) if x]
+    return parts[-1] if parts else "(không rõ)"
+
+
+def weekly_rows(events, project):
+    """Mục J: một dòng cho mỗi tuần ISO (giờ địa phương của máy) × dự án có sự kiện, tuần cũ trước."""
+    rows = {}
+    for ev in events:
+        y, w = datetime.fromtimestamp(ts_of({"timestamp": ev["ts"]})).isocalendar()[:2]
+        key = (f"{y}-W{w:02d}", project(ev["cwd"]))
+        r = rows.setdefault(key, {"week": key[0], "project": key[1], "prompts": 0, "interrupt": 0, "reject_note": 0,
+                                  "correction": 0, "stop_blocks": 0, "verifier_pass": 0, "verifier_fail": 0,
+                                  "verifier_inconclusive": 0, "reviewer_blocked": 0, "reviewer_total": 0})
+        k = ev["kind"]
+        if k == "prompt":
+            r["prompts"] += 1
+        elif k in FIX_KINDS:
+            r[k] += 1
+        elif k == "stop_block":
+            r["stop_blocks"] += 1
+        elif k == "verdict" and ev["agent"] == "verifier" and "verifier_" + ev["verdict"].lower() in r:
+            r["verifier_" + ev["verdict"].lower()] += 1
+        elif k == "verdict" and ev["agent"] == "reviewer":
+            r["reviewer_total"] += 1
+            r["reviewer_blocked"] += ev["verdict"] == "CHẶN"
+    for r in rows.values():
+        r["fixes"] = r["interrupt"] + r["reject_note"] + r["correction"]
+        r["fixes_per_10"] = round(10 * r["fixes"] / r["prompts"], 1) if r["prompts"] else None
+    return [rows[k] for k in sorted(rows)]
 
 
 class Context:
@@ -522,6 +709,17 @@ def main():
                       "median_s": round(statistics.median(s.stop_runs) / 1000, 1) if s.stop_runs else None,
                       "max_s": round(max(s.stop_runs) / 1000, 1) if s.stop_runs else None},
     }
+    names = {}
+
+    def project(cwd):
+        if cwd not in names:
+            names[cwd] = project_name(cwd)  # repo_root dò hệ thống file: mỗi cwd một lần
+        return names[cwd]
+
+    events = list(s.events.values())
+    report["I_user_corrections"] = sorted((dict(ev, project=project(ev["cwd"])) for ev in events if ev["kind"] in FIX_KINDS),
+                                          key=lambda ev: ts_of({"timestamp": ev["ts"]}))
+    report["weekly"] = weekly_rows(events, project)
     text = json.dumps(report, ensure_ascii=False, indent=2) if args.json else render(report)
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
@@ -590,6 +788,31 @@ def render(r):
     grouped = collections.Counter((e["hook"], (e["stderr"].splitlines() or [""])[0][:200]) for e in errs)
     for (hook, first), n in grouped.most_common():
         L.append(f"- {hook} ×{n}: `{first}`")
+    L.append("")
+    fixes = r["I_user_corrections"]
+    L += [f"## I. Bạn phải sửa agent: {len(fixes)}", "",
+          "Ứng viên cho /correct: mỗi dòng là một lần bạn ngắt agent, từ chối kèm lời nhắn, hoặc gõ câu sửa. "
+          "Gom thành lớp lỗi; lớp nào từ 2 lần trở lên thì chạy /correct. Câu sửa dò bằng từ khoá nên có thể khớp thừa.", ""]
+    label = {"interrupt": "ngắt", "reject_note": "từ chối kèm lời", "correction": "câu sửa"}
+    for ev in fixes:
+        when = datetime.fromtimestamp(ts_of({"timestamp": ev["ts"]})).strftime("%Y-%m-%d %H:%M")
+        what = f'"{ev["text"]}"' if ev.get("text") else ""
+        if ev["kind"] != "correction":
+            what = (what + " " if what else "") + f"đang: `{ev.get('doing') or 'không rõ'}`"
+        where = f" @ {ev['cwd']}" if r.get("all") else ""
+        L.append(f"- [{label[ev['kind']]}] {when} {what}{where}")
+    L += ["", "## J. Chỉ số theo tuần", "",
+          "So tuần này với tuần trước. Muốn thấy xu hướng thì chạy --since 28; tuần đầu bảng có thể thiếu ngày.", ""]
+    if not r["weekly"]:
+        L.append("Chưa có dữ liệu.")
+    else:
+        L += ["| Tuần | Dự án | Lượt hỏi | Bạn sửa (ngắt/lời/câu) | Sửa trên 10 lượt | Stop gate chặn | Verifier P/F/I | Reviewer chặn/tổng |",
+              "|---|---|---|---|---|---|---|---|"]
+        for w in r["weekly"]:
+            per10 = "-" if w["fixes_per_10"] is None else f"{w['fixes_per_10']:.1f}"
+            L.append(f"| {w['week']} | {w['project']} | {w['prompts']} | {w['fixes']} ({w['interrupt']}/{w['reject_note']}/{w['correction']}) "
+                     f"| {per10} | {w['stop_blocks']} | {w['verifier_pass']}/{w['verifier_fail']}/{w['verifier_inconclusive']} "
+                     f"| {w['reviewer_blocked']}/{w['reviewer_total']} |")
     L.append("")
     return "\n".join(L)
 

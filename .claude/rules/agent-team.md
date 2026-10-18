@@ -5,7 +5,8 @@
 - Bug: tái hiện trước bằng test fail, rồi mới sửa nguyên nhân gốc.
 - Người viết không tự kiểm: verify và review bằng subagent mới (`verifier`, `reviewer`).
 - Bị người dùng sửa cùng một lỗi lần thứ hai thì đề xuất `/correct`.
-- Cuối ngày làm việc: `./scripts/audit-agent.sh --all --since 1` dò sự cố từ file phiên của mọi dự án trên máy; có mục A, B, H hoặc F thì chạy `/agent-audit`.
+- Cuối ngày làm việc: `./scripts/audit-agent.sh --all --since 1` dò sự cố từ file phiên của mọi dự án trên máy; có mục A, B, H hoặc F thì chạy `/agent-audit`; mục I có lớp lỗi lặp từ 2 lần thì `/correct`.
+- Cuối tuần: `./scripts/audit-agent.sh --all --since 28` xem mục J (xu hướng).
 - Cứ làm: đọc, sửa trong branch hoặc worktree, commit cục bộ, chạy test. Luôn hỏi người: force-push, push hoặc merge vào nhánh chính, xoá dữ liệu, deploy, publish.
 
 | Rule | Thực thi bởi |

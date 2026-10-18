@@ -15,6 +15,7 @@ Trước khi bắt đầu, đọc `MEMORY.md` trong thư mục memory của bạ
 ## 1. Thu thập
 - `git log` (khoảng 2–4 tuần), các commit revert, commit có chữ "fix" lặp lại trên cùng một vùng.
 - Review comment trên PR (nếu có `gh`), `CLAUDE.md`, ghi chú trong memory.
+- Mục I và J của báo cáo `scripts/audit-agent.sh --since 28 --no-replay` nếu máy có file phiên (kit cài dạng plugin thì script ở `~/.claude/plugins/cache/agents-team-coding/agent-team/*/scripts/`). Mục I là danh sách những lần người dùng phải sửa agent.
 - Workaround được giải thích bằng comment: đây là anti-pattern sắp lan.
 - Các cách khác nhau để làm cùng một việc (hai HTTP client, hai cách log, API cũ và mới cùng tồn tại).
 

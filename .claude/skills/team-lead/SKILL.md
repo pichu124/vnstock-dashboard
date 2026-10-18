@@ -73,5 +73,6 @@ Hai vòng sửa liên tiếp cùng thất bại ở một cổng thì dừng vá
 
 ## Sau task: học
 
+- Người dùng báo lỗi trong việc đội đã báo xong là **lỗi lọt lưới**: xử lý theo bước "Lọt lưới?" của playbook [bug-fix](playbooks/bug-fix.md), không chỉ vá bug.
 - Người dùng sửa cùng một lỗi lần thứ hai thì đề xuất chạy `/correct`.
 - Một bước tốn nhiều thời gian vì thiếu công cụ thì đề xuất "build the lever": script hay CLI để lần sau chạy lại được.
