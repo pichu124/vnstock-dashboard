@@ -114,6 +114,19 @@ def _dashboard_loader(prices_dir):
     )["load_price_history"]
 
 
+def test_dashboard_history_short_window_keeps_high_priced_stock(tmp_path):
+    """VNZ 18/10: `days=17` toàn bar > 500 nghìn ⇒ chuẩn hoá SAU khi cắt không còn mốc ≤ 500,
+    rơi về luật cũ chia hết (0.579); `days ≥ 27` lại ra 579. Mốc phải lấy trên cả lịch sử."""
+    days = list(pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=80).date)
+    bars = _bars(days, [450.0] * 60 + [600.0] * 20)
+    for year, grp in bars.groupby(pd.to_datetime(bars["time"]).dt.year):
+        d = tmp_path / "ticker=AAA" / f"year={year}"
+        d.mkdir(parents=True)
+        grp.to_parquet(d / "prices.parquet", index=False)
+    out = _dashboard_loader(tmp_path)("AAA", days=17)
+    assert len(out) and (out["close"] == 600.0).all()
+
+
 def test_dashboard_history_does_not_double_count_conflicted_copy(year_dir):
     root, d = year_dir
     days = _days()

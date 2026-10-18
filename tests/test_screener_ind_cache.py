@@ -210,6 +210,16 @@ def stale_warehouse(tmp_path, monkeypatch):
     return tmp_path
 
 
+def test_load_ticker_keeps_high_priced_stock_above_500(tmp_path):
+    """HLB 18/10: bar 445 rồi lên 600+ nghìn — loader chia 1000 từng ô > 500 ⇒ last_close 0.66,
+    20D −99,85%, lọt oversold/reversal."""
+    sessions = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=70)
+    _write_prices(tmp_path, "HHH", sessions, np.r_[np.full(60, 450.0), np.full(10, 600.0)])
+    df = sc.MarketScreener(str(tmp_path))._load_ticker("HHH")
+    assert df["close"].iloc[-1] == 600.0
+    assert df["close"].iloc[-21] == 450.0
+
+
 def _oversold(warehouse):
     from vnstock_runner import run_all_presets
     out = run_all_presets(str(warehouse), presets=["oversold"])

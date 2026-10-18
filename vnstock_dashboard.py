@@ -421,9 +421,11 @@ def _load_gtgd_daily() -> dict:
             # Deduplicate by date — keep last entry per day to avoid
             # double-counting from overlapping parquet files.
             df = df.drop_duplicates(subset=["_date"], keep="last")
-            df = df.sort_values("_date").tail(_GTGD_SESSIONS)
-            close = pd.to_numeric(df["close"], errors="coerce").fillna(0).astype(float)
-            close = close.where(close > 500, close * 1000)
+            df["close"] = pd.to_numeric(df["close"], errors="coerce").fillna(0).astype(float)
+            # Mốc đơn vị theo cả 2 năm đã đọc rồi mới cắt: VNZ có 30 phiên cuối đều > 500 nghìn.
+            from vnstock_price_units import normalize_price_units
+            df = normalize_price_units(df.sort_values("_date")).tail(_GTGD_SESSIONS)
+            close = df["close"] * 1000
             vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0).astype(float)
             result[ticker] = (close * vol).to_numpy()
         except Exception:
@@ -798,13 +800,14 @@ def load_price_history(ticker: str, days: int = 0) -> pd.DataFrame:
     df = pd.concat(frames, ignore_index=True)
     df["time"] = pd.to_datetime(df["time"])
     df = df.drop_duplicates(subset=["time"], keep="last")
-    if days > 0:
-        cutoff = datetime.now() - timedelta(days=days)
-        df = df[df["time"] >= cutoff]
     df = df.sort_values("time").reset_index(drop=True)
 
-    # Normalize mixed price units (nghìn VND vs VND)
+    # Normalize mixed price units (nghìn VND vs VND) trên CẢ lịch sử rồi mới cắt `days`:
+    # cửa sổ ngắn toàn bar > 500 nghìn (VNZ) không có mốc đơn vị.
     df = _normalize_price_units(df)
+    if days > 0:
+        cutoff = datetime.now() - timedelta(days=days)
+        df = df[df["time"] >= cutoff].reset_index(drop=True)
 
     return df
 

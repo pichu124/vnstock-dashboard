@@ -101,6 +101,26 @@ class TestNormalizePriceUnits:
         assert result["close"].iloc[0] == pytest.approx(77.7, rel=1e-3)
         assert result["high"].iloc[0] == pytest.approx(78.0, rel=1e-3)
 
+    def test_high_priced_stock_keeps_thousand_units(self):
+        """HLB/VNZ có giá thật > 500 nghìn (18/10: HLB 660, VNZ 579). Chia 1000 từng ô > 500
+        biến HLB thành 0.66 bên cạnh bar 445 cũ ⇒ 20D −99,85%, RSI 0.1, lọt oversold."""
+        df = pd.DataFrame({"close": [350.0, 445.4, 505.9, 798.0, 660.0]})
+        result = _normalize_price_units(df)
+        assert result["close"].tolist() == [350.0, 445.4, 505.9, 798.0, 660.0]
+
+    def test_vnd_cells_divided_against_series_median(self):
+        """Bar VND lẫn trong chuỗi nghìn (ATB/BII… còn 18 bar như vậy trong kho) vẫn chia 1000."""
+        df = pd.DataFrame({"close": [0.75, 0.8, 750.0, 0.78], "open": [0.74, 790.0, 0.8, 0.77]})
+        result = _normalize_price_units(df)
+        assert result["close"].tolist() == pytest.approx([0.75, 0.8, 0.75, 0.78])
+        assert result["open"].tolist() == pytest.approx([0.74, 0.79, 0.8, 0.77])
+
+    def test_penny_vnd_series_crossing_500_stays_one_scale(self):
+        """Mã penny lưu VND quanh mốc 500: chia từng ô từng đẻ [480, 0.51, 495] — return giả
+        ±×1000 (vết preset_score 15/07). Cả chuỗi cùng thang thì return đúng."""
+        df = pd.DataFrame({"close": [480.0, 510.0, 495.0]})
+        assert _normalize_price_units(df)["close"].tolist() == [480.0, 510.0, 495.0]
+
     def test_empty_dataframe(self):
         result = _normalize_price_units(pd.DataFrame())
         assert result.empty

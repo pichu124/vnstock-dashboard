@@ -97,6 +97,26 @@ def test_nn_windows_fill_3m_once_feed_covers_60_sessions():
     assert vr._nn_windows(nn.tail(59))[2] == {}
 
 
+def test_price_change_of_high_priced_stock_crossing_500(tmp_path):
+    """Mã giá > 500 nghìn (HLB, VNZ): `_normalize_prices` chia 1000 từng bar > 500 ⇒ Giá 1M %
+    so 0.6 với 450 = −99,9%."""
+    import vnstock_runner as vr
+
+    root = mini_warehouse(tmp_path, tickers=("AAA", "HHH"))
+    days = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=70)
+    px = [450.0] * 60 + [600.0] * 10
+    bars = pd.DataFrame({"time": days, "open": px, "high": px, "low": px, "close": px,
+                         "volume": [1e6] * 70})
+    for year, grp in bars.groupby(days.year):
+        grp.to_parquet(root / "prices" / "ticker=HHH" / f"year={year}" / "prices.parquet",
+                       index=False)
+
+    out = vr.build_market_overview(str(root))
+    hhh = next(t for t in out["tickers"] if t["Mã"] == "HHH")
+    assert hhh["Giá 1M %"] == 33.3                              # 600 / 450 − 1
+    assert hhh["Giá 1T %"] == 0.0
+
+
 def test_nn_1t_1m_sum_exactly_5_and_20_latest_sessions(tmp_path):
     """NN 1T/1M = 5/20 PHIÊN có trong data (như `Giá 1T %` = 5 phiên). Cắt `≥ mốc − 7
     ngày lịch` từng lấy cả mốc ⇒ 6 phiên khi mốc là ngày thường."""
