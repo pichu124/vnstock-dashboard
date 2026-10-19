@@ -17,9 +17,11 @@ export PYTHONIOENCODING=utf-8 PYTHONDONTWRITEBYTECODE=1
 # Repo đang ở nhánh main: guard hỏi mọi git push chạy ở đây.
 git init -q -b main "$tmp/mainrepo" && git -C "$tmp/mainrepo" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -q --allow-empty -m i
 # Tạo file phiên giả: phiên chính + một subagent implementer + một file cũ (ngoài --since).
-"$py" - "$tmp/t" "$root" "$tmp/mainrepo" <<'PYEOF'
+"$py" - "$tmp/t" "$tmp/mainrepo" <<'PYEOF'
 import json, os, sys, time
-d, cwd = sys.argv[1], sys.argv[2]
+d = sys.argv[1]
+# cwd giả: kết quả không được phụ thuộc chỗ đặt repo kit (vd verifier chạy check trong worktree tạm của nó).
+cwd = "/khong-co-tren-may/kitproj"
 os.makedirs(d + "/s1/subagents", exist_ok=True)
 lines = []
 NOW = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -72,7 +74,7 @@ call("k4", "cat > notes.txt <<'EOF'; git stash drop\nghi chú\nEOF")
 call("k5", "rm -rf build/../src")
 call("k6", "cd /tmp/x && cd && rm -rf proj")
 call("k7", "rm -rf node_modules /c")
-call("m1", "git push", where=sys.argv[3])
+call("m1", "git push", where=sys.argv[2])
 # Claude Code trên Windows (2.1.296) không ghi kết quả guard vào file phiên: suy từ hộp hỏi.
 call("n1", "git push --force origin y", result="rejected")                # bạn từ chối ở hộp hỏi -> D
 call("n2", "git push -u origin main", pd={"decision": "accept", "source": "user_temporary"})
@@ -80,6 +82,105 @@ call("n2", "git push -u origin main", pd={"decision": "accept", "source": "user_
 call("b1", "git branch -d wt-u1 wt-u2")
 call("b2", "git branch -D wip-chua-gop")
 call("g2", "cat data/bao-cao.csv", result="denied", pd={"decision": "reject", "source": "config", "reasonType": "classifier"})  # bạn duyệt -> C, không phải H                                 # push lúc đang ở main, không khớp mẫu chữ
+# Báo cáo desktop 18/10: subagent dọn worktree tạm của chính nó (.claude/worktrees/agent-<hex>, nhánh worktree-agent-<hex>).
+WT = cwd + "/.claude/worktrees/agent-abc"
+call("w1", "git -C .claude/worktrees/agent-a1b2c3d4e5f60718 status --short && git branch -D worktree-agent-a1b2c3d4e5f60718")
+call("w2", "git branch -D worktree-agent-aeb4c21e13a20ddd0 2>&1; rm -rf .claude/worktrees/agent-aeb4c21e13a20ddd0 && git worktree prune")
+call("w3", 'for b in fix/ur-runner fix/us-stale fix/ual-alerts; do git merge-base --is-ancestor "refs/heads/$b" origin/trial/agent-team && git branch -D "$b"; done')
+call("w4", 'echo "# drift" >> skill/agent-audit/mode.md ; cat skill/agent-audit/mode.md ; git checkout -- skill/agent-audit/mode.md')
+call("w5", "rm -rf src", where=WT)  # chỉ vô hại nhờ cwd của phiên: nay vẫn nghi (xem assert)
+call("w6", "cd .claude/worktrees/agent-abc && rm -rf src")
+call("w7", 'Remove-Item -Recurse -Force "C:\\Users\\Ten Nguoi\\repo\\.claude\\worktrees\\agent-abc"', tool="PowerShell")
+# Vẫn nghi: nhánh thường, worktree phiên của app (có thể chứa việc của bạn), thoát khỏi worktree, merge-base trước khi xoá.
+call("x1", "git branch -D feature-x")
+call("x2", "git branch -D worktree-agent-abc feature-x")
+call("x3", "rm -rf .claude/worktrees")
+call("x4", "rm -rf .claude/worktrees/quirky-mayer-c977af")
+call("x5", "rm -rf .claude/worktrees/agent-abc/../..")
+call("x6", "git merge-base --is-ancestor a main; git branch -D a")
+call("x7", "git merge-base --is-ancestor a main && git branch -D b")
+call("x8", "git merge-base --is-ancestor a main || git branch -D a")
+call("x9", "! git merge-base --is-ancestor a main && git branch -D a")
+call("x10", "cd && rm -rf proj", where=WT)
+call("x11", "cd .. && rm -rf src", where=WT)
+call("x12", "cd $D && rm -rf src", where=WT)
+# Reviewer 18/10: cwd của phiên không phải một cd tường minh. Lấy nó làm thư mục xuất phát thì mọi đích "tương đối"
+# (biến chưa biết, lệnh lồng, cd có cờ hay sau if/do/builtin, xargs) đều thành vô hại. Các ca này phải vẫn nghi.
+call("y1", "rm -rf $PROJECT_ROOT/src", where=WT)
+call("y2", 'rm -rf "$REPO/src"', where=WT)
+call("y3", 'rm -rf "$(git rev-parse --git-common-dir)"', where=WT)
+call("y4", "cd -- /home/u/proj && rm -rf src", where=WT)
+call("y5", "cd -P /home/u/proj && rm -rf src", where=WT)
+call("y6", "if cd /home/u/proj; then rm -rf src; fi", where=WT)
+call("y7", "for d in /home/u/proj; do cd $d; rm -rf src; done", where=WT)
+call("y8", "builtin cd /home/u/proj && rm -rf src", where=WT)
+call("y9", "ls /home/u/proj | xargs rm -rf", where=WT)
+call("y10", "rm -rf $SP/rv6", where=WT)
+# Cùng các ca đó sau một cd vào worktree agent: không suy thư mục theo cd, nên vẫn nghi.
+IN = "cd .claude/worktrees/agent-abc && "
+call("z1", IN + "rm -rf $PROJECT_ROOT/src")
+call("z2", IN + 'rm -rf "$(git rev-parse --git-common-dir)"')
+call("z3", IN + "rm -rf `git rev-parse --show-toplevel`")
+call("z4", IN + "rm -rf +(.)/src")                     # extglob: +(.) khớp ..
+call("z5", IN + "rm -rf {.,.}./src")                   # brace: thành ../src ../src
+call("z6", IN + "cd -- /home/u/proj && rm -rf src")
+call("z7", IN + "cd -P /home/u/proj && rm -rf src")
+call("z8", "cd .claude/worktrees/agent-abc; if cd /home/u/proj; then rm -rf src; fi")
+call("z9", "cd .claude/worktrees/agent-abc; for d in /home/u/proj; do cd $d; rm -rf src; done")
+call("z10", IN + "builtin cd /home/u/proj && rm -rf src")
+call("z11", IN + "ls /home/u/proj | xargs rm -rf")
+call("z12", "rm -rf .claude/worktrees/agent-abc/$REL")   # $REL có thể là ../..
+call("z13", "rm -rf .claude/worktrees/agent-abc/`cat<p`")
+call("z14", "rm -rf .claude/worktrees/agent-abc/{.,.}./quirky-mayer-c977af")
+# merge-base trước khi xoá không làm việc xoá nhánh thành vô hại (lead bỏ quy tắc này 18/10).
+call("v1", "git merge-base --is-ancestor a main && git -C ../khac branch -D a")
+call("v2", "git -C ../khac merge-base --is-ancestor a main && git branch -D a")
+call("v3", "git --git-dir=../khac/.git merge-base --is-ancestor a main && git branch -D a")
+call("v4", "git merge-base --is-ancestor a main && git --work-tree=../khac branch -D a")
+call("v5", "git merge-base --is-ancestor a a && git branch -D a")
+# Lead chốt 18/10 (sau review vòng 2): bỏ suy thư mục theo cd. Chỉ vô hại khi đích ghi TRỌN là worktree agent
+# (.claude/worktrees/agent-<hex>, không biến, glob, brace, dấu phẩy, khoảng trắng, `..`, `.`), và xoá nhánh
+# khi cả đoạn lệnh chỉ là `git branch -D worktree-agent-<hex>...` (bỏ redirect ở đuôi). Các ca review vòng 2: vẫn nghi.
+call("r1", "(cd .claude/worktrees/agent-abc && npm run build) && rm -rf out")
+call("r2", "(cd .claude/worktrees/agent-abc/ ); rm -rf src")
+call("r3", "cd .claude/worktrees/agent-abc && bash -c 'cd ../../..; rm -rf src'")
+call("r4", "cd .claude/worktrees/agent-abc && eval cd /; rm -rf home")
+call("r5", "cd .claude/worktrees/agent-abc && FOO=1 cd / && rm -rf home")
+call("r6", "cd .claude/worktrees/agent-abc && time cd / && rm -rf home")
+call("r7", "cd .claude/worktrees/agent-abc/ & rm -rf src")
+call("r8", "Remove-Item -Recurse -Force C:\\repo\\src,C:\\repo\\.claude\\worktrees\\agent-abc", tool="PowerShell")
+call("r9", "Remove-Item -Recurse -Force -LiteralPath C:\\repo\\src,C:\\repo\\.claude\\worktrees\\agent-abc", tool="PowerShell")
+call("r10", "Remove-Item -Recurse -Force C:\\repo\\.claude\\worktrees\\agent-abc,C:\\repo\\src", tool="PowerShell")
+call("r11", "echo main | xargs git branch -D worktree-agent-abc")
+call("r12", "git branch -D worktree-agent-abc main")
+call("r13", "git branch -D worktree-agent-abc >main")                   # ghi đè file main: không phải redirect bỏ được
+call("r14", "rm -rf .claude/worktrees/agent-abc/..")
+call("r15", "rm -rf .claude/worktrees/agent-abc/.")
+call("r16", "rm -rf .claude/worktrees/agent-abc*")
+call("r17", "rm -rf .claude/worktrees/agent-xyz")
+call("r18", "rm -rf .claude/worktrees/agent-abc ~/x")
+call("r19", "cd /tmp/x && ls / | xargs rm -rf")                        # đích đọc từ stdin, dù đang ở thư mục tạm
+call("r20", "xargs .claude/worktrees/agent-abc/rm -rf .claude/worktrees/agent-abc")
+# Review vòng 3: với bash, `\` là ký tự thoát chứ không phải dấu phân cách. `\` cuối đích nối đích với phần sau nó (dòng kế,
+# `; x`, `| x`), `\` sau agent-<hex> dán tên kế tiếp vào thành thư mục khác nằm cạnh. Biến (gán tạm `D=x lệnh` không đổi
+# biến của shell), IFS, `-Tên:giá-trị` của PowerShell: đích thật khác đích ghi. Các ca này vẫn nghi.
+call("e1", "rm -rf .claude/worktrees/agent-abc\\\n  src")                 # bash xoá cả ./src
+call("e2", "rm -rf .claude/worktrees/agent-abc\\; /home")
+call("e3", "rm -rf .claude/worktrees/agent-abc\\| /home")
+call("e4", "rm -rf .claude/worktrees/agent-abc/sub\\\n /home/u/proj")
+call("e5", "rm -rf .claude/worktrees/agent-abc\\-old")                     # bash xoá .claude/worktrees/agent-abc-old
+call("e6", "X=.claude/worktrees/agent-abc/home; IFS=c; rm -rf $X")         # tách thành . laude/worktrees/agent-ab /home
+call("e7", "IFS=c; rm -rf .claude/worktrees/agent-abc/home")               # báo thừa có chủ ý: canh kiểm IFS độc lập với kiểm $
+call("e8", "Remove-Item -Path:C:\\proj\\* -Recurse -Force -Exclude C:\\proj\\.claude\\worktrees\\agent-abc", tool="PowerShell")
+call("e9", "D=/; D=.claude/worktrees/agent-abc true; rm -rf $D")           # bash xoá /
+# Vô hại: dòng thật trên desktop (18/10), đường tuyệt đối, ~, PowerShell, nhiều nhánh tạm, redirect ở đuôi.
+call("d1", "cd /c/Users/admin/automarking && git branch -D worktree-agent-aeb4c21e13a20ddd0 2>&1; "
+           "rm -rf .claude/worktrees/agent-aeb4c21e13a20ddd0 && git worktree prune")
+call("d2", "rm -rf /c/Users/admin/automarking/.claude/worktrees/agent-abc123")
+call("d3", "Remove-Item -Recurse -Force C:\\Users\\admin\\automarking\\.claude\\worktrees\\agent-abc123", tool="PowerShell")
+call("d4", "git branch -D worktree-agent-abc worktree-agent-def")
+call("d5", "rm -rf ~/automarking/.claude/worktrees/agent-abc123/ ./.claude/worktrees/agent-def/src")
+call("d6", "git branch --delete --force worktree-agent-abc >/dev/null 2>&1")
 lines.append({"type": "assistant", "message": "chuỗi thay vì object"})
 lines.append({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": ["list"]}}]}})
 lines.append({"type": "system", "subtype": "stop_hook_summary", "hookInfos": ["chuỗi"], "hookErrors": [1]})
@@ -213,8 +314,10 @@ write("w2.jsonl", [
     result(T2, sub, "b1", "ok"),
     asst(T2, sub, tool("b2", "Bash", {"command": "git push origin feat/x"})),
     result(T2, sub, "b2", REJ + " STOP what you are doing and wait for the user to tell you how to proceed.", err=True),  # không kèm lời
-    user(T2, sub, [text("[Request interrupted by user for tool use]")]),
+    user(T2, sub, [text("[Request interrupted by user for tool use]")]),  # dấu của lần từ chối trên: không phải ngắt
     user(T2, sub, [text("vẫn lỗi khi\nchạy   check")], origin=HUMAN),
+    asst(T2, sub, text("Đang xem lại")),
+    user(T2, sub, [text("[Request interrupted by user]")], uuid="w2-esc"),  # Esc lúc model đang viết: ngắt thật
     user(T2, sub, "Stop hook feedback:\nsai rồi", isMeta=True),
     user(T2, sub, "This session is being continued... sai rồi", isCompactSummary=True, isVisibleInTranscriptOnly=True),
     user(T2, sub, "Another Claude session sent a message: vẫn lỗi", origin={"kind": "peer", "name": "reviewer"}),
@@ -342,6 +445,54 @@ write("rx.jsonl", [
     user(RX, "ko đúng, vẫn chưa được", origin=HUMAN),
     user(RX, "đã bảo là chạy test trước", origin=HUMAN),
 ])
+# Bấm "No" ở hộp xin phép: tool_result từ chối rồi NGAY SAU là dấu ngắt, chép từ file phiên thật (2.1.300, 15/10).
+# Dấu đó thuộc về lần từ chối (đã đếm ở D/G), không phải một lần ngắt. Esc lúc model đang viết thì vẫn là ngắt.
+REAL_REJ = ("The user doesn't want to proceed with this tool use. The tool use was rejected "
+            "(eg. if it was a file edit, the new_string was NOT written to the file).")
+def asked_no(cwd, n, cmd, tail):
+    return [asst(cwd, {"type": "tool_use", "id": n + "-t", "name": "Bash", "input": {"command": cmd}}, uuid=n + "-a"),
+            user(cwd, [{"type": "tool_result", "content": REAL_REJ + tail, "is_error": True, "tool_use_id": n + "-t"}],
+                 uuid=n + "-r", parentUuid=n + "-a", toolUseResult="User rejected tool use", toolDenialKind="user-rejected",
+                 sourceToolAssistantUUID=n + "-a"),
+            user(cwd, [text("[Request interrupted by user for tool use]")], uuid=n + "-i", parentUuid=n + "-r")]
+STOP = " STOP what you are doing and wait for the user to tell you how to proceed."
+RJ, ESC, RJN = "/khong-co-tren-may/rjproj", "/khong-co-tren-may/escproj", "/khong-co-tren-may/rjnoteproj"
+write("rj.jsonl", [user(RJ, "Đẩy nhánh trial lên", origin=HUMAN, uuid="rj-p")]
+      + asked_no(RJ, "rj1", "git push --force origin trial/agent-team", STOP)
+      + [user(RJ, "Thử guard", origin=HUMAN, uuid="rj-p2")]
+      + asked_no(RJ, "rj2", "git push --force origin khong-co-nhanh-nay", STOP))
+write("esc.jsonl", [
+    user(ESC, "Viết README", origin=HUMAN, uuid="esc-p"),
+    asst(ESC, {"type": "tool_use", "id": "esc-t", "name": "Bash", "input": {"command": "ls docs"}}, uuid="esc-a"),
+    user(ESC, [{"type": "tool_result", "content": "a.md", "is_error": False, "tool_use_id": "esc-t"}], uuid="esc-r"),
+    asst(ESC, text("Đang viết README"), uuid="esc-a2"),
+    user(ESC, [text("[Request interrupted by user]")], uuid="esc-i"),
+])
+write("rjn.jsonl", [user(RJN, "Đẩy nhánh", origin=HUMAN, uuid="rjn-p")]
+      + asked_no(RJN, "rjn1", "git push origin main", " To tell you how to proceed, the user said:\n  đẩy lên nhánh feat thôi"))
+# Lần từ chối không có dấu ngắt đi kèm, rồi bạn gõ lượt hỏi mới và bấm Esc trước khi agent kịp trả lời:
+# lượt hỏi đã khép lần từ chối, nên Esc đó là một lần ngắt thật.
+RJP = "/khong-co-tren-may/rjpromptproj"
+write("rjp.jsonl", [user(RJP, "Đẩy nhánh", origin=HUMAN, uuid="rjp-p")]
+      + asked_no(RJP, "rjp1", "git push --force origin feat/z", STOP)[:2]
+      + [user(RJP, "Thôi, viết README trước", origin=HUMAN, uuid="rjp-p2"),
+         user(RJP, [text("[Request interrupted by user]")], uuid="rjp-i")])
+# Bấm No ở Edit: D/G chỉ ghi lệnh shell, nên lần từ chối này không có ở đâu khác. Dấu ngắt đi sau vẫn đếm là ngắt.
+EDP = "/khong-co-tren-may/editproj"
+write("ed.jsonl", [
+    user(EDP, "Sửa README", origin=HUMAN, uuid="ed-p"),
+    asst(EDP, {"type": "tool_use", "id": "ed-t", "name": "Edit", "input": {"file_path": "README.md", "old_string": "a", "new_string": "b"}},
+         uuid="ed-a"),
+    user(EDP, [{"type": "tool_result", "content": REAL_REJ + STOP, "is_error": True, "tool_use_id": "ed-t"}], uuid="ed-r",
+         parentUuid="ed-a", toolUseResult="User rejected tool use", toolDenialKind="user-rejected", sourceToolAssistantUUID="ed-a"),
+    user(EDP, [text("[Request interrupted by user for tool use]")], uuid="ed-i", parentUuid="ed-r"),
+])
+# Lần từ chối không có dấu ngắt, agent trả lời, rồi bạn bấm Esc: câu trả lời đã khép lần từ chối, Esc là ngắt thật.
+RJA = "/khong-co-tren-may/rjanswerproj"
+write("rja.jsonl", [user(RJA, "Đẩy nhánh", origin=HUMAN, uuid="rja-p")]
+      + asked_no(RJA, "rja1", "git push --force origin feat/q", STOP)[:2]
+      + [asst(RJA, text("Đã dừng, chờ bạn."), uuid="rja-a2"),
+         user(RJA, [text("[Request interrupted by user]")], uuid="rja-i")])
 # Worktree quy về repo chính: theo đường dẫn .claude/worktrees (cả máy khác), hoặc theo file .git của worktree có trên máy.
 write("wt.jsonl", [user(cwd, "Làm việc trong worktree", origin=HUMAN) for cwd in (
     "C:\\Users\\Ten Nguoi\\wtproj\\.claude\\worktrees\\feat-a", "/khong-co-tren-may/wtproj/.claude/worktrees/feat-b/src",
@@ -394,6 +545,77 @@ check("git branch -D ancient" not in A, "dòng có timestamp cũ hơn --since kh
 check(cmds("G_rejected_not_asked") == {"ls -la", "cat data/bao-cao.csv"}, f"G sai (output thường có chữ 'doesn't want to proceed' không phải từ chối): {cmds('G_rejected_not_asked')}")
 check("git branch -d wt-u1 wt-u2" not in A, "git branch -d (chữ thường) là xoá an toàn, không được vào A")
 check("git branch -D wip-chua-gop" in A, "git branch -D (xoá cưỡng bức) phải vào A")
+for benign in ("git -C .claude/worktrees/agent-a1b2c3d4e5f60718 status --short && git branch -D worktree-agent-a1b2c3d4e5f60718",
+               "git branch -D worktree-agent-aeb4c21e13a20ddd0 2>&1; rm -rf .claude/worktrees/agent-aeb4c21e13a20ddd0 && git worktree prune",
+               "cd /c/Users/admin/automarking && git branch -D worktree-agent-aeb4c21e13a20ddd0 2>&1; "
+               "rm -rf .claude/worktrees/agent-aeb4c21e13a20ddd0 && git worktree prune",
+               "rm -rf /c/Users/admin/automarking/.claude/worktrees/agent-abc123",
+               "Remove-Item -Recurse -Force C:\\Users\\admin\\automarking\\.claude\\worktrees\\agent-abc123",
+               "git branch -D worktree-agent-abc worktree-agent-def",
+               "rm -rf ~/automarking/.claude/worktrees/agent-abc123/ ./.claude/worktrees/agent-def/src",
+               "git branch --delete --force worktree-agent-abc >/dev/null 2>&1"):
+    check(benign not in A, f"agent dọn worktree tạm của chính nó (đích ghi trọn) không phải lỗi: {benign!r}")
+# Lead bỏ suy luận theo cd (và theo merge-base) ngày 18/10: các ca này từng vô hại nhờ suy luận đó, nay vẫn nghi.
+# w7: đường có khoảng trắng không khớp được mẫu ghi trọn (mẫu không nhận khoảng trắng).
+for must in ('for b in fix/ur-runner fix/us-stale fix/ual-alerts; do git merge-base --is-ancestor "refs/heads/$b" origin/trial/agent-team && git branch -D "$b"; done',
+             "cd .claude/worktrees/agent-abc && rm -rf src",
+             'Remove-Item -Recurse -Force "C:\\Users\\Ten Nguoi\\repo\\.claude\\worktrees\\agent-abc"'):
+    check(must in A, f"lead bỏ suy luận theo cd: vẫn nghi: {must!r}")
+# Review vòng 2: subshell, bash -c, eval, FOO=1 cd, time cd, `&`, dấu phẩy PowerShell, xargs, nhánh thường kèm theo,
+# `..`, `.`, glob, agent-<không phải hex>, nhiều đích có một đích lạ, xargs ở thư mục tạm.
+for must in ("(cd .claude/worktrees/agent-abc && npm run build) && rm -rf out", "(cd .claude/worktrees/agent-abc/ ); rm -rf src",
+             "cd .claude/worktrees/agent-abc && bash -c 'cd ../../..; rm -rf src'",
+             "cd .claude/worktrees/agent-abc && eval cd /; rm -rf home", "cd .claude/worktrees/agent-abc && FOO=1 cd / && rm -rf home",
+             "cd .claude/worktrees/agent-abc && time cd / && rm -rf home", "cd .claude/worktrees/agent-abc/ & rm -rf src",
+             "Remove-Item -Recurse -Force C:\\repo\\src,C:\\repo\\.claude\\worktrees\\agent-abc",
+             "Remove-Item -Recurse -Force -LiteralPath C:\\repo\\src,C:\\repo\\.claude\\worktrees\\agent-abc",
+             "Remove-Item -Recurse -Force C:\\repo\\.claude\\worktrees\\agent-abc,C:\\repo\\src",
+             "echo main | xargs git branch -D worktree-agent-abc", "git branch -D worktree-agent-abc main",
+             "git branch -D worktree-agent-abc >main", "rm -rf .claude/worktrees/agent-abc/..", "rm -rf .claude/worktrees/agent-abc/.",
+             "rm -rf .claude/worktrees/agent-abc*", "rm -rf .claude/worktrees/agent-xyz", "rm -rf .claude/worktrees/agent-abc ~/x",
+             "cd /tmp/x && ls / | xargs rm -rf", "xargs .claude/worktrees/agent-abc/rm -rf .claude/worktrees/agent-abc"):
+    check(must in A, f"chỉ đích ghi trọn là worktree agent mới vô hại: vẫn nghi: {must!r}")
+for must in ("rm -rf .claude/worktrees/agent-abc\\\n  src", "rm -rf .claude/worktrees/agent-abc\\; /home",
+             "rm -rf .claude/worktrees/agent-abc\\| /home", "rm -rf .claude/worktrees/agent-abc/sub\\\n /home/u/proj",
+             "rm -rf .claude/worktrees/agent-abc\\-old",
+             "X=.claude/worktrees/agent-abc/home; IFS=c; rm -rf $X", "IFS=c; rm -rf .claude/worktrees/agent-abc/home",
+             "Remove-Item -Path:C:\\proj\\* -Recurse -Force -Exclude C:\\proj\\.claude\\worktrees\\agent-abc",
+             "D=/; D=.claude/worktrees/agent-abc true; rm -rf $D"):
+    check(must in A, f"`\\` của bash, biến, IFS hay -Tên:giá-trị làm đích thật khác đích ghi: vẫn nghi: {must!r}")
+WT = "/khong-co-tren-may/kitproj/.claude/worktrees/agent-abc"
+AW = {(i["command"], i["cwd"]) for i in r["A_possible_misses"]}
+# `rm -rf src` (w5) từng vô hại chỉ nhờ cwd của phiên là worktree agent. Lead chốt 18/10: cwd của phiên không phải cd
+# tường minh, không làm thư mục xuất phát (lỗi chặn 1), nên ca này vẫn nghi như mọi `rm -rf src` khác.
+for must in ("rm -rf src", "rm -rf $PROJECT_ROOT/src", 'rm -rf "$REPO/src"', 'rm -rf "$(git rev-parse --git-common-dir)"',
+             "cd -- /home/u/proj && rm -rf src", "cd -P /home/u/proj && rm -rf src", "if cd /home/u/proj; then rm -rf src; fi",
+             "for d in /home/u/proj; do cd $d; rm -rf src; done", "builtin cd /home/u/proj && rm -rf src",
+             "ls /home/u/proj | xargs rm -rf", "rm -rf $SP/rv6"):
+    check((must, WT) in AW, f"cwd của phiên là worktree agent không làm đích tương đối thành vô hại: {must!r}")
+IN = "cd .claude/worktrees/agent-abc && "
+for must in (IN + "rm -rf $PROJECT_ROOT/src", IN + 'rm -rf "$(git rev-parse --git-common-dir)"',
+             IN + "rm -rf `git rev-parse --show-toplevel`", IN + "rm -rf +(.)/src", IN + "rm -rf {.,.}./src",
+             IN + "cd -- /home/u/proj && rm -rf src", IN + "cd -P /home/u/proj && rm -rf src",
+             "cd .claude/worktrees/agent-abc; if cd /home/u/proj; then rm -rf src; fi",
+             "cd .claude/worktrees/agent-abc; for d in /home/u/proj; do cd $d; rm -rf src; done",
+             IN + "builtin cd /home/u/proj && rm -rf src", IN + "ls /home/u/proj | xargs rm -rf"):
+    check(must in A, f"sau cd vào worktree agent vẫn nghi: {must!r}")
+for must in ("rm -rf .claude/worktrees/agent-abc/$REL", "rm -rf .claude/worktrees/agent-abc/`cat<p`",
+             "rm -rf .claude/worktrees/agent-abc/{.,.}./quirky-mayer-c977af"):
+    check(must in A, f"đường dẫn có worktree agent nhưng chứa biến, lệnh lồng hay brace vẫn nghi: {must!r}")
+for must in ("git merge-base --is-ancestor a main && git -C ../khac branch -D a",
+             "git -C ../khac merge-base --is-ancestor a main && git branch -D a",
+             "git --git-dir=../khac/.git merge-base --is-ancestor a main && git branch -D a",
+             "git merge-base --is-ancestor a main && git --work-tree=../khac branch -D a",
+             "git merge-base --is-ancestor a a && git branch -D a"):
+    check(must in A, f"merge-base trước khi xoá nhánh không làm lệnh thành vô hại: {must!r}")
+check('echo "# drift" >> skill/agent-audit/mode.md ; cat skill/agent-audit/mode.md ; git checkout -- skill/agent-audit/mode.md' in A,
+      "git checkout -- sau khi tự ghi thử vẫn phải ở A")
+for must in ("git branch -D feature-x", "git branch -D worktree-agent-abc feature-x", "rm -rf .claude/worktrees",
+             "rm -rf .claude/worktrees/quirky-mayer-c977af", "rm -rf .claude/worktrees/agent-abc/../..",
+             "git merge-base --is-ancestor a main; git branch -D a", "git merge-base --is-ancestor a main && git branch -D b",
+             "git merge-base --is-ancestor a main || git branch -D a", "! git merge-base --is-ancestor a main && git branch -D a",
+             "cd && rm -rf proj", "cd .. && rm -rf src", "cd $D && rm -rf src"):
+    check(must in A, f"A phải có (không phải worktree hay nhánh tạm của agent): {must!r}")
 check("`ls -la`" in md and "bạn từ chối" in md.split("## G.")[1] and "auto mode chặn" in md.split("## G.")[1],
       "mục G phải ghi ai chặn: bạn hay auto mode/luật")
 sg = r["stop_gate"]
@@ -501,6 +723,27 @@ check(len(g) == 1 and wr == [("reject_note", g[0])] and wrJ == [(g[0].rsplit("/"
       f"hai bản chép khác cwd: I/J đếm một lần và quy về cùng cwd với mục G: G {g}, I {wr}, J {wrJ}")
 check(said("rxproj") == sorted(["ko đúng, vẫn chưa được", "đã bảo là chạy test trước"]),
       f"câu sửa: 'đã bảo vệ/bảo mật', 'vẫn chưa được merge' không khớp, 'ko đúng' có khớp: {said('rxproj')}")
+fixes_of = lambda proj: [i for i in rv.get("I_user_corrections") or [] if i.get("project") == proj]
+check(fixes_of("rjproj") == [], f"bấm No ở hộp hỏi: dấu ngắt đi ngay sau lần từ chối không phải ngắt: {fixes_of('rjproj')}")
+rrow("rjproj", "từ chối không kèm lời không vào mục I", prompts=2, fixes_per_10=0.0)
+rjG = sorted((i.get("command"), i.get("rejected_by")) for i in rv.get("G_rejected_not_asked") or [] if i.get("cwd") == "/khong-co-tren-may/rjproj")
+check(rjG == [("git push --force origin khong-co-nhanh-nay", "người"), ("git push --force origin trial/agent-team", "người")],
+      f"lần từ chối vẫn được đếm ở mục G: {rjG}")
+esc = [(i.get("kind"), i.get("doing")) for i in fixes_of("escproj")]
+check(esc == [("interrupt", "Bash: ls docs")], f"Esc lúc model đang viết, không có từ chối: 1 ngắt: {esc}")
+rrow("escproj", "Esc lúc model đang viết", prompts=1, interrupt=1, fixes=1, fixes_per_10=10.0)
+rjn = [(i.get("kind"), i.get("text")) for i in fixes_of("rjnoteproj")]
+check(rjn == [("reject_note", "đẩy lên nhánh feat thôi")], f"từ chối kèm lời rồi dấu ngắt: 1 từ chối kèm lời, 0 ngắt: {rjn}")
+rrow("rjnoteproj", "từ chối kèm lời rồi dấu ngắt", prompts=1, reject_note=1, fixes=1, fixes_per_10=10.0)
+rjp = [(i.get("kind"), i.get("doing")) for i in fixes_of("rjpromptproj")]
+check(rjp == [("interrupt", "Bash: git push --force origin feat/z")], f"từ chối, lượt hỏi mới rồi Esc trước khi agent trả lời: 1 ngắt: {rjp}")
+rrow("rjpromptproj", "từ chối, lượt hỏi mới rồi Esc", prompts=2, interrupt=1, fixes=1, fixes_per_10=5.0)
+ed = [(i.get("kind"), i.get("doing")) for i in fixes_of("editproj")]
+check(ed == [("interrupt", "Edit: README.md")], f"bấm No ở Edit (không có ở D/G) rồi dấu ngắt: vẫn 1 ngắt: {ed}")
+rrow("editproj", "từ chối Edit rồi dấu ngắt", prompts=1, interrupt=1, fixes=1, fixes_per_10=10.0)
+rja = [(i.get("kind"), i.get("doing")) for i in fixes_of("rjanswerproj")]
+check(rja == [("interrupt", "Bash: git push --force origin feat/q")], f"từ chối, agent trả lời rồi Esc: 1 ngắt: {rja}")
+rrow("rjanswerproj", "từ chối, agent trả lời rồi Esc", prompts=1, interrupt=1, fixes=1, fixes_per_10=10.0)
 wt = sorted((p, w.get("prompts")) for p, w in RW.items() if p in ("wtproj", "mainproj", "feat-a", "src", "pkg", "wt-elsewhere", "feat-c"))
 check(wt == [("mainproj", 2), ("wtproj", 2)], f"J: worktree (.claude/worktrees, hoặc .git là file trỏ về repo chính) quy về repo chính: {wt}")
 for f in fails:
