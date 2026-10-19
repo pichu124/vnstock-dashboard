@@ -8,8 +8,11 @@ from pathlib import Path
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
-from vnstock_reconciler import _classify, _normalise_units, _pct_diff, reconcile
+from vnstock_reconciler import (
+    _classify, _load_api_daily, _normalise_units, _pct_diff, reconcile,
+)
 
 
 def test_pct_diff_symmetric():
@@ -62,67 +65,72 @@ def test_classify_close_fail_always_wins():
     assert sev == "fail"
 
 
-# ── unit normalisation (per-row, close > 500 → /1000) ─────────────────────
+# ── unit normalisation ────────────────────────────────────────────────────
+# Kho (api) chuẩn hoá ở loader trên chuỗi dài; rolled (WSS, VND thô) theo tỷ lệ với close api
+# cùng mã. Ngưỡng cứng "close > 500 ⇒ /1000" sai với HLB 660 nghìn và với mã penny 400 đ.
 
-def test_normalise_rescales_rolled_row_by_row():
-    """Rolled stores raw VND (7120). Every row > 500 is divided by 1000."""
+def test_normalise_rescales_rolled_against_api_close():
     api = pd.DataFrame({
-        "ticker": ["AAA", "FPT", "VCB"],
-        "close": [7.12, 120.0, 77.7],
+        "ticker": ["AAA", "FPT", "HLB", "AVF"],
+        "close": [7.12, 120.0, 660.0, 0.4],
     })
     rolled = pd.DataFrame({
-        "ticker": ["AAA", "FPT", "VCB"],
-        "close": [7120.0, 120000.0, 77700.0],
+        "ticker": ["AAA", "FPT", "HLB", "AVF", "NEW"],
+        "close": [7120.0, 120000.0, 660000.0, 400.0, 9000.0],
     })
-    api_out, rolled_out, rescaled = _normalise_units(api, rolled)
+    rolled_out, rescaled = _normalise_units(api, rolled)
     assert rescaled is True
-    assert list(rolled_out["close"]) == [7.12, 120.0, 77.7]
-    # API values were all below threshold → untouched
-    assert list(api_out["close"]) == [7.12, 120.0, 77.7]
+    # NEW không có api cùng mã ⇒ không mốc ⇒ ngưỡng như cũ.
+    assert rolled_out["close"].tolist() == pytest.approx([7.12, 120.0, 660.0, 0.4, 9.0])
+    assert rolled["close"].iloc[0] == 7120.0        # bản gốc không bị sửa
 
 
-def test_normalise_handles_mixed_units_in_same_frame():
-    """Warehouse has mixed units on different tickers — each row treated
-    on its own merits."""
-    api = pd.DataFrame({
-        "ticker": ["A", "B", "C"],
-        "close": [7.12, 5600.0, 14.5],   # second row is raw VND
-    })
-    rolled = pd.DataFrame({
-        "ticker": ["A", "B", "C"],
-        "close": [7120.0, 5600.0, 14500.0],   # first + third raw VND
-    })
-    api_out, rolled_out, rescaled = _normalise_units(api, rolled)
-    assert rescaled is True
-    assert list(api_out["close"]) == [7.12, 5.6, 14.5]
-    assert list(rolled_out["close"]) == [7.12, 5.6, 14.5]
-
-
-def test_normalise_noop_when_all_rows_under_threshold():
-    api = pd.DataFrame({"ticker": ["AAA"], "close": [7.12]})
-    rolled = pd.DataFrame({"ticker": ["AAA"], "close": [7.15]})
-    api_out, rolled_out, rescaled = _normalise_units(api, rolled)
+def test_normalise_keeps_rolled_already_in_thousand():
+    """Bar tổng hợp của wss_backfill chép close kho (nghìn): HLB 660 giữ nguyên."""
+    api = pd.DataFrame({"ticker": ["AAA", "HLB"], "close": [7.12, 660.0]})
+    rolled = pd.DataFrame({"ticker": ["AAA", "HLB"], "close": [7.15, 660.0]})
+    rolled_out, rescaled = _normalise_units(api, rolled)
     assert rescaled is False
-    assert list(rolled_out["close"]) == [7.15]
+    assert rolled_out["close"].tolist() == [7.15, 660.0]
 
 
 def test_normalise_handles_empty_frames():
     empty = pd.DataFrame(columns=["ticker", "close"])
     one = pd.DataFrame({"ticker": ["X"], "close": [7.12]})
-    api_out, rolled_out, rescaled = _normalise_units(empty, one)
-    assert rescaled is False
-    api_out, rolled_out, rescaled = _normalise_units(one, empty)
-    assert rescaled is False
+    assert _normalise_units(empty, one)[1] is False
+    assert _normalise_units(one, empty)[1] is False
 
 
-def test_normalise_handles_only_api_in_raw_vnd():
-    """If only one side has raw VND, only that side gets rescaled."""
-    api = pd.DataFrame({"ticker": ["X"], "close": [7120.0]})
-    rolled = pd.DataFrame({"ticker": ["X"], "close": [7.12]})
-    api_out, rolled_out, rescaled = _normalise_units(api, rolled)
-    assert rescaled is True
-    assert list(api_out["close"]) == [7.12]
-    assert list(rolled_out["close"]) == [7.12]
+def test_load_api_daily_normalises_on_ticker_history(tmp_path):
+    """Kho trộn đơn vị: B có bar VND sót (5600) giữa chuỗi nghìn; X chỉ 1 bar VND, không có
+    mốc ⇒ chia như luật cũ; HLB 660 nghìn có mốc ≤ 500 trong chuỗi ⇒ giữ."""
+    d = date(2026, 4, 20)
+    hist = [date(2026, 4, k) for k in range(1, 18)]
+    _seed_history(tmp_path, "B", [(h, 5.5) for h in hist] + [(d, 5600.0)])
+    _seed_history(tmp_path, "X", [(d, 7120.0)])
+    _seed_history(tmp_path, "HLB", [(h, 300.0) for h in hist] + [(d, 660.0)])
+    api = _load_api_daily(tmp_path, None, [d]).set_index("ticker")["close"]
+    assert api.to_dict() == pytest.approx({"B": 5.6, "X": 7.12, "HLB": 660.0})
+
+
+@pytest.mark.parametrize("ticker, history, target, close, rolled_close", [
+    # HLB 660 nghìn: luật cũ chia api còn 0.66, rolled 660.000 đ ra 660 ⇒ "lệch 99,9%" giả.
+    ("HLB", [(date(2026, 4, k), 300.0) for k in range(1, 18)], date(2026, 4, 20), 660.0, 660_000.0),
+    # Đầu năm toàn bar > 500 nghìn ⇒ mốc đơn vị phải lấy từ năm trước.
+    ("VNZ", [(date(2026, 12, k), 400.0) for k in range(1, 25)] + [(date(2027, 1, 4), 570.0)],
+     date(2027, 1, 5), 579.0, 579_000.0),
+    # Mã penny: rolled 400 đ ≤ 500 không bị chia ⇒ "lệch" 1000× giả.
+    ("AVF", [(date(2026, 4, k), 0.4) for k in range(1, 18)], date(2026, 4, 20), 0.4, 400.0),
+])
+def test_reconcile_price_units_follow_ticker_reference(
+        tmp_path, ticker, history, target, close, rolled_close):
+    _seed_history(tmp_path, ticker, history + [(target, close)])
+    _seed_rolled(tmp_path, target, [{
+        "time": pd.Timestamp(target), "ticker": ticker, "close": rolled_close,
+        "volume": 1_000, "open": rolled_close, "high": rolled_close, "low": rolled_close,
+    }])
+    report = reconcile(tmp_path, dates=[target])
+    assert (report.ok, report.warn, report.fail) == (1, 0, 0), report.discrepancies
 
 
 # ── Smart WSS-miss detection (Option E) ────────────────────────────────────
@@ -138,6 +146,17 @@ def _seed_warehouse(path: Path, ticker: str, d: date, close: float, volume: int)
     pq.write_table(pa.Table.from_pandas(df, preserve_index=False),
                    year_dir / "p.parquet")
 
+
+
+def _seed_history(path: Path, ticker: str, rows: list[tuple[date, float]], volume: int = 1_000):
+    """Nhiều bar/mã, chia file theo năm; OHLC float32 như kho thật."""
+    df = pd.DataFrame({"time": [pd.Timestamp(d) for d, _ in rows], "close": [c for _, c in rows]})
+    df = df.assign(open=df["close"], high=df["close"], low=df["close"], volume=volume).astype(
+        {c: "float32" for c in ("open", "high", "low", "close")})
+    for year, g in df.groupby(df["time"].dt.year):
+        year_dir = path / "prices" / f"ticker={ticker}" / f"year={year}"
+        year_dir.mkdir(parents=True, exist_ok=True)
+        pq.write_table(pa.Table.from_pandas(g, preserve_index=False), year_dir / "p.parquet")
 
 def _seed_rolled(path: Path, d: date, rows: list[dict]):
     live_dir = path / "_live"

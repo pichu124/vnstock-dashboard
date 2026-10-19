@@ -273,8 +273,13 @@ def live_gap(live_dir: Path, ticker: str, last_close: float) -> dict | None:
         return None
     if price <= 0:
         return None
-    # Kho ở NGHÌN VND, quote live ở VND — đưa về cùng đơn vị trước khi so.
-    live_k = price / 1000 if price > 500 else price
+    # Kho ở NGHÌN VND; quote live VND (bảng giá) hoặc nghìn (nến 1m dự phòng). Đơn vị theo tỷ
+    # lệ với close kho, không ngưỡng cứng "> 500 ⇒ /1000" (sai với HLB 660 nghìn, penny 400 đ).
+    import sys
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from vnstock_price_units import normalize_quote_price
+    live_k = normalize_quote_price(last_close, price)
     ratio = live_k / last_close
     return {"live_vnd": price, "live_k": live_k, "ratio": ratio,
             "ok": (1 / LIVE_TOLERANCE) <= ratio <= LIVE_TOLERANCE}

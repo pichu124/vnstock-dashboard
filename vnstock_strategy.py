@@ -857,9 +857,10 @@ def _load_history_from_parquet(
     return _read_ticker_dir(root / f"ticker={ticker.upper()}", days)
 
 
-def _read_ticker_dir(base: Path, days: int) -> pd.DataFrame:
+def _read_ticker_dir(base: Path, days: int, years: set[int] | None = None) -> pd.DataFrame:
     """Đọc MỘT thư mục mã dạng `year=*/*.parquet` — kho (`prices/ticker=X`)
-    hoặc bản sao lưu rebase (`_meta/backup_rebase/X_<lúc>`, cùng cấu trúc)."""
+    hoặc bản sao lưu rebase (`_meta/backup_rebase/X_<lúc>`, cùng cấu trúc).
+    `years` ⇒ chỉ đọc các năm đó (mốc đơn vị tính trên chừng ấy)."""
     base = Path(base)
     if not base.exists():
         return pd.DataFrame()
@@ -868,7 +869,10 @@ def _read_ticker_dir(base: Path, days: int) -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
     frames = []
+    wanted = None if years is None else {f"year={y}" for y in years}
     for yd in sorted(base.glob("year=*")):
+        if wanted is not None and yd.name not in wanted:
+            continue
         # Đọc theo mtime CŨ→MỚI rồi khử trùng ngày giữ bản MỚI — cùng ngữ nghĩa
         # `vnstock_updater._read_year`. Vì sao cần (19/08): year-dir có thể tạm
         # có nhiều file khi Dropbox đẻ "conflicted copy" (kho đồng bộ giữa hai

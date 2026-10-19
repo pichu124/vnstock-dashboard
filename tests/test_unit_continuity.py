@@ -218,6 +218,20 @@ def test_live_gap_flags_warehouse_far_from_live(tmp_path):
     assert gap["ratio"] == pytest.approx(1.53, abs=0.01)
 
 
+@pytest.mark.parametrize("ticker, price, last_close", [
+    ("AVF", 400.0, 0.4),     # mã penny: quote VND 400 đ, kho 0.4 nghìn
+    ("HLB", 660.0, 660.0),   # nến 1m dự phòng trả NGHÌN, giá thật > 500 nghìn
+])
+def test_live_gap_unit_follows_warehouse_close(tmp_path, ticker, price, last_close):
+    """Ngưỡng cứng `price > 500 ⇒ /1000` báo lệch 1000× giả cho cả hai: quote 400 đ bị hiểu
+    400 nghìn, quote nghìn 660 của HLB bị chia còn 0.66. Đơn vị theo tỷ lệ với close kho."""
+    live = tmp_path / "_live"
+    live.mkdir()
+    (live / f"quote_{ticker}.json").write_text(json.dumps({"price": price}))
+    gap = cuc.live_gap(live, ticker, last_close=last_close)
+    assert gap["ok"] and gap["ratio"] == pytest.approx(1.0, abs=0.01)
+
+
 def test_live_gap_silent_without_quote(tmp_path):
     """Không có quote (ngoài phiên) → None, KHÔNG phải "lệch"."""
     assert cuc.live_gap(tmp_path, "ZZZ", last_close=10.0) is None

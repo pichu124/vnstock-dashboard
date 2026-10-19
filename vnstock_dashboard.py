@@ -1686,23 +1686,13 @@ _FUND_CACHE_VER = 4
 
 
 def _get_warehouse_last_close(ticker: str) -> float | None:
-    """Read last close price (VND) from warehouse parquet for a single ticker."""
-    import pyarrow.parquet as pq
-    td = Path("data_warehouse") / "prices" / f"ticker={ticker.upper()}"
-    if not td.exists():
+    """Close bar cuối của kho (VND) — chuỗi ĐÃ chuẩn hoá đơn vị (nghìn) × 1000. Luật cũ
+    `0 < close <= 500 ⇒ ×1000` trên file thô hiểu HLB 660 nghìn thành 660 đ."""
+    df = load_price_history(ticker)
+    if df.empty:
         return None
-    try:
-        for yd in sorted(td.glob("year=*"))[-1:]:
-            for pf in sorted(yd.glob("*.parquet"))[-1:]:
-                df = pq.read_table(str(pf), columns=["close"]).to_pandas()
-                if not df.empty:
-                    close = float(df["close"].iloc[-1])
-                    if 0 < close <= 500:
-                        close *= 1000
-                    return close if close > 0 else None
-    except Exception:
-        pass
-    return None
+    close = float(df["close"].iloc[-1]) * 1000
+    return close if close > 0 else None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
