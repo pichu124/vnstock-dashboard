@@ -1747,3 +1747,28 @@ def test_no_or_orphaned_marker_leaves_buttons_enabled_and_every_launch_writes_on
     for a in steps:
         assert a[0] == "vnstock_pipeline_marker.py" or (
             a[0] == "run.py" and a[1] in run._PIPELINE_MARKED), a
+
+
+def test_warehouse_last_close_keeps_price_above_500k(tmp_path, monkeypatch):
+    """EPS/BV suy từ P/E, P/B: HLB 660 nghìn trên 500 không phải VND. Luật cũ `0 < close <=
+    500 ⇒ ×1000` trên bar cuối file thô trả 660 đ ⇒ EPS/BV nhỏ 1000×. Phải đọc chuỗi ĐÃ
+    chuẩn hoá (mốc = trung vị chuỗi)."""
+    from datetime import datetime, timedelta
+
+    import pyarrow.parquet as pq
+
+    prices = tmp_path / "data_warehouse" / "prices"
+    yd = prices / "ticker=HLB" / "year=2026"
+    yd.mkdir(parents=True)
+    closes = [300.0] * 30 + [660.0]
+    pd.DataFrame({"time": pd.bdate_range("2026-09-01", periods=31),
+                  "open": closes, "high": closes, "low": closes, "close": closes,
+                  "volume": [1_000.0] * 31}).astype(
+        {c: "float32" for c in ("open", "high", "low", "close")}
+    ).to_parquet(yd / "p.parquet", index=False)
+    monkeypatch.chdir(tmp_path)
+    ns = load_source_fns("vnstock_dashboard.py", "load_price_history", "_get_warehouse_last_close",
+                         PRICES_DIR=prices, Path=Path, pq=pq, pd=pd, datetime=datetime,
+                         timedelta=timedelta, _normalize_price_units=normalize_price_units)
+    assert ns["_get_warehouse_last_close"]("HLB") == pytest.approx(660_000.0)
+    assert ns["_get_warehouse_last_close"]("ZZZ") is None

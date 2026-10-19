@@ -44,6 +44,8 @@ from pathlib import Path
 import pandas as pd
 import pyarrow.parquet as pq
 
+from vnstock_price_units import normalize_quote_price
+
 
 DEFAULT_WAREHOUSE = Path("data_warehouse")
 PRICES_SUBDIR = "prices"
@@ -125,13 +127,21 @@ class ReconciliationReport:
 def _load_api_daily(
     warehouse: Path, tickers: list[str] | None, dates: list[date]
 ) -> pd.DataFrame:
-    """Read API-sourced daily OHLCV from the partitioned parquet warehouse."""
+    """Read API-sourced daily OHLCV from the partitioned parquet warehouse.
+
+    Đơn vị chuẩn hoá theo TỪNG mã trên chuỗi các năm cần đọc + năm liền trước rồi mới lọc
+    `dates`: cửa sổ vài phiên của mã > 500 nghìn (HLB 660, VNZ 579) không có mốc ≤ 500, luật
+    chung rơi về chia hết. Năm liền trước để đầu năm cũng có mốc.
+    """
+    from vnstock_strategy import _read_ticker_dir
+
     prices_dir = warehouse / PRICES_SUBDIR
     if not prices_dir.exists():
         return pd.DataFrame()
 
     frames: list[pd.DataFrame] = []
     year_set = {d.year for d in dates}
+    years = year_set | {min(year_set) - 1}
     date_set = {pd.Timestamp(d).date() for d in dates}
 
     if tickers is None:
@@ -140,26 +150,15 @@ def _load_api_daily(
         ticker_dirs = [prices_dir / f"ticker={t}" for t in tickers]
 
     for ticker_dir in ticker_dirs:
-        if not ticker_dir.exists():
+        df = _read_ticker_dir(ticker_dir, 0, years=years)
+        if df.empty:
             continue
-        ticker = ticker_dir.name.removeprefix("ticker=")
-        for year in year_set:
-            year_dir = ticker_dir / f"year={year}"
-            if not year_dir.exists():
-                continue
-            for pq_file in year_dir.glob("*.parquet"):
-                try:
-                    df = pq.read_table(str(pq_file)).to_pandas()
-                except Exception:
-                    continue
-                if df.empty:
-                    continue
-                df["time"] = pd.to_datetime(df["time"]).dt.date
-                df = df[df["time"].isin(date_set)]
-                if df.empty:
-                    continue
-                df["ticker"] = ticker
-                frames.append(df[["ticker", "time", "close", "volume"]])
+        df["time"] = df["time"].dt.date
+        df = df[df["time"].isin(date_set)]
+        if df.empty:
+            continue
+        df = df.assign(ticker=ticker_dir.name.removeprefix("ticker="))
+        frames.append(df[["ticker", "time", "close", "volume"]])
 
     if not frames:
         return pd.DataFrame(columns=["ticker", "time", "close", "volume"])
@@ -209,53 +208,33 @@ def _load_rolled_daily(warehouse: Path, dates: list[date]) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-_RAW_VND_THRESHOLD = 500.0   # any close > 500 is certainly raw VND
+def _normalise_units(api_df: pd.DataFrame, rolled_df: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
+    """Đưa close rolled về NGHÌN VND theo close api CÙNG MÃ. Trả (rolled mới, có đổi không).
 
-
-def _normalise_units(api_df: pd.DataFrame, rolled_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, bool]:
+    api_df đã chuẩn hoá ở `_load_api_daily` (chuỗi dài của từng mã). Rolled thì VND thô (WSS)
+    hoặc nghìn (bar tổng hợp của wss_backfill) ⇒ quyết theo TỶ LỆ với api
+    (`normalize_quote_price`). Ngưỡng cứng cũ "close > 500 ⇒ /1000 từng dòng" chia api HLB
+    660 nghìn còn 0.66 và để rolled penny 400 đ nguyên 400 ⇒ cả hai báo lệch 99,9% giả.
+    Mã không có api trong cửa sổ ⇒ không mốc ⇒ ngưỡng như cũ.
     """
-    Bring both price sources onto a common unit (thousand VND), per-row.
-
-    Background
-    ----------
-    Running the first live audit showed that the warehouse has MIXED units.
-    The median of a freshly loaded api_df was 5,600 — i.e. raw VND — even
-    though individual tickers like AAA sit at 7.12 (thousand VND). In
-    other words the warehouse is partially un-normalised: some rows come
-    from paths that divided by 1000 and some don't. WSS-rolled bars are
-    always raw VND.
-
-    A ratio-of-medians heuristic therefore misses: on most tickers both
-    sides are raw VND → ratio ~ 1, detection fails, and the few tickers
-    that ARE in thousand VND blow up as 99 900 % drift in the report.
-
-    Fix: normalise every row independently. Any close > 500 is almost
-    certainly raw VND (no VN equity trades above 500 thousand VND), so
-    divide that row by 1000. Apply to both api_df and rolled_df. After
-    this, both frames live in thousand VND and pct_diff makes sense.
-    """
-    rescaled = False
-    api_adj = api_df
-    rolled_adj = rolled_df
-
-    for name, df in (("api", api_df), ("rolled", rolled_df)):
-        if df is None or df.empty or "close" not in df.columns:
-            continue
-        close = pd.to_numeric(df["close"], errors="coerce")
-        raw_mask = close > _RAW_VND_THRESHOLD
-        if not raw_mask.any():
-            continue
-        adjusted = df.copy()
-        adjusted.loc[raw_mask, "close"] = close[raw_mask] / 1000.0
-        print(f"[reconciler] normalise_units: {name} rescaled "
-              f"{int(raw_mask.sum())}/{len(df)} row(s) > {_RAW_VND_THRESHOLD}")
-        if name == "api":
-            api_adj = adjusted
-        else:
-            rolled_adj = adjusted
-        rescaled = True
-
-    return api_adj, rolled_adj, rescaled
+    if rolled_df is None or rolled_df.empty or "close" not in rolled_df.columns:
+        return rolled_df, False
+    if api_df is None or api_df.empty or "close" not in api_df.columns:
+        ref = pd.Series(dtype=float)
+    else:
+        ref = api_df.groupby("ticker")["close"].last()
+    close = pd.to_numeric(rolled_df["close"], errors="coerce")
+    refs = rolled_df["ticker"].map(ref).fillna(0.0)
+    adjusted = pd.Series(
+        [normalize_quote_price(float(r), float(c)) for r, c in zip(refs, close)],
+        index=close.index,
+    )
+    changed = adjusted.ne(close) & close.notna()
+    if not changed.any():
+        return rolled_df, False
+    print(f"[reconciler] normalise_units: rolled rescaled "
+          f"{int(changed.sum())}/{len(rolled_df)} row(s)")
+    return rolled_df.assign(close=adjusted), True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -370,10 +349,9 @@ def reconcile(
     # Bring prices onto a common unit before comparing. Without this, the
     # reconciler reports 99900% drift on every row because rolled bars are
     # in VND and API bars are in thousand VND.
-    api_df, rolled_df, rescaled = _normalise_units(api_df, rolled_df)
+    rolled_df, rescaled = _normalise_units(api_df, rolled_df)
     if rescaled:
-        print("[reconciler] normalised price units (rolled /= 1000) "
-              "before comparison")
+        print("[reconciler] normalised rolled price units before comparison")
 
     if api_df.empty and rolled_df.empty:
         return ReconciliationReport(
