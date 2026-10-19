@@ -181,6 +181,19 @@ call("d3", "Remove-Item -Recurse -Force C:\\Users\\admin\\automarking\\.claude\\
 call("d4", "git branch -D worktree-agent-abc worktree-agent-def")
 call("d5", "rm -rf ~/automarking/.claude/worktrees/agent-abc123/ ./.claude/worktrees/agent-def/src")
 call("d6", "git branch --delete --force worktree-agent-abc >/dev/null 2>&1")
+# Nối dòng: bash bỏ `\` + xuống dòng trước khi tách lệnh. Tách tại \n trước thì đích ở dòng sau bị mất.
+call("c1", "rm -rf dist\\\n  src")                                       # bash xoá dist src
+call("c2", "rm -rf /tmp/x\\\n  src")                                     # bash xoá /tmp/x src
+call("c3", "ls | xargs \\\n  rm -rf /tmp/x")                             # bash chạy ls | xargs rm -rf /tmp/x
+call("c4", "echo a\\\\\nrm -rf src")                                     # `\\` là một `\` thường: xuống dòng là dấu ngắt thật
+call("c5", "rm -rf /tmp/x\\\nsrc")                                       # không thụt lề: bash xoá MỘT đích /tmp/xsrc
+# Sau `--` mọi token là đích, kể cả token mở bằng `-`. GNU rm hoán vị tham số: `--` sau đích vẫn kết thúc cờ.
+call("s1", "rm -rf -- -important /tmp/x")                               # xoá cả ./-important
+call("s2", "rm -rf /tmp/x -- -y")                                       # xoá cả ./-y
+call("s3", "rm -rf -- /tmp/x")                                          # `--` không phải đích: chỉ xoá /tmp/x
+call("s4", "(cd /tmp && true); rm -rf -- -x")                           # cd trong subshell không đổi thư mục: xoá ./-x của dự án
+call("s5", "cd dist && cd .. && rm -rf -- -x")                          # về lại thư mục dự án: xoá ./-x
+call("s6", "cd /tmp/w; rm -rf -- -x")                                   # cd lỗi thì `;` vẫn chạy rm: xoá ./-x của dự án
 lines.append({"type": "assistant", "message": "chuỗi thay vì object"})
 lines.append({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": ["list"]}}]}})
 lines.append({"type": "system", "subtype": "stop_hook_summary", "hookInfos": ["chuỗi"], "hookErrors": [1]})
@@ -417,6 +430,11 @@ shared = [
     user(DUP, [text("[Request interrupted by user]")], uuid="d-u4"),
     {"type": "system", "subtype": "stop_hook_summary", "timestamp": NOW, "cwd": DUP, "uuid": "d-s1",
      "hookInfos": [{"command": "stop-gate.sh", "durationMs": 10}], "hookErrors": [BLOCK.format(1), BLOCK.format(2)]},
+    {"type": "attachment", "uuid": "d-r1", "timestamp": NOW, "cwd": DUP, "attachment": {"type": "hook_system_message", "hookName": "Stop",
+     "hookEvent": "Stop", "content": "Stop gate: ./scripts/check.sh vẫn đỏ sau 3 lần chặn liên tiếp. Agent được dừng để bạn xem xét."}},
+    {"type": "attachment", "uuid": "d-h1", "timestamp": NOW, "cwd": DUP, "attachment": {"type": "hook_non_blocking_error",
+     "hookName": "PreToolUse:Bash", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-irreversible.sh", "exitCode": 1,
+     "stderr": "Failed with non-blocking status code: guard-irreversible.sh: lỗi giả"}},
     user(DUP, "bạn nhầm rồi", origin=HUMAN),  # bản cũ không có uuid: khử trùng theo nội dung
 ]
 write("-dup/s.jsonl", shared)
@@ -493,6 +511,24 @@ write("rja.jsonl", [user(RJA, "Đẩy nhánh", origin=HUMAN, uuid="rja-p")]
       + asked_no(RJA, "rja1", "git push --force origin feat/q", STOP)[:2]
       + [asst(RJA, text("Đã dừng, chờ bạn."), uuid="rja-a2"),
          user(RJA, [text("[Request interrupted by user]")], uuid="rja-i")])
+# Từ chối kèm dấu ngắt, task nền xong mở lượt mới (tin máy chèn không khép lần từ chối), rồi bạn bấm Esc trước khi
+# agent kịp viết gì: chỉ dấu ngắt đầu thuộc về lần từ chối, dấu thứ hai là một lần ngắt thật.
+RJT = "/khong-co-tren-may/rjtaskproj"
+write("rjt.jsonl", [user(RJT, "Đẩy nhánh", origin=HUMAN, uuid="rjt-p")]
+      + asked_no(RJT, "rjt1", "git push --force origin feat/t", STOP)
+      + [user(RJT, "<task-notification>\n<task-id>b2</task-id>\n<summary>test xong</summary>\n</task-notification>", uuid="rjt-n"),
+         user(RJT, [text("[Request interrupted by user]")], uuid="rjt-i2")])
+# Bấm No mà chỉ toolUseResult cho biết là từ chối: (i) tool_result không có khoá is_error, (ii) is_error nhưng nội dung
+# không mở bằng câu từ chối quen thuộc. Vẫn là lần từ chối: dấu ngắt đi kèm được nuốt, lệnh vào G với người từ chối.
+# Dựng tay từ asked_no; chưa thấy dạng chỉ có toolUseResult trong file phiên thật.
+TUR = "/khong-co-tren-may/turonlyproj"
+tur1 = asked_no(TUR, "tur1", "git push --force origin feat/t1", STOP)
+del tur1[1]["message"]["content"][0]["is_error"]
+tur2 = asked_no(TUR, "tur2", "git push --force origin feat/t2", STOP)
+tur2[1]["message"]["content"][0]["content"] = ("The user doesn't want to take this action right now. STOP what you are doing "
+                                               "and wait for the user to tell you how to proceed.")
+write("tur.jsonl", [user(TUR, "Đẩy nhánh t1", origin=HUMAN, uuid="tur-p")] + tur1
+      + [user(TUR, "Đẩy nhánh t2", origin=HUMAN, uuid="tur-p2")] + tur2)
 # Worktree quy về repo chính: theo đường dẫn .claude/worktrees (cả máy khác), hoặc theo file .git của worktree có trên máy.
 write("wt.jsonl", [user(cwd, "Làm việc trong worktree", origin=HUMAN) for cwd in (
     "C:\\Users\\Ten Nguoi\\wtproj\\.claude\\worktrees\\feat-a", "/khong-co-tren-may/wtproj/.claude/worktrees/feat-b/src",
@@ -582,6 +618,17 @@ for must in ("rm -rf .claude/worktrees/agent-abc\\\n  src", "rm -rf .claude/work
              "Remove-Item -Path:C:\\proj\\* -Recurse -Force -Exclude C:\\proj\\.claude\\worktrees\\agent-abc",
              "D=/; D=.claude/worktrees/agent-abc true; rm -rf $D"):
     check(must in A, f"`\\` của bash, biến, IFS hay -Tên:giá-trị làm đích thật khác đích ghi: vẫn nghi: {must!r}")
+for must in ("rm -rf dist\\\n  src", "rm -rf /tmp/x\\\n  src", "ls | xargs \\\n  rm -rf /tmp/x", "echo a\\\\\nrm -rf src"):
+    check(must in A, f"nối dòng như bash trước khi tách lệnh: đích hay xargs ở dòng sau vẫn tính: {must!r}")
+# Không thụt lề thì bash dán `src` vào đích trước: chỉ xoá /tmp/xsrc, vẫn trong thư mục tạm.
+check("rm -rf /tmp/x\\\nsrc" not in A, "`\\` + xuống dòng không thụt lề nối thành một đích /tmp/xsrc: vô hại")
+for must in ("rm -rf -- -important /tmp/x", "rm -rf /tmp/x -- -y"):
+    check(must in A, f"token sau `--` là đích dù mở bằng `-`: {must!r}")
+check("rm -rf -- /tmp/x" not in A, "bản thân `--` không phải đích: rm -rf -- /tmp/x vô hại")
+# Chốt "không có đích ngoài cờ thì báo" của bản cũ phải giữ: thư mục suy từ cd có thể sai (subshell, cd .., cd lỗi)
+# và bản cũ báo các ca này chỉ nhờ chốt đó.
+for must in ("(cd /tmp && true); rm -rf -- -x", "cd dist && cd .. && rm -rf -- -x", "cd /tmp/w; rm -rf -- -x"):
+    check(must in A, f"đích chỉ gồm token mở bằng `-` thì vẫn báo như bản cũ, dù cd trông lành: {must!r}")
 WT = "/khong-co-tren-may/kitproj/.claude/worktrees/agent-abc"
 AW = {(i["command"], i["cwd"]) for i in r["A_possible_misses"]}
 # `rm -rf src` (w5) từng vô hại chỉ nhờ cwd của phiên là worktree agent. Lead chốt 18/10: cwd của phiên không phải cd
@@ -646,11 +693,42 @@ a = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(a)
 check(a.project_key("C:\\vnstock-trial") == "C--vnstock-trial", "tên thư mục phiên cho đường dẫn Windows")
 check(a.project_key("/home/user") == "-home-user", "tên thư mục phiên cho đường dẫn Linux")
+for cmd, want in (("rm -rf /tmp/x\\\nsrc", ["rm -rf /tmp/xsrc"]), ("echo a\\\\\nrm -rf src", ["echo a\\\\", "rm -rf src"])):
+    got = [full for _p, full, _c, _s in a.segments(cmd)]
+    check(got == want, f"segments nối dòng như bash (`\\` + xuống dòng bị bỏ, `\\\\` + xuống dòng là hai lệnh): {cmd!r} -> {got!r}")
+# PowerShell nối dòng bằng backtick, `\` cuối dòng chỉ là dấu phân cách đường dẫn.
+got = [full for _p, full, _c, _s in a.segments("Remove-Item -Recurse C:\\x\\\nsrc", "PowerShell")]
+check(got == ["Remove-Item -Recurse C:\\x\\", "src"], f"PowerShell không nối dòng tại `\\`: {got!r}")
+# Chỗ bash KHÔNG nối dòng: `\` trong comment là chữ, `\` cuối thân heredoc hay cuối dòng mở heredoc không nối qua ranh giới.
+# Bản nối dòng đọc sai các ca này, bản không nối dòng vẫn bắt được.
+for cmd in ("cd proj # vao thu muc \\\nrm -rf src ./node_modules", "cd proj;# x \\\nrm -rf src /tmp/x"):
+    check(a.suspicious_labels(cmd, a.SUSPICIOUS), f"`\\` cuối comment là chữ: bash chạy rm ở dòng sau như lệnh riêng, ở thư mục proj: {cmd!r}")
+check(a.suspicious_labels("bash <<'EOF'\ncd proj \\\nEOF\nrm -rf src ./node_modules", a.SUSPICIOUS),
+      "thân heredoc đưa vào bash kết thúc ở EOF: `\\` cuối thân không nối với rm, rm chạy ở thư mục cũ")
+check(a.suspicious_labels("cd node_modules <<'EOF' \\\nx\nEOF\nrm -rf src", a.SUSPICIOUS),
+      "`\\` cuối dòng mở heredoc kéo `x` vào lệnh (cd node_modules x: cd lỗi), rm chạy ở thư mục cũ")
+# `#` trong nháy không mở comment: bash vẫn nối dòng, `src` và `--force` ở dòng sau thuộc cùng lệnh.
+for cmd in ("rm -rf \"/tmp/a #1\" \\\n  src", "git push -o merge_request.title=\"Fix #12\" origin feat \\\n  --force"):
+    check(a.suspicious_labels(cmd, a.SUSPICIOUS), f"`#` trong nháy không phải comment: vẫn nối dòng, phải nghi: {cmd!r}")
+# Thân heredoc đưa vào shell chạy ở shell con: cd trong thân không đổi thư mục của lệnh sau EOF. Ca này vẫn nghi
+# nhờ bản không nối dòng: `\` còn dính vào thư mục cd (`node_modules \`).
+check(a.suspicious_labels("bash <<'EOF'\ncd node_modules \\\nEOF\nrm -rf src", a.SUSPICIOUS),
+      "cd trong thân heredoc chạy ở shell con, rm sau EOF chạy ở thư mục cũ")
+check(not a.suspicious_labels("cd /tmp/w && bash <<'EOF'\nrm -rf y\nEOF", a.SUSPICIOUS),
+      "shell con thừa hưởng thư mục: cd trước heredoc vẫn áp cho lệnh trong thân")
+# Bản nối dòng chỉ thêm nghi ngờ: lệnh nghi khi đọc không nối dòng vẫn nghi, dù nối dòng dán dòng sau vào cd,
+# vào thân heredoc hay làm nháy `'` ghép qua nhiều dòng.
+for cmd in ("bash <<'EOF'\ncd node_modules \\\n  && npm ci\n# don't touch src\nEOF\ngit add -A && git commit -m 'wip'\nrm -rf src",
+            "# don't do this\nrm -rf src\ncat > f <<'EOF' \\\n  && echo 'done'\nbody\nEOF", "cd /tmp/x \\\npopd\nrm -rf src"):
+    check(a.suspicious_labels(cmd, a.SUSPICIOUS), f"bản nối dòng chỉ thêm nghi ngờ: lệnh nghi khi không nối dòng vẫn nghi: {cmd!r}")
 # Mục I (bạn phải sửa agent) và J (chỉ số theo tuần).
 import collections
 lr = json.load(open(sys.argv[9], encoding="utf-8"))
 lcode, lmd, ex = int(sys.argv[10]), sys.argv[11], json.load(open(sys.argv[12], encoding="utf-8"))
 check(lcode == 0, f"audit thư mục mục I/J phải exit 0, được {lcode}")
+lsg = lr["stop_gate"]
+check(lsg["runs"] == 2 and lsg["blocks"] == ["1/3", "1/3"],
+      f"E: hai dòng Stop gate không có uuid (khác giờ, khác cwd) là hai lần chạy, không được gộp: {lsg}")
 I = lr.get("I_user_corrections") or []
 kinds = collections.Counter(i.get("kind") for i in I)
 check(kinds == {"interrupt": 1, "reject_note": 1, "correction": 3}, f"I phải có 1 ngắt, 1 từ chối kèm lời, 3 câu sửa: {dict(kinds)}")
@@ -716,6 +794,10 @@ rrow("dupproj", "dòng có mặt ở hai file phiên, chung uuid hoặc trùng n
 dupI = collections.Counter((i.get("kind"), i.get("text")) for i in rv.get("I_user_corrections") or [] if i.get("project") == "dupproj")
 check(dupI == {("reject_note", "đừng push"): 1, ("interrupt", None): 1, ("correction", "vẫn sai, làm lại"): 1, ("correction", "bạn nhầm rồi"): 1},
       f"I: mỗi lần sửa một dòng dù phiên có hai bản chép: {dict(dupI)}")
+dsg = rv["stop_gate"]
+check(dsg["runs"] == 1 and dsg["blocks"] == ["1/3", "2/3"] and dsg["released_after_max"] == 1,
+      f"E: phiên có hai bản chép thì dòng Stop gate chung uuid (chạy, chặn, nhả) chỉ đếm một lần: {dsg}")
+check(len(rv["hook_errors"]) == 1, f"F: phiên có hai bản chép thì dòng lỗi hook chung uuid chỉ đếm một lần: {rv['hook_errors']}")
 g = [i.get("cwd") for i in rv.get("G_rejected_not_asked") or [] if i.get("command") == "git push origin feat/w"]
 wr = [(i.get("kind"), i.get("cwd")) for i in rv.get("I_user_corrections") or [] if i.get("text") == "đừng push w"]
 wrJ = sorted((w.get("project"), w.get("prompts"), w.get("reject_note")) for w in rv.get("weekly") or [] if w.get("project", "").startswith("wr"))
@@ -744,6 +826,15 @@ rrow("editproj", "từ chối Edit rồi dấu ngắt", prompts=1, interrupt=1, 
 rja = [(i.get("kind"), i.get("doing")) for i in fixes_of("rjanswerproj")]
 check(rja == [("interrupt", "Bash: git push --force origin feat/q")], f"từ chối, agent trả lời rồi Esc: 1 ngắt: {rja}")
 rrow("rjanswerproj", "từ chối, agent trả lời rồi Esc", prompts=1, interrupt=1, fixes=1, fixes_per_10=10.0)
+rjt = [(i.get("kind"), i.get("doing")) for i in fixes_of("rjtaskproj")]
+check(rjt == [("interrupt", "Bash: git push --force origin feat/t")],
+      f"từ chối kèm dấu ngắt, tin task nền rồi Esc trước khi agent viết: dấu ngắt thứ hai là 1 ngắt: {rjt}")
+rrow("rjtaskproj", "từ chối, dấu ngắt, tin task nền rồi Esc", prompts=1, interrupt=1, fixes=1, fixes_per_10=10.0)
+check(fixes_of("turonlyproj") == [], f"bấm No chỉ có toolUseResult: dấu ngắt đi kèm không phải ngắt: {fixes_of('turonlyproj')}")
+rrow("turonlyproj", "từ chối chỉ có toolUseResult không vào mục I", prompts=2, fixes_per_10=0.0)
+turG = sorted((i.get("command"), i.get("rejected_by")) for i in rv.get("G_rejected_not_asked") or [] if i.get("cwd") == "/khong-co-tren-may/turonlyproj")
+check(turG == [("git push --force origin feat/t1", "người"), ("git push --force origin feat/t2", "người")],
+      f"từ chối chỉ có toolUseResult (không có is_error, hoặc nội dung lạ) vẫn vào mục G: {turG}")
 wt = sorted((p, w.get("prompts")) for p, w in RW.items() if p in ("wtproj", "mainproj", "feat-a", "src", "pkg", "wt-elsewhere", "feat-c"))
 check(wt == [("mainproj", 2), ("wtproj", 2)], f"J: worktree (.claude/worktrees, hoặc .git là file trỏ về repo chính) quy về repo chính: {wt}")
 for f in fails:
@@ -753,3 +844,237 @@ if fails:
     sys.exit(1)
 print(f"✔ audit: {total} test xanh")
 PYEOF
+status=$?
+
+# Không thụt lùi: sửa phân tích lệnh đã nhiều lần âm thầm làm mục A bỏ sót lệnh mà bản trước vẫn báo (1e9882a phải vá
+# 3 lần, PR #1 bị chặn 3 vòng), lần nào cũng chỉ lộ ra nhờ reviewer tự so nhãn giữa hai bản. Đây là đúng phép so đó, trên
+# mọi lệnh fixture ở trên và một bộ fuzz cố định. Chỉ chạy trong repo kit (có install-kit.sh, file không chép sang dự án):
+# ở dự án cài kit, bản trước là bản kit cũ đã commit nên nâng cấp qua một lần thu hẹp có chủ ý sẽ đỏ, mà NARROWING_OK lại
+# nằm trong file của kit. Bản trước: AUDIT_BASE_REF nếu đặt; không thì HEAD khi audit-agent.py đang sửa dở; merge-base với
+# origin/HEAD khi có và khác HEAD (soát mọi commit của nhánh, không chỉ commit cuối); còn lại HEAD^ (PR trong CI thường
+# không có origin/HEAD: HEAD là merge commit, cha đầu là đầu nhánh base).
+ref="${AUDIT_BASE_REF:-}" why="AUDIT_BASE_REF" skip="" miss=""
+if [ ! -f scripts/install-kit.sh ]; then
+  skip="chỉ chạy trong repo kit"
+elif ! git rev-parse --git-dir >/dev/null 2>&1; then
+  skip="không có git hoặc không ở trong repo git"
+elif [ -z "$ref" ]; then
+  git diff --quiet HEAD -- scripts/audit-agent.py 2>/dev/null
+  case $? in
+    0) ref="$(git merge-base HEAD origin/HEAD 2>/dev/null)" why="merge-base với origin/HEAD"
+       if [ -z "$ref" ] || [ "$ref" = "$(git rev-parse HEAD)" ]; then ref="HEAD^" why="HEAD^"; fi ;;
+    1) ref="HEAD" why="HEAD, audit-agent.py đang sửa dở" ;;
+    *) skip="repo chưa có commit" ;;
+  esac
+fi
+if [ -z "$skip" ] && ! git rev-parse -q --verify "$ref^{commit}" >/dev/null; then
+  miss="không có ref $ref"
+elif [ -z "$skip" ] && ! git show "$ref:./scripts/audit-agent.py" >"$tmp/audit-base.py" 2>/dev/null; then
+  miss="không có scripts/audit-agent.py ở $ref"
+elif [ -z "$skip" ]; then
+  ref="$(git rev-parse --short "$ref^{commit}")"
+fi
+# Ref tự chọn mà thiếu (clone nông) thì bỏ qua; AUDIT_BASE_REF do người đặt có chủ ý, sai thì đỏ.
+if [ -n "$miss" ] && [ -n "${AUDIT_BASE_REF:-}" ]; then
+  printf '✘ audit: AUDIT_BASE_REF=%s không phải ref có scripts/audit-agent.py (%s)\n' "$AUDIT_BASE_REF" "$miss" >&2
+  status=1
+elif [ -n "$skip$miss" ]; then
+  printf '• audit: bỏ qua so nhãn với bản trước (%s)\n' "$skip$miss"
+elif git diff --quiet "$ref" -- scripts/audit-agent.py 2>/dev/null; then
+  printf '• audit: audit-agent.py giống hệt bản ở %s (%s), bỏ qua so nhãn\n' "$ref" "$why"
+else
+  "$py" -I -B - "$tmp/audit-base.py" "$tmp" "$ref ($why)" <<'PYEOF' || status=1
+import glob, importlib.util, json, os, random, sys
+for s in (sys.stdout, sys.stderr):
+    s.reconfigure(encoding="utf-8")  # -I bỏ qua PYTHONIOENCODING
+base_file, tmp, ref = sys.argv[1:4]
+# Chỉ thêm khi CHỦ Ý thu hẹp mục A (người dùng than báo thừa): (tool, lệnh, "lý do"). Ghi đúng từng lệnh, không dùng
+# mẫu, để người review đọc được hết những lệnh vừa thành vô hại.
+NARROWING_OK = [
+]
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+new = load("audit_head", "scripts/audit-agent.py")
+try:
+    old = load("audit_base", base_file)
+except Exception as exc:  # bản trước hỏng thì không có gì để thụt lùi
+    print(f"• audit: bỏ qua so nhãn với bản trước (không nạp được bản ở {ref}: {exc!r})")
+    sys.exit(0)
+def shell_calls(x):
+    """(tool, lệnh) của mọi tool_use Bash/PowerShell nằm trong x."""
+    if isinstance(x, list):
+        for v in x:
+            yield from shell_calls(v)
+    elif isinstance(x, dict):
+        inp = x.get("input")
+        if x.get("type") == "tool_use" and x.get("name") in ("Bash", "PowerShell") and isinstance(inp, dict) \
+                and isinstance(inp.get("command"), str):
+            yield x["name"], inp["command"]
+        for v in x.values():
+            yield from shell_calls(v)
+fixture = []
+for f in sorted(glob.glob(os.path.join(tmp, "**", "*.jsonl"), recursive=True)):
+    with open(f, encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                fixture += shell_calls(json.loads(line))
+            except ValueError:
+                pass  # dòng hỏng có chủ ý của fixture
+# Fuzz cố định: 1–5 dòng ghép từ lõi nguy hiểm và các cấu trúc shell từng làm phân tích đọc sai (nối dòng, comment,
+# heredoc đưa vào shell / dữ liệu / chưa đóng, cd, subshell, biến, xargs, `--`, worktree agent).
+CORE = ["rm -rf src", "rm -rf -- -x", "rm -rf dist\\\n  src", "git push --force origin main", "git reset --hard",
+        "git clean -fd", "git branch -D x", "Remove-Item -Recurse -Force src", "rd /s /q src"]
+STEP = ["cd proj", "cd -P /home/u/proj", "cd /tmp/w", "cd dist", "cd ..", "cd", "pushd dist", "popd", "(cd /tmp && true)",
+        "( cd dist )", "cd .claude/worktrees/agent-abc", "rm -rf .claude/worktrees/agent-abc",
+        "rm -rf -- .claude/worktrees/agent-abc", "S=/tmp/x", "rm -rf $S", "ls | xargs rm -rf", "echo 'a b'", 'echo "a b"',
+        "git commit -m 'wip'", "true"]
+LINE = ["bash <<'EOF'", "cat <<EOF | sh", "cat > f <<'EOF'", "EOF", "# x \\", "# don't"]
+TAIL = ["", "", "", "", " \\", " \\\\", " # x \\", " # don't"]
+rnd = random.Random(1)
+def line():
+    if rnd.random() < 0.25:
+        return rnd.choice(LINE)
+    s = rnd.choice([" && ", "; ", " || ", " | "]).join(rnd.choice(CORE + STEP) for _ in range(rnd.randint(1, 2)))
+    return ("(" + s + ")" if rnd.random() < 0.1 else s) + rnd.choice(TAIL)
+fuzz = ["\n".join(line() for _ in range(rnd.randint(1, 5))) for _ in range(3000)]
+pairs = list(dict.fromkeys(fixture + [(tool, c) for c in fuzz for tool in ("Bash", "PowerShell")]))
+ok = {(tool, c) for tool, c, _why in NARROWING_OK}
+in_fixture = set(fixture)
+lost, crash, base_err, fixture_err, relabeled = [], [], [], [], 0
+for tool, c in pairs:
+    try:
+        base = set(old.suspicious_labels(c, old.SUSPICIOUS, tool))
+    except Exception as exc:
+        base = exc
+    try:
+        head = set(new.suspicious_labels(c, new.SUSPICIOUS, tool))
+    except Exception as exc:
+        crash.append(f"{tool} {c!r}: {exc!r}")
+        head = None
+    if isinstance(base, Exception):
+        base_err.append(f"{tool} {c!r}: {base!r}")
+        if head is not None and (tool, c) in in_fixture:
+            fixture_err.append(base_err[-1])
+    elif head is not None and base - head:
+        # Mục A chỉ xét lệnh còn nhãn nào không (tên nhãn chỉ để hiển thị): còn nhãn thì mục A vẫn báo, chỉ đếm.
+        if head:
+            relabeled += 1
+        elif (tool, c) not in ok:
+            lost.append((len(c), tool, c, sorted(base)))
+# Bản trước ném lỗi ở mọi lệnh (vd đổi chữ ký hay tên suspicious_labels mà lời gọi ở trên chỉ khớp bản mới) thì phép so
+# xanh giả. Chỉ bỏ qua lỗi của bản trước ở lệnh fuzz lẻ tẻ (bản cũ có thể crash, vd byte NUL).
+uncallable = len(base_err) == len(pairs) or fixture_err
+if not fixture:
+    print("✘ audit: so nhãn không thấy lệnh fixture nào: bước này phải chạy sau khi mọi fixture đã sinh", file=sys.stderr)
+for x in crash[:10]:
+    print("✘ audit: suspicious_labels ném lỗi:", x, file=sys.stderr)
+if uncallable:
+    print(f"✘ audit: không gọi được bản ở {ref}: lời gọi bản đó ném lỗi ở {len(base_err)}/{len(pairs)} cặp lệnh/tool, "
+          f"{len(fixture_err)} lệnh fixture mà bản này chạy được. Lỗi đầu tiên: {(fixture_err or base_err)[0]}", file=sys.stderr)
+    print("  Đổi chữ ký hay tên suspicious_labels thì sửa lời gọi trong bước so này sao cho gọi được cả hai bản (bản trước "
+          "theo chữ ký cũ, bản này theo chữ ký mới), đừng chỉ sửa cho khớp bản mới: không gọi được bản trước thì không so "
+          "được gì.", file=sys.stderr)
+if lost:
+    print(f"✘ audit: mục A sẽ bỏ sót {len(lost)} lệnh mà bản ở {ref} vẫn báo (bản này hết nhãn nghi ngờ), ngắn nhất trước:",
+          file=sys.stderr)
+    for _n, tool, c, labels in sorted(lost)[:None if os.environ.get("AUDIT_LOST_ALL") else 10]:
+        print(f"  {tool} {c!r}: bản trước báo {', '.join(labels)}", file=sys.stderr)
+    print("  Sửa phân tích lệnh không được làm mục A bỏ sót lệnh bản trước vẫn báo. Đọc thêm theo cách cũ rồi lấy hợp (như "
+          "suspicious_labels làm với nối dòng), hoặc giữ chốt cũ (như benign_delete với `--`). Nếu chủ ý thu hẹp thì "
+          "thêm đúng lệnh vào NARROWING_OK kèm lý do (AUDIT_LOST_ALL=1 in đủ danh sách để soát).", file=sys.stderr)
+if lost or crash or not fixture or uncallable:
+    sys.exit(1)
+print(f"✔ audit: mục A không bỏ sót lệnh nào bản ở {ref} báo: {len(pairs)} cặp lệnh/tool, {len(in_fixture)} từ fixture, "
+      f"{relabeled} lệnh đổi nhãn nhưng vẫn nghi")
+PYEOF
+fi
+
+# Bất biến khi có bản chép: worker khởi động lại hay resume chép phiên sang file khác, các dòng giữ uuid. Bộ đếm cộng dồn
+# đếm chúng hai lần; đã vá từng bộ một (3e86d90 mục I/J, PR #1 mục E/F, rồi old_entries_skipped) vì không test nào canh
+# mọi bộ đếm cùng lúc. Bước này chạy lại mọi thư mục phiên ở trên (A, dòng thiếu uuid được gán uuid tất định) và A kèm
+# một bản chép đầy đủ (B): báo cáo phải y hệt, trừ files, transcripts, khoá file (đường dẫn đọc sau cùng) và bad_lines.
+inv="$tmp/inv"
+"$py" - "$tmp" "$inv" <<'PYEOF'
+import json, os, shutil, sys
+tmp, inv = sys.argv[1:3]
+a = os.path.join(inv, "a")
+for n in sorted(os.listdir(tmp)):
+    src = os.path.join(tmp, n)
+    if n != "inv" and os.path.isdir(src) and any(f.endswith(".jsonl") for _r, _d, fs in os.walk(src) for f in fs):
+        shutil.copytree(src, os.path.join(a, n), symlinks=True)  # copy2: giữ mtime (--since lọc file theo mtime)
+if not os.path.isdir(a):
+    sys.exit("✘ audit: bước bản chép không thấy thư mục phiên nào: phải chạy sau khi mọi fixture đã sinh")
+for root, _dirs, fs in os.walk(a):
+    for f in fs:
+        if not f.endswith(".jsonl"):
+            continue
+        p = os.path.join(root, f)
+        st = os.stat(p)
+        rel = os.path.relpath(p, a).replace(os.sep, "/")
+        with open(p, encoding="utf-8") as fh:
+            lines = fh.readlines()
+        for i, line in enumerate(lines):
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue  # dòng hỏng giữ nguyên
+            if isinstance(e, dict) and not (isinstance(e.get("uuid"), str) and e["uuid"]):
+                e["uuid"] = f"{rel}:{i + 1}"
+                lines[i] = json.dumps(e, ensure_ascii=False) + "\n"
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
+        os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
+for n in ("goc", "chep"):
+    shutil.copytree(a, os.path.join(inv, "b", n))
+PYEOF
+built=$?
+./scripts/audit-agent.sh --transcripts "$inv/a" --since 30 --no-replay --json > "$inv/a.json"
+acode=$?
+./scripts/audit-agent.sh --transcripts "$inv/b" --since 30 --no-replay --json > "$inv/b.json"
+bcode=$?
+"$py" - "$inv" "$built" "$acode" "$bcode" <<'PYEOF' || status=1
+import json, os, sys
+inv, codes = sys.argv[1], [int(x) for x in sys.argv[2:5]]
+if codes != [0, 0, 0]:
+    sys.exit(f"✘ audit: bước bản chép không chạy được (dựng, audit A, audit B exit {codes})")
+raw = [json.load(open(os.path.join(inv, n + ".json"), encoding="utf-8")) for n in "ab"]
+def norm(x):
+    if isinstance(x, dict):
+        return {k: norm(v) for k, v in x.items() if k != "file"}
+    return [norm(v) for v in x] if isinstance(x, list) else x
+# bad_lines: dòng JSON hỏng không có uuid nên không khử trùng được, ở B bị đếm hai lần và không tránh được.
+a, b = ({k: v for k, v in norm(r).items() if k not in ("files", "transcripts", "bad_lines")} for r in raw)
+fails = []
+if raw[1]["files"] != 2 * raw[0]["files"]:
+    fails.append(f"B phải đọc gấp đôi số file của A: A {raw[0]['files']}, B {raw[1]['files']}")
+# Chỉ canh được bộ đếm mà fixture chạm tới: bộ nào rỗng ở A thì phép so vô nghĩa với nó.
+idle = [k for k, v in (("shell_commands", a["shell_commands"]), ("old_entries_skipped", a["old_entries_skipped"]),
+                       ("hook_errors", a["hook_errors"]), ("stop_gate.runs", a["stop_gate"]["runs"]),
+                       ("I_user_corrections", a["I_user_corrections"]), ("weekly", a["weekly"])) if not v]
+if idle:
+    fails.append(f"fixture không chạm tới bộ đếm: {', '.join(idle)}")
+def brief(v):
+    s = f"[{len(v)} mục]" if isinstance(v, list) else json.dumps(v, ensure_ascii=False)
+    return s if len(s) <= 200 else s[:199] + "…"
+diff = sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
+for k in diff:
+    fails.append(f"{k}: A {brief(a.get(k))}, B {brief(b.get(k))}")
+    if isinstance(a.get(k), list) and isinstance(b.get(k), list):
+        i = next((i for i, (x, y) in enumerate(zip(a[k], b[k])) if x != y), None)
+        if i is not None:
+            fails[-1] += f"\n    mục {i} khác: A {brief(a[k][i])}, B {brief(b[k][i])}"
+if fails:
+    print("✘ audit: báo cáo đổi khi mọi file phiên có thêm một bản chép (A: fixture, B: A + một bản chép):", file=sys.stderr)
+    for f in fails:
+        print("  " + f, file=sys.stderr)
+    if diff:
+        print("  Bộ đếm mới phải khoá theo uuid của dòng (xem add_event, stop_runs…), không cộng dồn: phiên có bản chép "
+              "ở file khác.", file=sys.stderr)
+    sys.exit(1)
+dirs = sorted(os.listdir(os.path.join(inv, "a")))
+print(f"✔ audit: báo cáo không đổi khi mọi file phiên có thêm một bản chép ({raw[0]['files']} file từ {', '.join(dirs)})")
+PYEOF
+exit "$status"

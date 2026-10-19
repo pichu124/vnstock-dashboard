@@ -147,13 +147,16 @@ def keep_shell_heredocs(cmd):
     return HEREDOC.sub(sub, cmd)
 
 
-def segments(cmd, tool="Bash"):
+def segments(cmd, tool="Bash", join=True):
     """Các lệnh đơn trong một lệnh shell, dạng (để so mẫu, đầy đủ, thư mục cd gần nhất, có `$` trước khi thay biến).
 
     Bản để so mẫu thay chuỗi trong nháy bằng "" (trừ bash -c '...', cmd /c "...", eval), bản đầy đủ
     giữ nguyên để biết đích thật. Biến gán trong lệnh (S=/tmp/x; rm -rf $S) được thay theo thứ tự.
+    join=False: không nối dòng tại `\\` + xuống dòng, tách như cũ.
     """
     body = keep_shell_heredocs(cmd)
+    if join and tool != "PowerShell":  # nối dòng như bash trước khi tách: bỏ `\` + xuống dòng, trừ khi `\` đó bị thoát (`\\`)
+        body = re.sub(r"(?<!\\)((?:\\\\)*)\\\n", r"\1", body)
     store = []
 
     def keep(m):
@@ -219,9 +222,12 @@ def benign_delete(full, ctx, worktree=True):
     while toks and toks[0].lower() in ("sudo", "doas", "wsl", "command", "builtin"):
         toks = toks[1:]
     cmd_style = bool(toks) and toks[0].lower() in ("rd", "del", "erase", "rmdir")  # /s /q là cờ của cmd
-    targets = [t for t in toks[1:] if t and not t.startswith("-") and not (cmd_style and CMD_FLAG.match(t))]
-    if not targets:
-        return False
+    args = toks[1:]
+    if not [t for t in args if t and not t.startswith("-") and not (cmd_style and CMD_FLAG.match(t))]:
+        return False  # như trước: ngoài cờ không thấy đích nào thì không biết lệnh xoá gì
+    end = args.index("--") if "--" in args else len(args)  # sau `--` đầu tiên mọi token là đích, kể cả token mở bằng `-`
+    targets = [t for t in args[:end] if t and not t.startswith("-") and not (cmd_style and CMD_FLAG.match(t))]
+    targets += [t for t in args[end + 1:] if t]
     worktree = worktree and not any(PS_NAMED.match(t) for t in toks)
     for t in targets:
         if ".." in re.split(r"[\\/]+", t):
@@ -238,7 +244,10 @@ def benign_delete(full, ctx, worktree=True):
 def suspicious_labels(cmd, patterns, tool="Bash"):
     labels = []
     ifs = bool(re.search(r"\bIFS\b", cmd))  # IFS khác: giá trị của biến bị tách thành đích khác
-    for plain, full, ctx, subst in segments(cmd, tool):
+    # Đọc `\` cuối dòng theo cả hai cách như guard (hỏi thừa chứ không bỏ sót): nối dòng có thể dán dòng sau vào cd hay
+    # thân heredoc làm lệnh xoá trông vô hại, nên chỉ được thêm nghi ngờ. Luôn xét cả hai: `\` cuối heredoc chưa đóng cũng bị nối.
+    segs = segments(cmd, tool) if tool == "PowerShell" else segments(cmd, tool, join=False) + segments(cmd, tool)
+    for plain, full, ctx, subst in segs:
         for rx, label in patterns:
             if label in labels or not re.search(rx, plain, re.IGNORECASE):
                 continue
@@ -277,12 +286,12 @@ class Session:
     def __init__(self):
         self.calls = {}        # tool_use_id -> dict
         self.guard = {}        # tool_use_id -> {"asked": bool, "reason": str}
-        self.hook_errors = []  # dict
-        self.stop_runs = []    # ms
-        self.stop_blocks = []  # "1/3"
-        self.stop_releases = 0
+        self.hook_errors = {}  # khoá dòng -> dict
+        self.stop_runs = {}    # khoá dòng -> ms
+        self.stop_blocks = {}  # (khoá dòng, thứ tự trong dòng) -> "1/3"
+        self.stop_releases = set()  # khoá dòng
         self.bad_lines = 0
-        self.old_entries = 0
+        self.old_entries = set()  # khoá dòng
         self.events = {}       # mục I, J: khoá khử trùng -> dict {kind, ts, cwd, file, ...}
         self.file_state = {}   # trong file đang đọc: agent đã trả lời chưa, tool gọi gần nhất, kết luận gần nhất, dòng đang xét
         #                        và có lần từ chối lệnh shell nào chưa được agent trả lời hay bạn gõ lượt mới không (after_reject)
@@ -448,8 +457,12 @@ def parse_entry(e, s, path, who, cutoff, only_under):
     fresh = when is None or when >= cutoff
     if t == "assistant" and isinstance(msg, dict):
         track_assistant(e, msg, s, fresh)  # cả dòng cũ: câu sửa ở đầu cửa sổ --since vẫn biết agent đã trả lời trước đó
+    # Khoá dòng cho mục E, F và old_entries: dòng chép sang file khác giữ uuid, đếm một lần (xem add_event). Không có uuid
+    # thì mỗi dòng một khoá riêng, không gộp theo nội dung: hai lần chạy giống hệt nhau vẫn là hai lần.
+    u = e.get("uuid")
+    key = u if isinstance(u, str) and u else object()
     if not fresh:
-        s.old_entries += 1
+        s.old_entries.add(key)
         return
     if t == "assistant":
         wire = e.get("wireToolInputs") or {}
@@ -487,23 +500,25 @@ def parse_entry(e, s, path, who, cutoff, only_under):
                 s.guard[a["toolUseID"]] = {"asked": '"ask"' in out, "reason": m.group(1) if m else ""}
         if at == "hook_system_message" and a.get("hookEvent") == "Stop" and \
                 re.search(r"vẫn đỏ sau \d+ lần chặn", a.get("content") or ""):
-            s.stop_releases += 1
+            s.stop_releases.add(key)
         if at in ("hook_non_blocking_error", "hook_error") or (
                 at.startswith("hook_") and a.get("exitCode") not in (None, 0, 2)):
             if ".claude/hooks/" in cmd.replace("\\", "/") or "/plugin/run-hook.sh" in cmd.replace("\\", "/"):
-                s.hook_errors.append({"hook": a.get("hookName") or cmd, "stderr": (a.get("stderr") or "").strip(),
-                                      "exit": a.get("exitCode"), "ts": e.get("timestamp") or "", "file": str(path)})
+                s.hook_errors[key] = {"hook": a.get("hookName") or cmd, "stderr": (a.get("stderr") or "").strip(),
+                                      "exit": a.get("exitCode"), "ts": e.get("timestamp") or "", "file": str(path)}
     elif t == "system" and e.get("subtype") == "stop_hook_summary":
         # Dự án tự cài kit mà máy có plugin: một lần Stop có cả bản dự án lẫn bản plugin (nhường, vài ms). Tính một lần.
         runs = [h["durationMs"] for h in e.get("hookInfos") or []
                 if "stop-gate" in (h.get("command") or "") and isinstance(h.get("durationMs"), (int, float))]
         if runs:
-            s.stop_runs.append(max(runs))
+            s.stop_runs[key] = max(runs)
         # Mỗi lần chặn có cả user isMeta "Stop hook feedback" lẫn hookErrors: chỉ đếm hookErrors.
+        n = 0  # thứ tự lần chặn trong dòng
         for err in e.get("hookErrors") or []:
             if isinstance(err, str):
                 for m in re.finditer(r"check\.sh đang đỏ.*?lần chặn (\d+)/(\d+)", err, re.DOTALL):
-                    s.stop_blocks.append(f"{m.group(1)}/{m.group(2)}")
+                    s.stop_blocks[key, n] = f"{m.group(1)}/{m.group(2)}"
+                    n += 1
                     if in_scope(e.get("cwd"), only_under):
                         add_event(s, e, path, "stop_block")
 
@@ -744,12 +759,12 @@ def main():
         "shell_commands": len(s.calls), "replay": bool(can_replay),
         "A_possible_misses": rows["A"], "B_regressions": rows["B"], "C_asked_approved": rows["C"],
         "D_asked_rejected": rows["D"], "G_rejected_not_asked": rows["G"], "H_ran_unguarded": rows["H"],
-        "hook_errors": s.hook_errors, "old_entries_skipped": s.old_entries,
+        "hook_errors": list(s.hook_errors.values()), "old_entries_skipped": len(s.old_entries),
         "guard_records": len(s.guard),
         "replay_errors": sorted({r["error"] for r in replayed.values() if r.get("error")})[:5],
-        "stop_gate": {"runs": len(s.stop_runs), "blocks": s.stop_blocks, "released_after_max": s.stop_releases,
-                      "median_s": round(statistics.median(s.stop_runs) / 1000, 1) if s.stop_runs else None,
-                      "max_s": round(max(s.stop_runs) / 1000, 1) if s.stop_runs else None},
+        "stop_gate": {"runs": len(s.stop_runs), "blocks": list(s.stop_blocks.values()), "released_after_max": len(s.stop_releases),
+                      "median_s": round(statistics.median(s.stop_runs.values()) / 1000, 1) if s.stop_runs else None,
+                      "max_s": round(max(s.stop_runs.values()) / 1000, 1) if s.stop_runs else None},
     }
     names = {}
 
