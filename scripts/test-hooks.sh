@@ -37,7 +37,9 @@ bash_input() {
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-gitc() { git -C "$1" -c user.email=t@t -c user.name=t -c commit.gpgsign=false -c core.autocrlf=false "${@:2}"; }
+# cd rồi mới gọi git, không dùng git -C: Git Bash không đổi đường /tmp/... có [ ] sang đường Windows cho
+# git.exe, nên git -C "$tmp/a[x]b" báo "cannot change to" và repo không được tạo.
+gitc() { (cd "$1" && git -c user.email=t@t -c user.name=t -c commit.gpgsign=false -c core.autocrlf=false "${@:2}"); }
 # new_repo <thư mục> <nhánh>
 new_repo() {
   mkdir -p "$1"
@@ -56,19 +58,50 @@ new_repo "$odd" main
 # Repo ở nhánh chính có tên kết thúc bằng \ (giả lập C:\vnstock\ của PowerShell trên Linux).
 bsm="$tmp/w\\"
 new_repo "$bsm" main
+# Repo ở nhánh chính có tên là mẫu glob khớp một repo ở nhánh feature (a[x]b khớp axb).
+globm="$tmp/a[x]b"
+new_repo "$globm" main
+new_repo "$tmp/axb" feat/x
+# Repo ở nhánh feature có symlink trỏ vào thư mục con của repo ở main: git -C link/.. chdir theo đường vật lý,
+# tức chạy trong repo ở main. Windows (Git Bash) thường không tạo được symlink thật thì bỏ các ca này.
+symf="$tmp/sym feat"
+new_repo "$symf" feat/x
+mkdir -p "$on_main/sub"
+ln -s "$on_main/sub" "$symf/link" 2>/dev/null && [ -L "$symf/link" ] || symf=""
+# Chiều ngược lại: repo ở main có symlink trỏ vào thư mục con của repo ở feature. cd của shell đi theo đường
+# logic, nên cd "$symm/link/.." vào repo ở main dù đường vật lý là repo ở feature.
+symm="$tmp/sym main"
+new_repo "$symm" main
+mkdir -p "$work/sub"
+ln -s "$work/sub" "$symm/link" 2>/dev/null && [ -L "$symm/link" ] || symm=""
 
 modes="auto sed"
 [ -n "$py" ] && modes="auto python sed"
 mode=auto
 ask_count=0
+nl=$'\n'
+# bash 3.2 (macOS) tới 4.2 giữ dấu nháy của chuỗi thay trong "${x//a/"b"}" (ra "b" kèm nháy). BASH_COMPAT=42
+# bắt bash 4.3+ làm y như vậy, để máy Linux/Windows cũng bắt được lỗi chỉ lộ ra trên macOS.
+bash42=""
+# shellcheck disable=SC2016  # biểu thức được bash con mở rộng
+[ "$(BASH_COMPAT=42 bash -c 'x=a; printf %s "${x/a/"b"}"' 2>/dev/null)" = '"b"' ] && bash42=42
+# RUN=<hàm>: chạy guard qua hàm đó (nofile, nofile50: xem khối "không tạo được file tạm").
 expect_guard() {
-  local want="$1" cmd="$2" dir="${3:-$work}" out tag=" [$mode]"
-  out="$(bash_input "$cmd" "$dir" | KIT_JSON_TOOL="$mode" "$hooks/guard-irreversible.sh")"
-  if [ "$want" = ask ]; then
-    [ "$mode" = auto ] && ask_count=$((ask_count + 1))
-    case "$out" in *'"permissionDecision":"ask"'*) ok ;; *) bad "guard phải hỏi$tag: $cmd" ;; esac
+  local want="$1" cmd="$2" dir="${3:-$work}" inp
+  inp="$(bash_input "$cmd" "$dir")"
+  [ "$want" = ask ] && [ "$mode" = auto ] && ask_count=$((ask_count + 1))
+  check_guard "$want" "$cmd" "$inp" ""
+  # Lệnh có dấu nối dòng: guard nối dòng bằng ${x//a/b}, chạy thêm như bash 3.2-4.2.
+  case "$mode:$bash42:$cmd" in auto:42:*"\\$nl"* | auto:42:*"\`$nl"*) check_guard "$want" "$cmd" "$inp" 42 ;; esac
+}
+# check_guard <ask|allow> <lệnh> <input JSON> <BASH_COMPAT cho guard, rỗng là mặc định>
+check_guard() {
+  local out tag=" [$mode${RUN:+ $RUN}${4:+, BASH_COMPAT=$4}]"
+  out="$(printf '%s\n' "$3" | BASH_COMPAT="$4" KIT_JSON_TOOL="$mode" ${RUN:+"$RUN"} "$hooks/guard-irreversible.sh")"
+  if [ "$1" = ask ]; then
+    case "$out" in *'"permissionDecision":"ask"'*) ok ;; *) bad "guard phải hỏi$tag: $2 → [$out], input: $3" ;; esac
   else
-    assert "guard không được chặn$tag: $cmd → $out" [ -z "$out" ]
+    assert "guard không được chặn$tag: $2 → $out" [ -z "$out" ]
   fi
 }
 
@@ -260,6 +293,18 @@ EOF
   expect_guard ask "git -C \"$on_main\" push && git log --grep=push"
   expect_guard ask "git push && cd \"$work\" && git push" "$on_main"
   expect_guard ask "cd \"$odd\" && git push"
+  # Đường dẫn không được bị glob thành thư mục khác.
+  expect_guard ask "cd \"$globm\" && git push"
+  expect_guard ask "git -C \"$globm\" push"
+  if [ -n "$symf" ]; then
+    expect_guard ask "git -C link/.. push" "$symf"
+    expect_guard ask "git --git-dir=link/../.git push" "$symf"
+    expect_guard ask "GIT_DIR=link/../.git git push" "$symf"
+  fi
+  if [ -n "$symm" ]; then
+    expect_guard ask "cd \"$symm/link/..\" && git push"
+    expect_guard ask "pushd \"$symm/link/..\"; git push"
+  fi
   expect_guard allow "cd \"$work\" && git push origin HEAD"
   expect_guard allow "git -C \"$work\" push -u origin feat/x"
   # cd ở đầu lệnh kiểu khác, cd có option, --git-dir/--work-tree/GIT_DIR, đích chưa xác định.
@@ -309,6 +354,71 @@ EOF
   TOOL=Unknown expect_guard ask $'Set-Location C:\\\nRemove-Item -Recurse -Force *'
   TOOL=Unknown expect_guard ask $'Remove-Item -Recurse -Force `\n  C:\\'
 done
+# Lệnh dài hơn pipe buffer (64 KiB), phần nguy hiểm ở dòng đầu: grep -q thoát ở dòng khớp đầu
+# tiên, printf còn ghi dở thì chết vì SIGPIPE, pipefail từng biến "khớp" thành "không khớp".
+# Lệnh ~180 KiB, hơn hai lần pipe buffer: grep đọc một lần (tối đa 64 KiB) rồi thoát, printf chỉ
+# kịp ghi thêm 64 KiB nữa, nên chắc chắn còn ghi dở. Dưới 128 KiB thì bỏ sót chỉ là may rủi.
+# JSON dựng thẳng bằng printf vào file: lệnh dài quá giới hạn đối số (Windows ~32K ký tự).
+# long_input <dòng đầu> <cwd> [cuối mỗi dòng, viết dạng JSON]: dòng đầu, rồi 12000 dòng `echo line-N`.
+long_input() {
+  printf '{"hook_event_name":"PreToolUse","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s' "$2" "$1"
+  # shellcheck disable=SC2059  # phần cuối dòng ghép vào định dạng
+  printf "${3:-}"'\\necho line-%s' {1..12000}
+  printf '","description":"test"}}\n'
+}
+long_input 'npm run deploy' "$work" > "$tmp/long-deploy.json"
+long_input 'git push' "$on_main" > "$tmp/long-push.json"
+# Mọi dòng kết thúc bằng \ nối dòng: guard nối dòng trên cả lệnh (bash 3.2 từng mất ~50 giây với lệnh 15 KB).
+long_input 'npm run deploy' "$work" ' \\\\' > "$tmp/long-cont.json"
+# Claude Code dừng hook chạy quá timeout trong settings.json rồi cho lệnh chạy mà KHÔNG hỏi, nên guard
+# chạy với đúng giới hạn đó (cần perl; không có thì không giới hạn). macOS từng mất hàng phút ở đây.
+guard_timeout="$(awk '/guard-irreversible\.sh/ { f = 1 } f && match($0, /"timeout"[ \t]*:[ \t]*[0-9]+/) {
+  t = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", t); print t; exit }' "$root/.claude/settings.json" 2>/dev/null)"
+guard_timeout="${guard_timeout:-10}"
+# Dừng cả nhóm tiến trình: grep hay sed con còn chạy sẽ giữ stdout, $(...) phải đợi nó.
+hook_limit() {
+  command -v perl >/dev/null 2>&1 || { "$@"; return; }
+  perl -e '$t = shift; $p = fork; defined $p or die "fork: $!";
+    if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "KILL", -$p; waitpid $p, 0; exit 142 };
+    alarm $t; waitpid $p, 0; exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$guard_timeout" "$@"
+}
+for mode in $modes; do
+  for f in long-deploy long-push long-cont; do
+    out="$(KIT_JSON_TOOL="$mode" hook_limit "$hooks/guard-irreversible.sh" < "$tmp/$f.json")"
+    case "$out" in
+      *'"permissionDecision":"ask"'*) ok ;;
+      *) bad "guard phải hỏi trong ${guard_timeout} giây [$mode]: lệnh dài hơn pipe buffer ($(wc -c < "$tmp/$f.json") byte, input: $(head -c 160 "$tmp/$f.json")...) → [$out]" ;;
+    esac
+  done
+done
+# Tiến trình cha bỏ qua SIGPIPE (trap '' PIPE, kế thừa sang con): printf không chết mà báo lỗi ghi
+# ra stderr. Kết quả đã theo mã của grep, nên vẫn phải hỏi và stderr phải sạch.
+for mode in $modes; do
+  out="$( (trap '' PIPE; KIT_JSON_TOOL="$mode" hook_limit "$hooks/guard-irreversible.sh" < "$tmp/long-deploy.json") 2>"$tmp/sigpipe.err")"
+  case "$out" in
+    *'"permissionDecision":"ask"'*) ok ;;
+    *) bad "guard phải hỏi [$mode] khi SIGPIPE bị bỏ qua: lệnh dài hơn pipe buffer → [$out]" ;;
+  esac
+  assert "guard không được in ra stderr [$mode] khi SIGPIPE bị bỏ qua → $(cat "$tmp/sigpipe.err")" [ ! -s "$tmp/sigpipe.err" ]
+done
+# Bash không tạo được file tạm (đĩa đầy, TMPDIR không ghi được): here-doc báo "cannot create temp
+# file", vòng đọc nó không chạy lần nào, git push trên nhánh chính từng lọt qua im lặng. Bash < 5.1
+# luôn ghi here-doc ra file tạm, bash ≥ 5.1 khi here-doc lớn hơn pipe buffer (64 KiB trên Linux)
+# hoặc BASH_COMPAT=50 (nofile50).
+# Giả lập bằng ulimit -f 0, bỏ qua SIGXFSZ để write báo EFBIG thay vì giết tiến trình. Không có
+# ulimit -f (Git Bash) thì guard chạy như thường, ca vẫn phải đúng.
+nofile() { (trap '' XFSZ; ulimit -f 0 2>/dev/null; "$@"); }
+nofile50() { nofile env BASH_COMPAT=50 "$@"; }
+# 30 lần cd vào thư mục con tên 200 ký tự: mỗi cd nối dài đường dẫn, danh sách thư mục ~94 KB.
+long_cd="$(printf "cd $(printf '%0200d' 0) ; %.0s" {1..30})"
+for mode in $modes; do
+  RUN=nofile50 expect_guard ask "git push" "$on_main"
+  RUN=nofile50 expect_guard ask "cd \"$on_main\" && git push"
+  RUN=nofile50 expect_guard ask "git -C \"$on_main\" push"
+  RUN=nofile expect_guard ask "${long_cd}git push" "$on_main"
+  RUN=nofile50 expect_guard allow "cd \"$work\" && git push origin HEAD"
+done
 if [ -n "$py" ]; then
   # Windows: Python đọc stdin theo cp1252, chữ "Đ" từng làm hỏng việc đọc lệnh.
   out="$(bash_input 'git commit -m "Đổi tên" && git push origin' "$on_main" \
@@ -338,7 +448,7 @@ stop_input() { printf '{"hook_event_name":"Stop","session_id":"%s","cwd":"%s","s
 run_stop() { stop_input "${1:-$repo}" | AGENT_STOP_GATE_MAX=2 "$hooks/stop-gate.sh" 2>/dev/null; }
 # Chặn = JSON {"decision":"block"} với exit 0, hoặc exit 2 khi không có jq/Python.
 blocked() {
-  [ "$code" -eq 2 ] || { [ "$code" -eq 0 ] && printf '%s' "$out" | grep -q '"decision": *"block"'; }
+  [ "$code" -eq 2 ] || { [ "$code" -eq 0 ] && text_grep "$out" -q '"decision": *"block"'; }
 }
 
 out="$(run_stop)"; code=$?
@@ -358,7 +468,7 @@ case "$out" in *"1/2)"*) ok ;; *) bad "stop-gate: lý do chặn phải ghi số 
 out="$(run_stop)"; code=$?
 assert "stop-gate: lần chặn thứ 2 vẫn phải chặn (exit $code)" blocked
 out="$(run_stop)"; code=$?
-if [ "$code" -eq 0 ] && printf '%s' "$out" | grep -q systemMessage; then ok; else bad "stop-gate: quá giới hạn thì nhả kèm systemMessage (exit $code)"; fi
+if [ "$code" -eq 0 ] && text_grep "$out" -q systemMessage; then ok; else bad "stop-gate: quá giới hạn thì nhả kèm systemMessage (exit $code)"; fi
 
 # Bộ đếm phải về 0 khi không còn thay đổi: chặn 1 lần, bỏ thay đổi, rồi đỏ lại → bắt đầu từ 1.
 run_stop >/dev/null

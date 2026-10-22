@@ -8,7 +8,11 @@ cd "$(dirname "$0")/.." || exit 1
 KIT_AGENTS="architect implementer verifier reviewer gardener"
 KIT_SKILLS="team-lead create-verify-skill correct agent-audit"
 KIT_HOOKS="lib.sh guard-irreversible.sh stop-gate.sh post-edit-format.sh"
-KIT_SCRIPTS="check.sh validate-kit.sh test-hooks.sh install-kit.sh test-install.sh audit-agent.sh test-audit.sh test-plugin.sh"
+KIT_SCRIPTS="check.sh validate-kit.sh test-hooks.sh audit-agent.sh test-audit.sh" # installer chép sang repo đích
+# Chỉ kiểm ở repo kit: installer không chép, ở repo đích file cùng tên là của dự án.
+KIT_REPO_SHELL="scripts/install-kit.sh scripts/test-install.sh scripts/test-plugin.sh plugin/run-hook.sh
+  .claude/skills/verify-kit/helpers/sandbox.sh"
+KIT_REPO_SKILLS="verify-kit" # skill kiểm chứng của chính repo kit: installer không chép, plugin không phát
 
 errors=0
 err() {
@@ -16,12 +20,13 @@ err() {
   errors=$((errors + 1))
 }
 
+# Bỏ \r cuối dòng: clone trên Windows (core.autocrlf=true) cho file .md CRLF, Claude Code vẫn đọc được.
 has_frontmatter() {
-  [ "$(head -n 1 "$1")" = "---" ] && awk 'NR > 1 && $0 == "---" { found = 1; exit } END { exit !found }' "$1"
+  awk '{ sub(/\r$/, "") } NR == 1 && $0 != "---" { exit } NR > 1 && $0 == "---" { found = 1; exit } END { exit !found }' "$1"
 }
 
 fm_value() {
-  awk 'NR == 1 { next } $0 == "---" { exit } { print }' "$1" \
+  awk '{ sub(/\r$/, "") } NR == 1 { next } $0 == "---" { exit } { print }' "$1" \
     | sed -n "s/^$2:[[:space:]]*//p" | head -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
 }
 
@@ -33,6 +38,8 @@ in_list() {
   done
   return 1
 }
+
+in_kit_repo() { [ -f .claude-plugin/plugin.json ] && [ -f plugin/run-hook.sh ]; }
 
 md_files=()
 for name in $KIT_AGENTS; do
@@ -62,7 +69,9 @@ for name in $KIT_AGENTS; do
   fi
 done
 
-for name in $KIT_SKILLS; do
+skills="$KIT_SKILLS"
+in_kit_repo && skills="$skills $KIT_REPO_SKILLS"
+for name in $skills; do
   d=".claude/skills/$name"
   f="$d/SKILL.md"
   if [ ! -f "$f" ]; then
@@ -162,9 +171,19 @@ done
 for s in $KIT_SCRIPTS; do
   [ -f "scripts/$s" ] && shell_files+=("scripts/$s")
 done
-[ -f plugin/run-hook.sh ] && shell_files+=(plugin/run-hook.sh)
+if in_kit_repo; then
+  for s in $KIT_REPO_SHELL; do
+    [ -f "$s" ] && shell_files+=("$s")
+  done
+fi
+# grep có cờ quiet (-q, -Eiq, --quiet, --silent) nhận stdin từ pipe đơn: grep thoát ở dòng khớp đầu,
+# lệnh ghi vào pipe chết vì SIGPIPE (141), pipefail biến "khớp" thành "không khớp".
+pipe_quiet_grep='(^|[^|])\|[[:space:]]*grep([[:space:]]+(-[^-[:space:]][^[:space:]]*|--[^[:space:]]+))*[[:space:]]+(-[[:alnum:]]*q[[:alnum:]]*|--quiet|--silent)([[:space:]]|$)'
 for sh in "${shell_files[@]}"; do
   bash -n "$sh" 2>/dev/null || err "$sh: lỗi cú pháp bash"
+  while IFS=: read -r n _; do
+    err "$sh:$n: grep -q nhận stdin từ pipe, pipefail đọc SIGPIPE (141) của lệnh trước thành \"không khớp\". Dùng text_grep (lib.sh) hoặc [ -n \"\$(...)\" ]"
+  done < <(grep -nE -- "$pipe_quiet_grep" "$sh" | grep -Ev '^[0-9]+:[[:space:]]*#')
 done
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -x -S warning "${shell_files[@]}" || err "shellcheck báo lỗi"
@@ -174,18 +193,25 @@ if [ -f scripts/audit-agent.py ] && [ -n "${py:-}" ]; then
     || err "scripts/audit-agent.py: lỗi cú pháp Python"
 fi
 # Bản plugin (repo kit): manifest phải khớp agent, hook và settings.json, không thì người cài plugin thiếu đồ.
-if [ -f .claude-plugin/plugin.json ] && [ -f plugin/run-hook.sh ]; then
+if in_kit_repo; then
   if [ -n "${py:-}" ]; then
-    "$py" - <<'PYEOF' || err ".claude-plugin: manifest của plugin lệch với file của kit (xem lỗi ở trên)"
-import glob, json, re, sys
+    KIT_SKILLS="$KIT_SKILLS" KIT_REPO_SKILLS="$KIT_REPO_SKILLS" "$py" - <<'PYEOF' || err ".claude-plugin: manifest của plugin lệch với file của kit (xem lỗi ở trên)"
+import glob, json, os, re, sys
 errs = []
 plugin = json.load(open(".claude-plugin/plugin.json", encoding="utf-8"))
 market = json.load(open(".claude-plugin/marketplace.json", encoding="utf-8"))
 hooks = json.load(open(plugin["hooks"], encoding="utf-8"))["hooks"]
 settings = json.load(open(".claude/settings.json", encoding="utf-8"))["hooks"]
-agents = sorted("./" + f for f in glob.glob(".claude/agents/*.md"))
+# Python trên Windows trả .claude/agents\x.md: đổi về / như trong plugin.json.
+agents = sorted("./" + f.replace(os.sep, "/") for f in glob.glob(".claude/agents/*.md"))
 if sorted(plugin.get("agents", [])) != agents:
     errs.append(f"plugin.json agents phải liệt kê đủ {agents}")
+# Liệt kê từng skill: trỏ cả .claude/skills/ thì skill riêng của repo kit (verify-kit) lọt sang mọi dự án.
+skills = plugin.get("skills")
+skills = [skills] if isinstance(skills, str) else skills or []
+want = sorted("./.claude/skills/" + s for s in os.environ["KIT_SKILLS"].split())
+if sorted(s.rstrip("/") for s in skills) != want:
+    errs.append(f"plugin.json skills phải liệt kê đúng {want}, không phát {os.environ['KIT_REPO_SKILLS']} (chỉ dùng trong repo kit)")
 if [p["name"] for p in market["plugins"]] != [plugin["name"]]:
     errs.append("marketplace.json phải có đúng một plugin trùng tên với plugin.json")
 if "version" in plugin or any("version" in p for p in market["plugins"]):
@@ -225,4 +251,4 @@ if [ "$errors" -gt 0 ]; then
   exit 1
 fi
 printf '✔ kit hợp lệ: %s agents, %s skills, %s hooks, %s link nội bộ\n' \
-  "$(echo "$KIT_AGENTS" | wc -w | tr -d " ")" "$(echo "$KIT_SKILLS" | wc -w | tr -d " ")" "$hook_count" "$link_count"
+  "$(echo "$KIT_AGENTS" | wc -w | tr -d " ")" "$(echo "$skills" | wc -w | tr -d " ")" "$hook_count" "$link_count"

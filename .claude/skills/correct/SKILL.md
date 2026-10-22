@@ -38,7 +38,7 @@ Nếu được gọi ngay sau khi người dùng vừa sửa bạn: lỗi vừa 
 - Bằng chứng từ mục I ghi vào commit hay PR thì tóm tắt (tên lớp lỗi, số lần), không chép nguyên lời người dùng: repo có thể công khai.
 
 ## 4. Giữ bảng rule
-Cập nhật bảng **Rule ↔ Thứ thực thi** cuối `CLAUDE.md`. Rule đã có trong bảng mà vẫn bị vi phạm và chưa có gì thực thi nó là một lần lặp lại: đẩy nó lên tầng cao hơn trong cùng thay đổi này. Xoá rule có lỗi không còn xảy ra được.
+Cập nhật bảng **Rule ↔ Thứ thực thi** của dự án trong `CLAUDE.md` (chưa có bảng thì tạo ở cuối file), không thêm rule vào phần trên dòng `<!-- agent-team:kit-end` của `.claude/rules/agent-team.md` vì installer thay phần đó khi cập nhật kit. Rule đã có trong bảng mà vẫn bị vi phạm và chưa có gì thực thi nó là một lần lặp lại: đẩy nó lên tầng cao hơn trong cùng thay đổi này. Xoá rule có lỗi không còn xảy ra được.
 
 ## Trả lời
 Với mỗi lớp lỗi: bằng chứng, tầng đã chọn, vì sao không chọn được tầng cao hơn, output "fail trên lỗi cũ / pass trên code mới". Cuối cùng so số lần sửa trên 10 lượt (mục J của cùng báo cáo) giữa tuần này và tuần trước.

@@ -102,16 +102,19 @@ rust_checks() {
 if [ -x scripts/validate-kit.sh ]; then
   step "kit" ./scripts/validate-kit.sh
 fi
+# Installer không chép bản plugin: ở repo đích, test-plugin.sh, plugin/, .claude-plugin/ là của dự án.
+in_kit_repo() { [ -f .claude-plugin/plugin.json ] && [ -f plugin/run-hook.sh ]; }
 kit_changed() {
-  git status --porcelain -- .claude/hooks scripts/check.sh scripts/test-hooks.sh scripts/validate-kit.sh \
-    scripts/guard-ask-floor scripts/audit-agent.sh scripts/audit-agent.py scripts/test-audit.sh \
-    scripts/test-plugin.sh plugin/run-hook.sh plugin/hooks.json .claude-plugin 2>/dev/null | grep -q .
+  local paths=(.claude/hooks scripts/check.sh scripts/test-hooks.sh scripts/validate-kit.sh
+    scripts/guard-ask-floor scripts/audit-agent.sh scripts/audit-agent.py scripts/test-audit.sh)
+  in_kit_repo && paths+=(scripts/test-plugin.sh plugin/run-hook.sh plugin/hooks.json .claude-plugin)
+  [ -n "$(git status --porcelain -- "${paths[@]}" 2>/dev/null)" ]
 }
 if [ -x scripts/test-hooks.sh ]; then
   if [ -n "${CI:-}" ] || [ "${KIT_SELFTEST:-0}" = 1 ] || kit_changed; then
     step "hooks" ./scripts/test-hooks.sh
     [ -x scripts/test-audit.sh ] && step "audit" ./scripts/test-audit.sh
-    [ -x scripts/test-plugin.sh ] && step "plugin" ./scripts/test-plugin.sh
+    in_kit_repo && [ -x scripts/test-plugin.sh ] && step "plugin" ./scripts/test-plugin.sh
   else
     printf '\n• hooks: bỏ qua test của kit vì hook không đổi (KIT_SELFTEST=1 để chạy)\n'
   fi

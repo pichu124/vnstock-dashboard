@@ -33,7 +33,7 @@ Gom lại thành **lớp lỗi**. Một lớp chỉ được tính khi đã xả
 ## 4. Chứng minh
 - Với mỗi check mới: **chứng minh nó fail trên một lỗi thật trong quá khứ**, ví dụ checkout commit cũ hoặc áp lại đoạn code sai. Sau đó chứng minh nó pass trên code hiện tại.
 - Mỗi lớp lỗi một commit. Ngoại lệ ghi ngay tại dòng vi phạm, kèm lý do.
-- Cập nhật bảng **Rule ↔ Thứ thực thi** cuối `CLAUDE.md`. Xoá rule có lỗi không còn xảy ra được. Tỉa những dòng CLAUDE.md mà Claude vẫn làm đúng khi không có chúng.
+- Cập nhật bảng **Rule ↔ Thứ thực thi** của dự án trong `CLAUDE.md` (chưa có bảng thì tạo ở cuối file), không thêm rule vào phần trên dòng `<!-- agent-team:kit-end` của `.claude/rules/agent-team.md` vì installer thay phần đó khi cập nhật kit. Xoá rule có lỗi không còn xảy ra được. Tỉa những dòng CLAUDE.md mà Claude vẫn làm đúng khi không có chúng.
 
 ## Bàn giao
 

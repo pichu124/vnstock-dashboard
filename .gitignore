@@ -32,3 +32,6 @@ _cafef_dump/
 
 # Bằng chứng của verifier (Agents-Team-coding)
 artifacts/
+
+# Bộ agent team (Agents-Team-coding)
+!.claude/agent-team-kit.txt
