@@ -16,3 +16,5 @@
 | Không đọc file bí mật (`.env`, `*.pem`, `secrets/`) | `permissions.deny` trong `.claude/settings.json` |
 | Format theo cấu hình của dự án | `.claude/hooks/post-edit-format.sh` (PostToolUse) |
 | Không bớt ca "phải hỏi" của guard để cho dễ | `scripts/guard-ask-floor` (test-hooks đỏ khi số ca dưới sàn) |
+
+<!-- agent-team:kit-end: install-kit.sh thay mọi thứ từ đầu file tới dòng này khi cập nhật kit. Quy ước riêng của dự án viết dưới dòng này thì được giữ nguyên. -->

@@ -1,0 +1,31 @@
+# Bản Agents-Team-coding cài vào repo này. install-kit.sh ghi file này, đừng sửa tay.
+# Kit có gì mới: git -C <thư mục kit> log --oneline <kit-commit>..HEAD -- .claude scripts templates
+kit-commit: e77a51f77f2511bca6a4bdb9f63c6768376350c3
+kit-files:
+.claude/agents/architect.md
+.claude/agents/gardener.md
+.claude/agents/implementer.md
+.claude/agents/reviewer.md
+.claude/agents/verifier.md
+.claude/hooks/guard-irreversible.sh
+.claude/hooks/lib.sh
+.claude/hooks/post-edit-format.sh
+.claude/hooks/stop-gate.sh
+.claude/skills/agent-audit/SKILL.md
+.claude/skills/correct/SKILL.md
+.claude/skills/create-verify-skill/SKILL.md
+.claude/skills/create-verify-skill/references/feature-template.md
+.claude/skills/team-lead/SKILL.md
+.claude/skills/team-lead/playbooks/bug-fix.md
+.claude/skills/team-lead/playbooks/feature.md
+.claude/skills/team-lead/playbooks/investigation.md
+.claude/skills/team-lead/playbooks/overnight.md
+.claude/skills/team-lead/playbooks/refactor.md
+scripts/check.sh
+scripts/validate-kit.sh
+scripts/test-hooks.sh
+scripts/guard-ask-floor
+scripts/audit-agent.sh
+scripts/audit-agent.py
+scripts/test-audit.sh
+kit-dropped:
