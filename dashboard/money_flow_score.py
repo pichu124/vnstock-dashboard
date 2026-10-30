@@ -2,9 +2,11 @@
 
 Tách khỏi vnstock_dashboard 12/08 (xem dashboard/volume_profile.py cho lý do).
 `score_bar_html` phụ thuộc trực tiếp `score_label` nên phải cùng file.
-Chuỗi HTML giữ NGUYÊN từng ký tự — test assert theo substring.
+Khung HTML giữ nguyên (test assert theo substring); màu đi qua `dashboard.theme.TOKENS`.
 """
 from __future__ import annotations
+
+from dashboard.theme import TOKENS as _T
 
 
 def compute_money_flow_score(nn_net: float, nn_median: float,
@@ -36,14 +38,14 @@ def compute_money_flow_score(nn_net: float, nn_median: float,
 def score_label(score: float) -> tuple:
     """Return (label, color_hex) cho money flow score."""
     if score > 30:
-        return "VÀO", "#10b981"
+        return "VÀO", _T["up"]
     if score > 10:
-        return "Vào nhẹ", "#6ee7b7"
+        return "Vào nhẹ", _T["up_soft"]
     if score > -10:
-        return "Trung lập", "#9ca3af"
+        return "Trung lập", _T["text_muted"]
     if score > -30:
-        return "Ra nhẹ", "#fca5a5"
-    return "RA", "#ef4444"
+        return "Ra nhẹ", _T["down_soft"]
+    return "RA", _T["down"]
 
 
 def score_bar_html(score: float) -> str:
@@ -54,12 +56,12 @@ def score_bar_html(score: float) -> str:
     direction = "left" if score >= 0 else "right"
     return (
         f'<div style="display:flex;align-items:center;gap:6px">'
-        f'<div style="width:80px;height:14px;background:#1f2937;border-radius:7px;'
+        f'<div style="width:80px;height:14px;background:{_T["border"]};border-radius:7px;'
         f'position:relative;overflow:hidden">'
         f'<div style="position:absolute;{direction}:50%;width:{width/2}%;height:100%;'
         f'background:{color};border-radius:7px"></div>'
-        f'<div style="position:absolute;left:50%;width:1px;height:100%;background:#4b5563">'
-        f'</div></div>'
+        f'<div style="position:absolute;left:50%;width:1px;height:100%;'
+        f'background:{_T["text_off"]}"></div></div>'
         f'<span style="color:{color};font-size:11px;font-weight:600;min-width:52px">'
         f'{label}</span></div>'
     )

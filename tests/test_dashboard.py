@@ -499,24 +499,27 @@ class TestScoreLabel:
     def test_strong_inflow(self):
         label, color = _score_label(50)
         assert label == "VÀO"
-        assert color == "#10b981"
+        assert color == T["up"]
 
     def test_light_inflow(self):
-        label, _ = _score_label(20)
+        label, color = _score_label(20)
         assert label == "Vào nhẹ"
+        assert color == T["up_soft"]
 
     def test_neutral(self):
-        label, _ = _score_label(0)
+        label, color = _score_label(0)
         assert label == "Trung lập"
+        assert color == T["text_muted"]
 
     def test_light_outflow(self):
-        label, _ = _score_label(-20)
+        label, color = _score_label(-20)
         assert label == "Ra nhẹ"
+        assert color == T["down_soft"]
 
     def test_strong_outflow(self):
         label, color = _score_label(-50)
         assert label == "RA"
-        assert color == "#ef4444"
+        assert color == T["down"]
 
     def test_boundary_values(self):
         assert _score_label(30.1)[0] == "VÀO"
@@ -533,7 +536,7 @@ class TestScoreBarHtml:
     def test_positive_score_contains_label(self):
         html = _score_bar_html(60)
         assert "VÀO" in html
-        assert "#10b981" in html
+        assert T["up"] in html
         # Thanh mọc từ vạch giữa SANG PHẢI: neo mép trái ở 50%. (Bản cũ ghim
         # "right:50%" — neo mép PHẢI ở giữa nên thanh dương mọc sang trái, và
         # assert âm "left:50%" luôn đúng nhờ chính cái vạch giữa.)
@@ -543,7 +546,7 @@ class TestScoreBarHtml:
     def test_negative_score_contains_label(self):
         html = _score_bar_html(-60)
         assert "RA" in html
-        assert "#ef4444" in html
+        assert T["down"] in html
         assert "right:50%;width:30.0%" in html  # mọc từ vạch giữa sang trái
 
     def test_zero_score(self):

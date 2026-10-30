@@ -182,3 +182,129 @@ def test_live_sector_price_unit_follows_warehouse_close():
         {"HLB": q(660.0), "AVF": q(300.0), "VCB": q(90_000), "NEW": q(25_000)},
         lambda tk: "X", ref_close={"HLB": 650.0, "AVF": 0.3, "VCB": 89.0})
     assert out["X"]["gtgd"] == pytest.approx(660 + 0.3 + 90 + 25)   # NEW: chưa có kho ⇒ ngưỡng
+
+
+# ── P3 (docs/THIET-KE-GIAO-DIEN.md §6): tiêu đề chuẩn + màu chỉ đi qua token ──
+
+_HEX = r"#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?(?![0-9a-zA-Z])"
+
+
+def _render_full_page(monkeypatch, tmp_path):
+    """Trang đủ dữ liệu: 3 ngành ròng +/0/−, VCB có Lệnh lớn (kéo VÀO), Live Scan bật.
+    Trả (st giả, các lần gọi ui.page_header/ui.section)."""
+    import json
+    import sys
+    import types
+
+    import pandas as pd
+
+    from dashboard import ui
+    from dashboard.money_flow_score import compute_money_flow_score
+    from tests.test_tab_render_smoke import _fake_streamlit, _load
+
+    st = _fake_streamlit()
+    st.session_state.update(live_mode=True, live_scan=True)
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+
+    prices = tmp_path / "prices"
+    for tk in ("VCB", "HPG", "FPT"):
+        (prices / f"ticker={tk}").mkdir(parents=True)
+    m = _stub_mf_dashboard(prices)
+    m._load_industry_map = lambda: {"VCB": "Ngân hàng", "HPG": "Thép & Kim loại",
+                                    "FPT": "Công nghệ"}
+    m._fetch_foreign_net_flow = lambda **k: pd.DataFrame({"symbol": ["VCB"]})
+    m._aggregate_nn_by_window = lambda raw, days: {"VCB": 50.0, "HPG": 0.0, "FPT": -20.0}
+    m._aggregate_nn_buy_sell_by_window = lambda raw, days: {
+        "VCB": {"buy": 80.0, "sell": 30.0}, "HPG": {"buy": 10.0, "sell": 10.0},
+        "FPT": {"buy": 5.0, "sell": 25.0}}
+    m._compute_gtgd_by_window = lambda n: {"VCB": 500.0, "HPG": 200.0, "FPT": 300.0}
+    m._batch_load_live_quotes = lambda tickers: {"FPT": {"price": 100.0, "volume": 1e6,
+                                                         "buy_ratio": 0.3}}
+    m._fetch_order_stats_batch = lambda tickers: {
+        "VCB": {"buy_sell_ratio": 0.7, "big_order_score": 40}}
+    m._compute_money_flow_score = compute_money_flow_score
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", m)
+
+    # badge độ tươi là module ngoài trang (màu riêng, có test riêng) — tắt để chỉ soi trang
+    fresh = types.ModuleType("vnstock_freshness")
+    fresh.render_freshness_row = lambda items: None
+    monkeypatch.setitem(sys.modules, "vnstock_freshness", fresh)
+
+    calls: list = []
+    real_page, real_section = ui.page_header, ui.section
+    monkeypatch.setattr(ui, "page_header",
+                        lambda *a, **k: (calls.append(("page", a)), real_page(*a, **k)))
+    monkeypatch.setattr(ui, "section",
+                        lambda *a, **k: (calls.append(("section", a)), real_section(*a, **k)))
+
+    live = tmp_path / "data_warehouse" / "_live"
+    live.mkdir(parents=True)
+    (live / "quote_VCB.json").write_text(json.dumps({
+        "price": 90.0, "volume": 1_000_000,
+        "bids": [{"volume": 300}], "asks": [{"volume": 100}]}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    _load("dashboard.money_flow_tab").render_money_flow_tab()
+    return st, calls
+
+
+def _markdowns(st):
+    return [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+
+
+def test_page_uses_page_header_and_sections(monkeypatch, tmp_path):
+    """Đầu trang = `ui.page_header("Dòng tiền", …khung đang chọn…)`, các mục = `ui.section`,
+    không còn `###`/`####` kèm emoji; sidebar = nhãn mục gọn như mục Live."""
+    st, calls = _render_full_page(monkeypatch, tmp_path)
+
+    assert calls and calls[0][0] == "page"
+    title, subtitle = calls[0][1]
+    assert title == "Dòng tiền"
+    assert "1D" in subtitle                      # st.radio giả chọn khung đầu tiên
+    sections = [a[0] for kind, a in calls if kind == "section"]
+    assert "Khối ngoại chi tiết" in sections
+    assert "Dòng tiền trong phiên (live)" in sections
+
+    mds = _markdowns(st)
+    assert not [m for m in mds if m.lstrip().startswith("#")], "còn tiêu đề markdown thô"
+    assert any('class="vn-side-label"' in m and "Dòng tiền" in m for m in mds)
+    assert not any("💰" in m for m in mds)
+
+
+def test_rendered_colors_are_theme_tokens(monkeypatch, tmp_path):
+    """Mọi màu HTML của trang (thẻ KPI, bảng ngành, chi tiết mã, live, thanh điểm) và
+    của chart Plotly đều là token — không còn #d1d5db/#4b5563/#0d1117/#6ee7b7…"""
+    import re
+
+    from dashboard.theme import PLOTLY_BG, TOKENS as T
+
+    st, _ = _render_full_page(monkeypatch, tmp_path)
+    html = "\n".join(_markdowns(st))
+
+    # trang đã vẽ đủ các khối (không thì "0 hex lạ" là xanh suông)
+    assert "Ngành có tiền VÀO" in html and "Áp lực" in html and "Vai trò" in html
+    assert re.search(r"color:(#\w{6})[^>]*>★ Kéo VÀO", html).group(1) == T["up"]
+    stray = set(re.findall(_HEX, html)) - set(T.values())
+    assert not stray, f"hex ngoài token: {sorted(stray)}"
+
+    fig = st.plotly_chart.call_args.args[0]
+    # Ngân hàng +50 · Thép 0 · Công nghệ −20 (xếp giảm dần)
+    assert list(fig.data[0].marker.color) == [T["up"], T["up"], T["down"]]
+    assert fig.layout.paper_bgcolor == PLOTLY_BG["paper_bgcolor"]
+    assert fig.layout.plot_bgcolor == PLOTLY_BG["plot_bgcolor"]
+    assert {fig.layout.font.color, fig.layout.yaxis.gridcolor,
+            fig.layout.yaxis.zerolinecolor} <= set(T.values())
+
+
+def test_score_bar_uses_only_tokens_and_soft_shades():
+    """Thanh điểm: nền rãnh, vạch giữa, nhãn — 5 mức đều là token."""
+    import re
+
+    from dashboard.money_flow_score import score_bar_html
+    from dashboard.theme import TOKENS as T
+
+    for score, shade in ((60, "up"), (20, "up_soft"), (0, "text_muted"),
+                         (-20, "down_soft"), (-60, "down")):
+        html = score_bar_html(score)
+        assert set(re.findall(_HEX, html)) <= set(T.values()), score
+        assert f'color:{T[shade]};' in html, score
