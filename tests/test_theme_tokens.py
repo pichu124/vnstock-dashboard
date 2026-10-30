@@ -200,8 +200,6 @@ def test_light_mode_toggle_removed():
 # để con số không nằm cao chờ hex quay lại). Mốc HEAD f5029d7 trước P1: 582.
 
 HEX_BUDGET = {
-    "vnstock_dashboard.py": 40,
-    "dashboard/analysis_tab.py": 83,
     "dashboard/assets_tab.py": 3,
     "dashboard/brief_accuracy_panel.py": 5,
     "dashboard/brief_agent_settings.py": 2,
