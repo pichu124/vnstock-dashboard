@@ -17,11 +17,23 @@ import pandas as pd
 import streamlit as st
 
 from dashboard import ui
-from dashboard.theme import PLOTLY_BG, SERIES, TOKENS, rgba
+from dashboard.theme import PLOTLY_BG, TOKENS, rgba, series
 
-_LONG, _SHORT = SERIES[0], SERIES[1]                       # xanh · cam (phân cực long/short)
-_ROLE_COLORS = SERIES[:4]                                  # ô 1–4, thứ tự cố định theo kỳ hạn
-_PRICE = TOKENS["accent"]                                  # đường giá như đường chỉ số
+# Màu đọc LÚC VẼ (P4 sáng/tối — hằng cấp module đóng băng màu tối, review 31/10).
+def _long() -> str:          # xanh · cam = phân cực long/short
+    return series()[0]
+
+
+def _short() -> str:
+    return series()[1]
+
+
+def _role_colors() -> tuple[str, ...]:   # ô 1–4, thứ tự cố định theo kỳ hạn
+    return series()[:4]
+
+
+def _price() -> str:         # đường giá như đường chỉ số
+    return TOKENS["accent"]
 _REF = "rgba(150,150,150,0.85)"
 _RANGES = {"3 tháng": 92, "6 tháng": 183, "1 năm": 366, "Tất cả": None}
 
@@ -153,19 +165,19 @@ def _render_position(fv, view) -> None:
     fig = go.Figure()
     _zero(fig, x)
     fig.add_trace(go.Scatter(x=x, y=view["after"], name="Vị thế ròng", mode="lines",
-                             line={"color": _LONG, "width": 2},
+                             line={"color": _long(), "width": 2},
                              hovertemplate="Vị thế ròng: %{y:+,.0f} HĐ<extra></extra>"))
     short = view["after"].where(view["after"] < 0)
     fig.add_trace(go.Scatter(x=x, y=short, name="Phiên short ròng", mode="lines",
-                             line={"color": _SHORT, "width": 2.5}, connectgaps=False,
+                             line={"color": _short(), "width": 2.5}, connectgaps=False,
                              hovertemplate="Short ròng: %{y:+,.0f} HĐ<extra></extra>"))
     _plot("Vị thế ròng khối ngoại sau đáo hạn — hợp đồng (đoạn cam: short ròng)", _layout(fig, 320, legend=True))
     px = view["next_close"]
     fig = go.Figure(go.Scatter(x=x, y=px, name="Giá HĐ tháng gần", mode="lines",
-                               line={"color": _PRICE, "width": 2},
+                               line={"color": _price(), "width": 2},
                                hovertemplate="Giá HĐ tháng gần: %{y:,.1f}<extra></extra>"))
     _plot("Giá đóng cửa HĐ tháng gần (sau đáo hạn) — điểm", _layout(fig, 220, yfmt=",.0f"))
-    colors = [_LONG if v >= 0 else _SHORT for v in view["flow"]]
+    colors = [_long() if v >= 0 else _short() for v in view["flow"]]
     fig = go.Figure(go.Bar(x=x, y=view["flow"], marker={"color": colors}, name="Dòng lệnh ròng",
                            hovertemplate="Dòng lệnh ròng: %{y:+,.0f} HĐ<extra></extra>"))
     _plot("Dòng lệnh ròng khối ngoại mỗi phiên — hợp đồng (xanh: mua nhiều hơn bán · cam: ngược lại)",
@@ -195,7 +207,7 @@ def _render_terms(fv, s, pos, view) -> None:
         return
     x = _x(roles)
     fig = go.Figure()
-    for name, color in zip(fv.ROLES, _ROLE_COLORS):
+    for name, color in zip(fv.ROLES, _role_colors()):
         fig.add_trace(go.Bar(x=x, y=roles[name], name=f"HĐ {name.lower()}", marker={"color": color},
                              hovertemplate=f"HĐ {name.lower()}: %{{y:+,.0f}} HĐ<extra></extra>"))
     fig.update_layout(barmode="relative", bargap=0.15)

@@ -44,7 +44,7 @@ import json
 from pathlib import Path
 
 from dashboard import ui
-from dashboard.theme import PLOTLY_BG as _PLOTLY_BG, TOKENS as _T, pct_color
+from dashboard.theme import PLOTLY_BG as _PLOTLY_BG, TOKENS as _T, category_colors as _category_colors, pct_color
 from vnstock_parquet_io import write_json_atomic
 
 
@@ -600,7 +600,9 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                     hole=0.45,
                     textinfo="percent",
                     hovertemplate="%{label}: %{value:.1f}%<extra></extra>",
-                ))                     # màu lát = chartCategoricalColors của theme (config.toml)
+                    # 8 màu của theme lặp từ lát thứ 9 (review 31/10) ⇒ thêm bản nhạt, đọc lúc vẽ.
+                    marker=dict(colors=_category_colors(len(_pie_labels))),
+                ))
                 fig_pie.update_layout(
                     title="Tỷ trọng danh mục",
                     height=max(280, len(_names) * 38),

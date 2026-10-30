@@ -113,13 +113,15 @@ st.set_page_config(
 from dashboard.theme import (  # noqa: E402
     THEME_SYNC_KEY as _THEME_SYNC_KEY, THEME_WATCH_KEY as _THEME_WATCH_KEY,
     current_mode as _theme_current_mode, set_mode as _set_theme_mode,
-    theme_watch_html as _theme_watch_html,
+    set_mode_resolver as _set_theme_mode_resolver, theme_watch_html as _theme_watch_html,
 )
 
 try:
     _set_theme_mode(st.context.theme.type)   # "dark" / "light" / None (chưa biết ⇒ tối)
 except Exception:                             # chạy ngoài Streamlit (test, bare mode)
     _set_theme_mode(None)
+# Lượt `@st.fragment(run_every=…)` chạy trên luồng KHÔNG qua dòng trên ⇒ bảng màu tự hỏi lại.
+_set_theme_mode_resolver(lambda: st.context.theme.type)
 
 RESULTS_PATH  = Path("data_warehouse/_meta/screener_results.json")
 PRICES_DIR    = Path("data_warehouse/prices")

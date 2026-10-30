@@ -112,6 +112,117 @@ def test_render_time_lookup_not_frozen_at_import():
         theme.set_mode("dark")
 
 
+@pytest.fixture
+def _resolver_restored():
+    saved = theme._resolver
+    yield
+    theme.set_mode_resolver(saved)
+
+
+def _in_new_thread(fn):
+    """Như lượt `@st.fragment(run_every=…)`: luồng MỚI, thân script chính (set_mode) không chạy."""
+    import threading
+    out = {}
+    t = threading.Thread(target=lambda: out.update(v=fn()))
+    t.start(); t.join()
+    return out["v"]
+
+
+def test_fragment_thread_asks_resolver_for_mode(_resolver_restored):
+    """Review 31/10: fragment Live ở trang SÁNG vẽ màu TỐI (luồng mới ⇒ mode mặc định 'dark')."""
+    theme.set_mode_resolver(lambda: "light")
+    assert _in_new_thread(lambda: TOKENS["bg"]) == LIGHT["bg"]
+    assert _in_new_thread(lambda: theme.series()[0]) == theme.series(LIGHT)[0]
+    # set_mode của script chính vẫn thắng resolver
+    assert _in_new_thread(lambda: (theme.set_mode("dark"), TOKENS["bg"])[1]) == DARK["bg"]
+
+
+@pytest.mark.parametrize("resolver", [None, lambda: None, lambda: "lạ", lambda: 1 / 0],
+                         ids=["none", "returns-none", "returns-junk", "raises"])
+def test_resolver_unknown_or_failing_falls_back_to_dark(_resolver_restored, resolver):
+    theme.set_mode_resolver(resolver)
+    assert _in_new_thread(theme.current_mode) == "dark"
+
+
+def test_main_script_registers_mode_resolver():
+    src = (ROOT / "vnstock_dashboard.py").read_text(encoding="utf-8")
+    assert "_set_theme_mode_resolver(lambda: st.context.theme.type)" in src
+
+
+# Tên ở dashboard.theme trả màu THEO CHẾ ĐỘ — gọi lúc import là đóng băng màu tối.
+_MODE_NAMES = {"TOKENS", "SERIES", "series", "pct_color", "price_color", "status_color",
+               "category_colors", "lwc_palette", "app_css", "current_mode"}
+
+
+def _theme_aliases(tree: ast.Module) -> set[str]:
+    names = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom) and n.module == "dashboard.theme":
+            names |= {a.asname or a.name for a in n.names if a.name in _MODE_NAMES}
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            names |= {a.asname for a in n.names if a.asname and a.name.endswith("theme")}
+            names |= {"theme" for a in n.names if a.name == "theme" and not a.asname}
+    return names
+
+
+def _eager_reads(node, aliases: set[str]) -> list[int]:
+    """Dòng đọc màu THEO CHẾ ĐỘ ngay khi biểu thức chạy (bỏ qua thân lambda — chạy sau)."""
+    hits, stack = [], [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, ast.Lambda):
+            continue
+        if isinstance(n, ast.Name) and n.id in aliases:
+            hits.append(n.lineno)
+        stack.extend(ast.iter_child_nodes(n))
+    return hits
+
+
+def _import_time_files() -> list[Path]:
+    """Module nạp MỘT lần (thân module không chạy lại mỗi lượt) — script chính thì chạy lại nên miễn."""
+    files = [ROOT / "vnstock_freshness.py", ROOT / "vnstock_health.py"]
+    files += sorted((ROOT / "dashboard").glob("*.py"))
+    return [f for f in files if f.name != "theme.py"]
+
+
+def test_eager_read_scanner_catches_frozen_constants():
+    src = ("from dashboard.theme import TOKENS as _T, series\n"
+           "_A = _T['up']\n_B = {'x': series()[0]}\n_OK = lambda: _T['up']\n"
+           "def f(c=_T['down']):\n    return _T['up']\n")
+    tree = ast.parse(src)
+    al = _theme_aliases(tree)
+    hits = [ln for st in tree.body if not isinstance(st, ast.ImportFrom)
+            for ln in (_eager_reads(st.value, al) if isinstance(st, ast.Assign)
+                       else _eager_reads(st.args, al) if isinstance(st, ast.FunctionDef) else [])]
+    assert sorted(hits) == [2, 3, 5]
+
+
+@pytest.mark.parametrize("path", _import_time_files(), ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_no_mode_colors_frozen_at_import(path):
+    """Hằng màu cấp module (vd `_SENTIMENT_BADGE`, `_C1 = SERIES[0]`) nạp lúc import = màu TỐI mãi
+    mãi. Đọc lúc vẽ: hàm nhỏ trả màu, hoặc lưu TÊN token rồi tra `TOKENS[tên]` khi vẽ."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    aliases = _theme_aliases(tree)
+    bad = []
+    for st in tree.body:
+        if isinstance(st, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and st.value is not None:
+            bad += _eager_reads(st.value, aliases)
+        elif isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            bad += _eager_reads(st.args, aliases)            # giá trị mặc định chạy lúc import
+            bad += [ln for d in st.decorator_list for ln in _eager_reads(d, aliases)]
+        elif isinstance(st, ast.ClassDef):
+            bad += [ln for s in st.body if isinstance(s, (ast.Assign, ast.AnnAssign)) and s.value
+                    for ln in _eager_reads(s.value, aliases)]
+    assert not bad, f"{path.name}: đọc màu lúc import ở dòng {sorted(set(bad))}"
+
+
+def test_category_colors_do_not_repeat_for_many_slices():
+    """Pie danh mục > 8 ngành: 8 màu theme lặp lát thứ 9 (review 31/10)."""
+    cols = theme.category_colors(12)
+    assert len(cols) == 12 and len(set(cols)) == 12
+    assert cols[:len(theme.series())] == list(theme.series())
+
+
 # ── 2. Font tự host ─────────────────────────────────────────────────────────
 
 def test_static_serving_on_for_fonts():

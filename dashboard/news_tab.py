@@ -117,11 +117,15 @@ def _pick(item: dict, *keys: str, default: str = "") -> str:
 
 
 _BADGE_STYLE = "padding:1px 7px;border-radius:4px;font-size:12px"
-_SENTIMENT_BADGE = {
-    "positive": f'<span style="background:{rgba(_T["up"], 0.2)};color:{_T["up_soft"]};{_BADGE_STYLE}">🟢 Tích cực</span>',
-    "negative": f'<span style="background:{rgba(_T["down"], 0.2)};color:{_T["down_soft"]};{_BADGE_STYLE}">🔴 Tiêu cực</span>',
-    "neutral":  f'<span style="background:{_T["border"]};color:{_T["text_muted"]};{_BADGE_STYLE}">⚪ Trung lập</span>',
-}
+def _sentiment_badge(kind: str) -> str | None:
+    """Badge cảm xúc — dựng LÚC VẼ (P4: dict cấp module đóng băng màu tối, review 31/10)."""
+    if kind == "positive":
+        return f'<span style="background:{rgba(_T["up"], 0.2)};color:{_T["up_soft"]};{_BADGE_STYLE}">🟢 Tích cực</span>'
+    if kind == "negative":
+        return f'<span style="background:{rgba(_T["down"], 0.2)};color:{_T["down_soft"]};{_BADGE_STYLE}">🔴 Tiêu cực</span>'
+    if kind == "neutral":
+        return f'<span style="background:{_T["border"]};color:{_T["text_muted"]};{_BADGE_STYLE}">⚪ Trung lập</span>'
+    return None
 
 
 def _news_card(item: dict, idx: int) -> None:
@@ -154,8 +158,8 @@ def _news_card(item: dict, idx: int) -> None:
                 unsafe_allow_html=True,
             )
         with col_sent:
-            if sentiment in _SENTIMENT_BADGE:
-                st.markdown(_SENTIMENT_BADGE[sentiment], unsafe_allow_html=True)
+            if _sentiment_badge(sentiment):
+                st.markdown(_sentiment_badge(sentiment), unsafe_allow_html=True)
         with col_age:
             st.caption(age)
 

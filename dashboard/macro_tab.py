@@ -18,7 +18,6 @@ from dashboard import ui
 from dashboard.theme import TOKENS, rgba
 
 _SENT_ICON = {"positive": "🟢", "negative": "🔴", "neutral": "⚪"}
-_LINE_COLOR = TOKENS["accent"]   # 1 series duy nhất — màu đường chỉ số
 
 
 def render_macro_subtab() -> None:
@@ -123,7 +122,7 @@ def _render_history_chart(mac) -> None:
         fig = go.Figure(go.Scatter(
             x=ser.index, y=ser.values,
             mode="lines" if len(ser) > 40 else "lines+markers",   # dày → bỏ marker
-            line={"color": _LINE_COLOR, "width": 2}, marker={"size": 6},
+            line={"color": TOKENS["accent"], "width": 2}, marker={"size": 6},
             hovertemplate="%{x|%d/%m/%Y}: %{y:,.2f}<extra></extra>"))
         fig.update_layout(
             height=280, margin={"l": 10, "r": 10, "t": 10, "b": 10},

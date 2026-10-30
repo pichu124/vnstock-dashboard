@@ -86,6 +86,9 @@ PALETTES = MappingProxyType({"dark": DARK, "light": LIGHT})
 _local = threading.local()
 
 
+_resolver = None   # hàm trả "dark"/"light" của lượt hiện tại — script chính đăng ký
+
+
 def set_mode(mode) -> str:
     """Chọn bảng màu cho lượt chạy hiện tại ('dark'/'light'; lạ ⇒ 'dark'). Trả chế độ đã chọn."""
     m = mode if mode in PALETTES else "dark"
@@ -93,8 +96,26 @@ def set_mode(mode) -> str:
     return m
 
 
+def set_mode_resolver(fn) -> None:
+    """Đăng ký cách HỎI chế độ khi luồng chưa được `set_mode` — vd `lambda: st.context.theme.type`.
+
+    `@st.fragment(run_every=…)` chạy lại trên LUỒNG MỚI, thân script chính (nơi gọi set_mode)
+    không chạy lượt đó ⇒ không có resolver thì fragment Live tô màu TỐI giữa trang sáng (review
+    31/10: chữ volume 1,16:1). Giữ module thuần: Streamlit nằm trong hàm của người đăng ký."""
+    global _resolver
+    _resolver = fn
+
+
 def current_mode() -> str:
-    return getattr(_local, "mode", "dark")
+    m = getattr(_local, "mode", None)
+    if m is None:
+        try:
+            m = _resolver() if _resolver is not None else None
+        except Exception:      # ngoài lượt Streamlit (thread pool, test) ⇒ không biết ⇒ tối
+            m = None
+        m = m if m in PALETTES else "dark"
+        _local.mode = m        # mỗi lượt fragment một luồng mới ⇒ hỏi một lần mỗi luồng
+    return m
 
 
 class _Tokens(Mapping):
@@ -291,7 +312,7 @@ def theme_watch_html(mode: str, sync_key: str = THEME_SYNC_KEY) -> str:
   function kind() {{
     var app = P.document.querySelector('[data-testid="stApp"]');
     if (!app) return null;
-    var c = (P.getComputedStyle(app).backgroundColor.match(/[\d.]+/g) || []).map(Number);
+    var c = (P.getComputedStyle(app).backgroundColor.match(/[\\d.]+/g) || []).map(Number);
     if (c.length < 3 || (c.length > 3 && c[3] === 0)) return null;
     return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255 < 0.5 ? "dark" : "light";
   }}
@@ -305,6 +326,13 @@ def theme_watch_html(mode: str, sync_key: str = THEME_SYNC_KEY) -> str:
   }}, 700);
 }})();
 </script>"""
+
+
+def category_colors(n: int) -> list[str]:
+    """n màu phân loại KHÔNG lặp (pie nhiều lát): chuỗi phân loại rồi bản nhạt của nó."""
+    base = list(series())
+    out = base + [rgba(c, 0.55) for c in base]
+    return [out[i % len(out)] for i in range(n)]
 
 
 def lwc_palette() -> dict:
