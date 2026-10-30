@@ -232,6 +232,11 @@ Mỗi pha = 1 PR (P3 = mỗi trang 1 PR). Mỗi PR: `run.py test --fast` xanh + 
   wheel 1.66.1: hàm vẫn còn, chỉ báo bỏ). `requirements` ghim `>=1.56.0,<1.57` — bản đã thử — để `pip install -r`
   ở máy cũ không nhảy thẳng lên bản mới nhất. Nâng trần = thử chart Phân tích trước.
 
+- **Màu theo chế độ đọc LÚC VẼ, kể cả trong fragment** (review 31/10): `@st.fragment(run_every=…)` chạy
+  lại trên luồng MỚI, không qua `set_mode` của script chính ⇒ `theme.set_mode_resolver` (script chính đăng ký
+  `st.context.theme.type`) cho luồng chưa gán tự hỏi. Đo Streamlit 1.56 + Chromium sáng: thiếu resolver
+  fragment ra nền tối `#0a0e1a`. Hằng màu cấp module cũng đứng yên ở màu tối — `test_theme_tokens.py::
+  test_no_mode_colors_frozen_at_import` (AST) chặn ở mọi file `dashboard/` + `vnstock_freshness`/`_health`.
 - **Chart 4 panel** (CLAUDE.md bất biến): P1 chỉ thay chuỗi màu trong CSS/JS iframe, không chạm
   logical-range hay whitespace bar warmup. Đổi màu nến ⇒ soi mắt thêm 1 lần trên máy thật.
 - **Live Mode/Live Scan ở sidebar chung** — `st.navigation` vẫn chạy entry mỗi lượt, giữ được; test cũ canh.
