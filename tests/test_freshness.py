@@ -77,7 +77,7 @@ def test_freshness_color_red_when_exactly_at_threshold():
 
 def test_freshness_html_shows_no_data_for_missing(tmp_path):
     html = freshness_html("Test", tmp_path / "missing.json", 3600)
-    assert "chưa có data" in html
+    assert "chưa có dữ liệu" in html
     assert "Test" in html
 
 

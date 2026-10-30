@@ -55,7 +55,7 @@ def freshness_html(
             f'<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
             f'background:{_T["border"]};color:{_T["text_muted"]};font-size:11px;'
             f'font-family:\'IBM Plex Sans\',sans-serif">'
-            f'{label}: <b>chưa có data</b></span>'
+            f'{label}: <b>chưa có dữ liệu</b></span>'
         )
     color = freshness_color(age, stale_seconds)
     return (

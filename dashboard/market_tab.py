@@ -176,21 +176,17 @@ def render_market_tab() -> None:
                 "exdiv_map": load_recent_exdiv(days_back=7),
                 "session_hist": load_session_stats_history()}
 
-    col_title_m, col_ref_m = st.columns([6,1])
-    with col_title_m:
-        _ui.page_header("Tổng quan thị trường", "Chỉ số · độ rộng · ngành · brief AI")
-    with col_ref_m:
-        if st.button("🔄", key="market_refresh", help="Refresh"):
-            st.cache_data.clear()
-            st.rerun()
+    # Nút 🔄 riêng của trang đã bỏ (P5): trùng nút "Làm mới" trên thanh trạng thái (cùng
+    # xoá cache_data + chạy lại).
+    _ui.page_header("Tổng quan thị trường", "Chỉ số · độ rộng · ngành · brief AI")
 
     # Data staleness badges — cảnh báo khi cache cũ
     try:
         from vnstock_freshness import render_freshness_row
         render_freshness_row([
-            ("📊 Market overview", Path("data_warehouse/_meta/market_overview.json"), 24 * 3600),
-            ("💸 NN flow",         Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
-            ("⏱ Session stats",    Path("data_warehouse/_meta/market_session_stats.json"), 1 * 3600),
+            ("Tổng quan ngành", Path("data_warehouse/_meta/market_overview.json"), 24 * 3600),
+            ("NN ròng",         Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
+            ("Thống kê phiên",  Path("data_warehouse/_meta/market_session_stats.json"), 1 * 3600),
         ])
         # mtime < 24h chưa đủ: overview chốt TRƯỚC 15:05 của phiên là giữa phiên.
         _fr = _overview_freshness()
@@ -359,7 +355,7 @@ def render_market_tab() -> None:
         # đang chạy bản cũ.
         st.caption(
             "🔌 Live Mode tắt — bật **Real-time WSS** ở sidebar bên trái "
-            "(mục 🔴 Live Mode) để xem chỉ số + heatmap VN30 real-time tại đây."
+            "(mục **Live**) để xem chỉ số + heatmap VN30 real-time tại đây."
         )
 
     # ── Chỉ số thị trường ────────────────────────────────────────────────────
@@ -588,7 +584,8 @@ def render_market_tab() -> None:
 
     # ── Market Overview theo ngành (dữ liệu đã load ở trên) ─────────────────
     if mkt_df.empty:
-        st.warning("Không có dữ liệu.")
+        _ui.empty_state("Chưa có số liệu ngành.",
+                        "Trang Hệ thống → \"🧩 Cập nhật còn lại\" (hoặc pipeline tối) tạo market_overview.")
     else:
         # ── Metric cards ───────────────────────────────────────────────────────
         c1, c2, c3, c4 = st.columns(4)
