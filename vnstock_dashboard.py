@@ -3477,7 +3477,9 @@ def _render_status_strip(system_page) -> None:
     parts.append(f'{_ui.status_dot("ok" if _live else "off")} '
                  f'<span style="color:{_T["text_muted"]}">Live {"bật" if _live else "tắt"}</span>')
 
-    c_info, c_act = st.columns([5, 2], vertical_alignment="center", gap="small")
+    # Cột nút đủ rộng cho "Hệ thống" + "Làm mới" trên cùng một hàng ở màn laptop 1366px (P5).
+    # (`st.container(wrap=False)` chỉ có từ Streamlit 1.66 — 1.56 ném TypeError.)
+    c_info, c_act = st.columns([5, 2.7], vertical_alignment="center", gap="small")
     c_info.markdown('<div class="vn-strip">' + "".join(f'<span class="vn-strip-item">{p}</span>' for p in parts)
                     + "</div>", unsafe_allow_html=True)
     items = _system_items()

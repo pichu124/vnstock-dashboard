@@ -877,6 +877,7 @@ def cmd_test(args) -> int:
             "tests/test_theme_tokens.py",     # màu/chữ một nguồn + ngân sách hex chỉ giảm (giao diện P1)
             "tests/test_pages_registry.py",   # sổ trang st.navigation 5 nhóm (giao diện P2)
             "tests/test_status_strip.py",     # thanh trạng thái: phiên, gộp 3 badge (giao diện P2)
+            "tests/test_streamlit_api_compat.py",  # tham số st.* có thật ở bản ghim (vết wrap=False, P5)
             "tests/test_portfolio_tab.py",
             "tests/test_screener_tab.py",
             "tests/test_screener_stale_visible.py",
