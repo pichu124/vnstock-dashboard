@@ -38,6 +38,10 @@ from dashboard.theme import (
     PLOTLY_BG as _PLOTLY_BG, TOKENS as _T, pct_color as _pct_color, rgba as _rgba,
 )
 
+# regime → token màu (tăng mạnh · tăng · đi ngang = vàng tham chiếu · giảm · giảm mạnh)
+_REGIME_TOKEN = {"bull": "up", "bullish": "up_soft", "sideways": "ref",
+                 "bearish": "down_soft", "bear": "down"}
+
 # Tổng bề rộng các ô heatmap VN30 tính theo bề ngang khung (%): 300 ≈ 3 hàng
 # cho 30 mã. Tăng = ô to hơn/nhiều hàng hơn, giảm = dẹt lại. Xem khối
 # "Chiều rộng ô ≈ VỐN HOÁ" trong `_live_market_fragment` để biết vì sao là
@@ -533,10 +537,13 @@ def render_market_tab() -> None:
             _rc1, _rc2, _rc3 = st.columns([2, 3, 3])
 
             with _rc1:
+                # Màu theo token LÚC VẼ (P5 giao diện): REGIME_META của vnstock_regime là hex
+                # cố định cho nền tối — trên nền sáng thành mảng xanh/nâu đậm lạc tông.
+                _rcol = _T[_REGIME_TOKEN.get(_r.get("regime"), "text_muted")]
                 st.markdown(
-                    f'<div style="background:{_r["bg"]};border:1px solid {_r["color"]}33;'
+                    f'<div style="background:{_rgba(_rcol, 0.14)};border:1px solid {_rgba(_rcol, 0.4)};'
                     f'border-radius:8px;padding:12px 16px;text-align:center">'
-                    f'<div style="font-size:22px;font-weight:700;color:{_r["color"]}">'
+                    f'<div style="font-size:22px;font-weight:700;color:{_rcol}">'
                     f'{_r["label"]}</div>'
                     f'<div style="color:{_T["text_muted"]};font-size:12px;margin-top:4px">'
                     f'Score: {_r["score"]:+d}/{_r["n_signals"]} · '
