@@ -18,6 +18,7 @@ Giới hạn (nói rõ để không tưởng bở):
 * Chạy được KHÔNG có nghĩa là hiển thị đúng — vẫn cần liếc mắt một lần sau
   khi merge.
 """
+import re
 import sys
 import types
 from pathlib import Path
@@ -572,7 +573,7 @@ def test_index_table_title_matches_rows_shown(render_env, monkeypatch):
     _load("dashboard.market_tab").render_market_tab()
 
     title = [m for m in _markdowns(st) if "Diễn biến chỉ số thị trường" in m]
-    assert title == ["#### 📈 Diễn biến chỉ số thị trường (20 phiên)"]
+    assert len(title) == 1 and "Diễn biến chỉ số thị trường (20 phiên)" in title[0], title
 
 
 def test_regime_failure_is_visible_not_silent(render_env, monkeypatch):
@@ -668,3 +669,173 @@ def test_quant_filters_load_once_per_render_with_drilldown_open(render_env, monk
     _load("dashboard.market_tab").render_market_tab()
 
     assert calls == {"quarantine": 1, "exdiv": 1, "session": 1}, calls
+
+
+# ── P3 thiết kế lại giao diện: tiêu đề + màu bảng điện (docs/THIET-KE-GIAO-DIEN.md §3, §6) ──
+
+_BREADTH = {"above_ma200_pct": 42.0, "above_ma200": 42, "total": 100,
+            "rsi_oversold_pct": 5.0, "rsi_oversold": 5,
+            "rsi_overbought_pct": 8.0, "rsi_overbought": 8,
+            "ad_ratio": 1.0, "advances": 40, "declines": 40, "unchanged": 20,
+            "net_new_highs": 0, "new_highs": 3, "new_lows": 3}
+
+
+def _regime_off(monkeypatch):
+    """Khối regime tô màu theo `vnstock_regime` (ngoài trang này) — tắt cho gọn."""
+    reg = types.ModuleType("vnstock_regime")
+
+    def _off():
+        raise RuntimeError("regime tắt trong test")
+    reg.load_regime = _off
+    monkeypatch.setitem(sys.modules, "vnstock_regime", reg)
+
+
+def _record_headings(monkeypatch):
+    """Bọc `ui.page_header`/`ui.section` thật — vẫn vẽ, chỉ ghi lại tiêu đề."""
+    from dashboard import ui
+    seen = []
+
+    def spy(name):
+        real = getattr(ui, name)
+
+        def wrapped(title, *a, **k):
+            seen.append((name, title))
+            return real(title, *a, **k)
+        return wrapped
+
+    for name in ("page_header", "section"):
+        monkeypatch.setattr(ui, name, spy(name))
+    return seen
+
+
+def test_overview_has_one_page_title_and_plain_section_titles(render_env, monkeypatch):
+    """Ba cấp chữ cố định: MỘT tiêu đề trang, mục không emoji, không còn
+    `###`/`####` markdown tự chế (trước P3: 7 kiểu tiêu đề, emoji lẫn tiếng Anh)."""
+    _regime_off(monkeypatch)
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        _stub_dashboard(_sector_df(), _index_df()))
+    st = render_env
+    st.session_state["_mkt_ticker_data"] = _ticker_df()
+    st.session_state["_mkt_breadth"] = dict(_BREADTH)
+    seen = _record_headings(monkeypatch)
+
+    _load("dashboard.market_tab").render_market_tab()
+
+    assert [t for n, t in seen if n == "page_header"] == ["Tổng quan thị trường"]
+    sections = [t for n, t in seen if n == "section"]
+    for want in ("Diễn biến chỉ số thị trường (20 phiên)", "Độ rộng thị trường",
+                 "Nhận định tổng quan thị trường", "Brief AI"):
+        assert want in sections, sections
+    assert not [t for t in sections if any(ord(c) >= 0x2600 for c in t)], sections
+    assert not [m for m in _markdowns(st) if m.lstrip().startswith("#")]
+
+
+def test_index_table_day_change_zero_is_reference_yellow(render_env, monkeypatch):
+    """%D của chỉ số là đổi 1 PHIÊN so tham chiếu ⇒ đứng giá tô vàng như bảng điện,
+    không phải xám."""
+    from dashboard.theme import TOKENS
+    idx = _index_df()
+    idx.loc[0, "VNINDEX_chg"] = 0.0
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", _stub_dashboard(None, idx))
+    st = render_env
+    _load("dashboard.market_tab").render_market_tab()
+
+    dump = " | ".join(_markdowns(st))
+    assert f'color:{TOKENS["ref"]};text-align:right">0.0%' in dump
+    assert f'color:{TOKENS["down"]};text-align:right">-' in dump   # 20 dòng đầu đều âm
+
+
+def test_vn30_heatmap_uses_board_colors(render_env, monkeypatch):
+    """Heatmap VN30 live: xanh tăng · đỏ giảm · VÀNG đứng giá (trước P3 đứng giá
+    là ô xám). Chỉ số đứng giá cũng vàng; đếm `=` trong độ rộng VN30 cũng vàng."""
+    from dashboard.theme import TOKENS, rgba
+    chg = {"AAA": 1.5, "BBB": -2.0, "CCC": 0.0}
+    stub = _stub_dashboard()
+    stub.WSS_AVAILABLE = True
+    stub.VN30_SYMBOLS = list(chg)
+    stub.load_live_quote = lambda s: {"ticker": s, "price": 100.0,
+                                      "chg_pct": chg.get(s, 0.0), "volume": 1}
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
+    st = render_env
+    st.session_state["live_mode"] = True
+
+    _load("dashboard.market_tab").render_market_tab()
+
+    dump = " | ".join(_markdowns(st))
+    bg = dict((tk, b) for b, tk in re.findall(
+        r"<div style='background:(rgba\([^)]*\));[^']*'><div style='[^']*'>([A-Z]+)</div>", dump))
+    assert bg["CCC"] == rgba(TOKENS["ref"], 0.3), bg
+    assert bg["AAA"].startswith(rgba(TOKENS["up"], 1)[:-2]), bg
+    assert bg["BBB"].startswith(rgba(TOKENS["down"], 1)[:-2]), bg
+    assert f"color:{TOKENS['ref']};font-size:13px;font-weight:600'>+0.00%" in dump  # VNINDEX
+    assert f"<span style='color:{TOKENS['ref']}'>=1</span>" in dump
+
+
+_TRACE = "Traceback (most recent call last):\n  File \"vnstock_train.py\", line 1"
+
+
+@pytest.mark.parametrize("diag", [False, True])
+def test_strategy_panel_keeps_raw_internals_behind_diag_mode(render_env, monkeypatch, diag):
+    """Người dùng thấy MỘT dòng lỗi; traceback training/quét và JSON params của
+    chiến lược chỉ hiện khi bật Chế độ chẩn đoán (trang Hệ thống)."""
+    import vnstock_strategy
+    from dashboard.ui import DIAG_FLAG
+    # vnstock_strategy nạp trước trong cả bộ test giữ vnstock_memory THẬT ⇒ không patch thì
+    # nó mở data_warehouse/_meta/brief_memory.db (đường tương đối) và đẻ file rỗng.
+    monkeypatch.setattr(vnstock_strategy, "strategy_health",
+                        lambda *a, **k: {"state": "insufficient"})
+    monkeypatch.setattr(sys.modules["vnstock_memory"], "get_active_family", lambda *a, **k: {
+        "id": 1, "name": "S1", "family_id": "f1", "params_json": '{"rsi_len": 14}'})
+    st = render_env
+    st.session_state[DIAG_FLAG] = diag
+    st.session_state["_train_result"] = {"error": f"RuntimeError: train hỏng\n{_TRACE}"}
+    st.session_state["_scan_result"] = {"error": f"ValueError: scan hỏng\n{_TRACE}"}
+
+    _load("dashboard.brief_strategy_panel").render_strategy_panel()
+
+    errors = [str(c.args[0]) for c in st.error.call_args_list if c.args]
+    codes = " | ".join(str(c.args[0]) for c in st.code.call_args_list if c.args)
+    assert "❌ RuntimeError: train hỏng" in errors and "❌ ValueError: scan hỏng" in errors
+    assert not [e for e in errors if "Traceback" in e], errors
+    assert ("Traceback" in codes) is diag
+    assert ('"rsi_len": 14' in codes) is diag
+
+
+@pytest.mark.parametrize("diag", [False, True])
+def test_scan_error_samples_only_in_diag_mode(render_env, diag):
+    """Số mã lỗi luôn hiện; MẪU exception của code chiến lược chỉ ở chế độ chẩn đoán."""
+    from dashboard.ui import DIAG_FLAG
+    st = render_env
+    st.session_state[DIAG_FLAG] = diag
+    st.session_state["_scan_result"] = {"n_scanned": 5, "n_recs": 0, "diag": {
+        "n_errors": 2, "n_executed": 0,
+        "errors_sample": [{"example_ticker": "AAA", "error": "NameError: x"}]}}
+    said = _said_captions(st)
+
+    _load("dashboard.brief_strategy_panel").render_strategy_panel()
+
+    codes = " | ".join(str(c.args[0]) for c in st.code.call_args_list if c.args)
+    assert [s for s in said if "Errors: **2**" in s], said
+    assert ("NameError: x" in codes) is diag
+
+
+def test_consensus_title_is_a_section_and_the_line_stays_markdown(render_env, monkeypatch):
+    """Tiêu đề mục không emoji; dòng đồng thuận (sinh từ brief) vẫn là markdown
+    nguyên văn — `**bullish**` phải còn được in đậm, không bị escape."""
+    import vnstock_brief as vb
+    import vnstock_stance_track
+    monkeypatch.setattr(vnstock_stance_track, "summary_line", lambda *a, **k: None)
+    monkeypatch.setattr(vb, "derive_consensus", lambda res: {
+        "n_agents": 2, "consensus_line": "2/2 agents: **bullish**", "stance": {"bullish": 2},
+        "per_agent": {"A": {"stance": "bullish"}, "B": {"stance": "bullish"}},
+        "top_sectors": [], "top_tickers": []})
+    st = render_env
+    st.session_state["_brief_results"] = {"A": ("a", None), "B": ("b", None)}
+    seen = _record_headings(monkeypatch)
+
+    _load("dashboard.brief_run_panel").render_brief_runner()
+
+    assert ("section", "Đồng thuận các agent") in seen
+    md = _markdowns(st)
+    assert "🟢 2/2 agents: **bullish**" in md
+    assert not [m for m in md if m.lstrip().startswith("#")]

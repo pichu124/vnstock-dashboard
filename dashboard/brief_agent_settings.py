@@ -9,6 +9,8 @@ user, mất là phải chỉnh tay lại).
 """
 from __future__ import annotations
 
+from dashboard.theme import status_color
+
 
 def render_agent_settings() -> None:
     """Render panel. Streamlit import LƯỜI để pytest import được module."""
@@ -38,9 +40,9 @@ def render_agent_settings() -> None:
                 except Exception:
                     _key_ok = False
             _key_badge = (
-                f'<span style="color:#10b981;font-size:12px">🔑 key OK</span>'
+                f'<span style="color:{status_color("ok")};font-size:12px">🔑 key OK</span>'
                 if _key_ok else
-                f'<span style="color:#ef4444;font-size:12px">🔑 chưa có key</span>'
+                f'<span style="color:{status_color("error")};font-size:12px">🔑 chưa có key</span>'
             )
             st.markdown(
                 f"**{_aname}** `{_atype}` &nbsp; {_key_badge}",
