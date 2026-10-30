@@ -6,15 +6,22 @@
 enableStaticServing = true
 
 [client]
-# Ẩn nút Deploy + menu dev ở góc phải (P2 giao diện) — app chạy local, không deploy.
-toolbarMode = "minimal"
+# Ẩn nút Deploy + mục dev (rerun, clear cache) ở góc phải (P2 giao diện); "viewer" giữ
+# mục của người xem (in, chọn giao diện) — "minimal" ẩn cả chúng.
+toolbarMode = "viewer"
 
-# Theme — giá trị CHÉP từ dashboard/theme.py TOKENS (tests/test_theme_tokens.py
-# canh hai bên khớp). Ghim nền TỐI: thiếu dòng `base`, máy để chế độ sáng thì
-# Streamlit dựng theme sáng dưới CSS nền tối ⇒ chữ tiêu đề chìm (đo 30/10).
-# Sáng/tối thật là việc P4 (docs/THIET-KE-GIAO-DIEN.md).
+# Theme — giá trị CHÉP từ dashboard/theme.py DARK/LIGHT (tests/test_theme_tokens.py canh
+# khớp). Hai bộ [theme.dark]/[theme.light] (P4): Streamlit theo chế độ sáng/tối của HỆ
+# ĐIỀU HÀNH; script chính đọc `st.context.theme.type` mỗi lượt để CSS/chart/bảng HTML
+# dùng đúng bảng màu. `base` chỉ là bản dự phòng (trước P4, thiếu nó thì máy để chế độ
+# sáng dựng theme sáng dưới CSS tối — đo 30/10). Phần chung (font, bo góc) ở [theme].
 [theme]
 base = "dark"
+font = "IBM Plex Sans, sans-serif"
+codeFont = "IBM Plex Mono, monospace"
+baseRadius = "8px"
+
+[theme.dark]
 primaryColor = "#3b82f6"
 backgroundColor = "#0a0e1a"
 secondaryBackgroundColor = "#111827"
@@ -31,9 +38,24 @@ grayColor = "#9ca3af"
 dataframeBorderColor = "#1f2937"
 dataframeHeaderBackgroundColor = "#111827"
 chartCategoricalColors = ["#60a5fa", "#f59e0b", "#a78bfa", "#22d3ee", "#34d399", "#f87171", "#d946ef", "#9ca3af"]
-font = "IBM Plex Sans, sans-serif"
-codeFont = "IBM Plex Mono, monospace"
-baseRadius = "8px"
+
+[theme.light]
+primaryColor = "#2563eb"
+backgroundColor = "#f6f8fb"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1f2937"
+borderColor = "#dfe5ee"
+linkColor = "#1d4ed8"
+greenColor = "#047857"
+redColor = "#c81e1e"
+yellowColor = "#a15c07"
+orangeColor = "#b45309"
+violetColor = "#7c3aed"
+blueColor = "#2563eb"
+grayColor = "#4b5563"
+dataframeBorderColor = "#dfe5ee"
+dataframeHeaderBackgroundColor = "#ffffff"
+chartCategoricalColors = ["#1d4ed8", "#b45309", "#7c3aed", "#0e7490", "#0f766e", "#b42318", "#a21caf", "#4b5563"]
 
 [[theme.fontFaces]]
 family = "IBM Plex Sans"

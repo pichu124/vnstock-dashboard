@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from dashboard import theme
-from dashboard.theme import TOKENS
+from dashboard.theme import DARK, LIGHT, PALETTES, TOKENS
 
 ROOT = Path(__file__).resolve().parent.parent
 tomllib = pytest.importorskip("tomllib")
@@ -46,25 +46,70 @@ _CONFIG_TO_TOKEN = {
 }
 
 
-def test_tokens_are_lowercase_hex():
-    for name, val in TOKENS.items():
-        assert _HEX6.match(val), f"token {name}={val!r} phải là #rrggbb chữ thường"
+@pytest.mark.parametrize("mode", ["dark", "light"])
+def test_tokens_are_lowercase_hex_and_same_keys(mode):
+    pal = PALETTES[mode]
+    assert set(pal) == set(DARK), "hai bảng phải cùng bộ khoá — thiếu khoá là KeyError khi đổi chế độ"
+    for name, val in pal.items():
+        assert _HEX6.match(val), f"{mode}.{name}={val!r} phải là #rrggbb chữ thường"
 
 
-def test_theme_is_pinned_dark():
-    """Thiếu `base`, máy để chế độ sáng ⇒ Streamlit dựng theme sáng dưới CSS nền tối:
-    tiêu đề chìm vào nền (chụp được 30/10). Sáng/tối thật là P4."""
+def test_both_modes_declared_with_dark_fallback():
+    """Trước P4 thiếu `base` ⇒ máy để chế độ sáng dựng theme sáng dưới CSS tối (chụp 30/10).
+    Từ P4: hai bộ màu thật, Streamlit theo hệ điều hành; `base` chỉ là dự phòng."""
     assert _CONFIG["theme"]["base"] == "dark"
+    assert {"dark", "light"} <= set(_CONFIG["theme"])
 
 
+@pytest.mark.parametrize("mode", ["dark", "light"])
 @pytest.mark.parametrize("key,token", sorted(_CONFIG_TO_TOKEN.items()))
-def test_config_color_matches_token(key, token):
-    assert _CONFIG["theme"][key].lower() == TOKENS[token], (
-        f"config.toml [theme] {key} lệch dashboard/theme.TOKENS[{token!r}] — sửa CẢ HAI")
+def test_config_color_matches_token(mode, key, token):
+    assert _CONFIG["theme"][mode][key].lower() == PALETTES[mode][token], (
+        f"config.toml [theme.{mode}] {key} lệch dashboard/theme.{mode.upper()}[{token!r}] — sửa CẢ HAI")
 
 
-def test_chart_colors_match_series():
-    assert [c.lower() for c in _CONFIG["theme"]["chartCategoricalColors"]] == list(theme.SERIES)
+@pytest.mark.parametrize("mode", ["dark", "light"])
+def test_chart_colors_match_series(mode):
+    got = [c.lower() for c in _CONFIG["theme"][mode]["chartCategoricalColors"]]
+    assert got == list(theme.series(PALETTES[mode]))
+
+
+def test_tokens_follow_the_mode_of_this_run():
+    """TOKENS là bảng ĐỘNG: script chính gọi set_mode mỗi lượt theo st.context.theme.type."""
+    try:
+        assert theme.set_mode("light") == "light" and TOKENS["bg"] == LIGHT["bg"]
+        assert theme.set_mode("lạ") == "dark" and TOKENS["bg"] == DARK["bg"]
+        assert theme.set_mode(None) == "dark"
+    finally:
+        theme.set_mode("dark")
+
+
+def test_mode_is_per_thread():
+    """Mỗi phiên Streamlit chạy script ở luồng riêng — phiên sáng không được nhuộm phiên tối."""
+    import threading
+    seen = {}
+    theme.set_mode("light")
+    try:
+        t = threading.Thread(target=lambda: seen.update(bg=TOKENS["bg"]))
+        t.start(); t.join()
+        assert seen["bg"] == DARK["bg"] and TOKENS["bg"] == LIGHT["bg"]
+    finally:
+        theme.set_mode("dark")
+
+
+def test_render_time_lookup_not_frozen_at_import():
+    """Hằng màu cấp module đứng yên ở màu tối — 3 module tô bảng phải đổi theo chế độ."""
+    from dashboard.market_table_format import color_val
+    from dashboard.sparkline import sparkline_svg
+    from dashboard.table_style import cell_color
+    try:
+        theme.set_mode("light")
+        assert cell_color("1D%", "+1.0%") == LIGHT["up"]
+        assert color_val(-1.0, "Giá 1T %") == LIGHT["down"]
+        assert LIGHT["up"] in sparkline_svg([0.0, 1.0])
+        assert LIGHT["surface"] in theme.app_css() and DARK["surface"] not in theme.app_css()
+    finally:
+        theme.set_mode("dark")
 
 
 # ── 2. Font tự host ─────────────────────────────────────────────────────────
@@ -102,17 +147,23 @@ _READABLE = ("text_strong", "text", "text_muted", "text_faint", "link", "categor
              "up", "down", "ref", "ceil", "floor", "up_soft", "down_soft", "warn")
 
 
+@pytest.mark.parametrize("mode", ["dark", "light"])
 @pytest.mark.parametrize("token", _READABLE)
 @pytest.mark.parametrize("ground", ["bg", "surface"])
-def test_readable_text_passes_wcag_aa(token, ground):
-    ratio = theme.contrast(TOKENS[token], TOKENS[ground])
-    assert ratio >= 4.5, f"{token} trên {ground} chỉ {ratio:.2f}:1"
+def test_readable_text_passes_wcag_aa(mode, token, ground):
+    pal = PALETTES[mode]
+    ratio = theme.contrast(pal[token], pal[ground])
+    assert ratio >= 4.5, f"[{mode}] {token} trên {ground} chỉ {ratio:.2f}:1"
 
 
-def test_button_text_on_accent_fill_passes():
+@pytest.mark.parametrize("mode", ["dark", "light"])
+def test_button_text_on_accent_fill_passes(mode):
+    assert theme.contrast(PALETTES[mode]["on_fill"], PALETTES[mode]["accent_fill"]) >= 4.5
+
+
+def test_white_on_dark_accent_fails_hence_accent_fill():
     """Chữ trắng trên #3b82f6 chỉ 3,7:1 — lý do có `accent_fill`."""
-    assert theme.contrast(TOKENS["on_fill"], TOKENS["accent_fill"]) >= 4.5
-    assert theme.contrast(TOKENS["on_fill"], TOKENS["accent"]) < 4.5
+    assert theme.contrast(DARK["on_fill"], DARK["accent"]) < 4.5
 
 
 def test_contrast_reference_values():
@@ -175,8 +226,23 @@ def test_lwc_palette_values_are_colors():
 
 def test_app_css_uses_only_token_colors():
     css_hex = set(re.findall(r"#[0-9a-f]{6}", theme.app_css()))
-    assert css_hex <= set(TOKENS.values())
+    assert css_hex <= set(DARK.values())
     assert "@import" not in theme.app_css(), "font đi [[theme.fontFaces]], không @import Google Fonts"
+
+
+def test_app_css_does_not_pin_app_background():
+    """Đè nền `.stApp` = đứng yên ở chế độ cũ khi user đổi giao diện trong menu ⋮; nền do
+    config.toml lo, và theme_watch_html đọc chính nền đó để biết phải chạy lại."""
+    assert ".stApp {" not in theme.app_css().replace(" ", " ")
+    assert "st-key-_theme_sync" in theme.app_css()
+
+
+@pytest.mark.parametrize("mode,other", [("dark", "light"), ("light", "dark")])
+def test_theme_watch_clicks_sync_button_once_on_mismatch(mode, other):
+    js = theme.theme_watch_html(mode)
+    assert f'MODE = "{mode}"' in js and ".st-key-_theme_sync button" in js
+    assert "fired === now" in js and "fired = now" in js      # một lần mỗi chế độ đích
+    assert theme.theme_watch_html("lạ").count('MODE = "light"') == 1
 
 
 def test_theme_module_is_pure():

@@ -13,24 +13,13 @@ from __future__ import annotations
 
 from dashboard.theme import TOKENS as _T
 
-# Màu lấy từ token (P1 thiết kế lại giao diện). Ô trống/không parse nổi từng là
-# #4b5563/#6b7280 — 2,6:1 và 4,0:1 trên nền, dưới chuẩn đọc ⇒ nay `text_faint`.
-GRAY_EMPTY = _T["text_faint"]        # ô trống / "—"
-GRAY_UNPARSEABLE = _T["text_faint"]  # có giá trị nhưng không parse nổi
-GRAY_NEUTRAL = _T["text_muted"]
-DEFAULT_COLOR = _T["text"]
-
+# Màu lấy từ token LÚC VẼ (P1 màu, P4 sáng/tối): hằng cấp module sẽ đứng yên ở màu tối.
+# Ô trống/không parse nổi từng là #4b5563/#6b7280 (2,6:1 và 4,0:1) ⇒ nay `text_faint`.
 _PCT_COLUMNS = ("1D%", "5D%", "20D%", "BB%", "52W%")
 # Đổi 1 PHIÊN = so tham chiếu ⇒ 0% tô VÀNG như bảng điện; đổi nhiều phiên thì 0 chỉ
 # là "không đổi" — để xám.
 _SESSION_PCT = "1D%"
-_MACD_COLORS = {
-    "BUY": _T["up"], "BULL": _T["up_soft"],
-    "SELL": _T["down"], "BEAR": _T["down_soft"],
-}
-
-_GREEN, _RED = _T["up"], _T["down"]
-_GREEN_SOFT, _RED_SOFT = _T["up_soft"], _T["down_soft"]
+_MACD_TOKENS = {"BUY": "up", "BULL": "up_soft", "SELL": "down", "BEAR": "down_soft"}
 
 
 def _as_pct(val) -> float:
@@ -41,7 +30,7 @@ def _as_pct(val) -> float:
 def cell_color(col, val) -> str:
     """Màu chữ cho một ô của bảng screener."""
     if not val or val == "—":
-        return GRAY_EMPTY
+        return _T["text_faint"]
     if col in _PCT_COLUMNS:
         try:
             v = _as_pct(val)
@@ -50,35 +39,35 @@ def cell_color(col, val) -> str:
                 # 1 bước giá ≈ 0,04%) — giữ CHIỀU theo dấu; chỉ "0.0%" mới là đứng giá.
                 sign = str(val).strip()[:1]
                 if sign in "+-":
-                    return _GREEN if sign == "+" else _RED
-                return _T["ref"] if col == _SESSION_PCT else GRAY_NEUTRAL
-            return _GREEN if v > 0 else _RED
+                    return _T["up"] if sign == "+" else _T["down"]
+                return _T["ref"] if col == _SESSION_PCT else _T["text_muted"]
+            return _T["up"] if v > 0 else _T["down"]
         except (ValueError, TypeError):
-            return GRAY_UNPARSEABLE
+            return _T["text_faint"]
     if col == "RSI":
         try:
             v = float(val)
         except (ValueError, TypeError):
-            return GRAY_UNPARSEABLE
+            return _T["text_faint"]
         if v < 30:
-            return _GREEN
+            return _T["up"]
         if v > 70:
-            return _RED
+            return _T["down"]
         if v < 40:
-            return _GREEN_SOFT
+            return _T["up_soft"]
         if v > 60:
-            return _RED_SOFT
+            return _T["down_soft"]
         return _T["text"]
     if col == "MACD":
-        return _MACD_COLORS.get(str(val).upper(), GRAY_NEUTRAL)
+        return _T[_MACD_TOKENS.get(str(val).upper(), "text_muted")]
     if col == "Trend":
         up = str(val).upper()
-        return _GREEN if up == "UP" else (_RED if up in ("DOWN", "DN") else GRAY_NEUTRAL)
+        return _T["up"] if up == "UP" else (_T["down"] if up in ("DOWN", "DN") else _T["text_muted"])
     if col == "Ticker":
         return _T["link"]
     if col == "Ngành":
         return _T["category"]
-    return DEFAULT_COLOR
+    return _T["text"]
 
 
 def cell_weight(col, val) -> str:

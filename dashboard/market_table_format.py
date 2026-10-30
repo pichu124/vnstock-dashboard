@@ -27,10 +27,8 @@ FREE_VOL_COLS = ("Vol 5/Free %", "Vol 10/Free %", "Vol 20/Free %")
 VOL_AVG_COLS = ("Vol Avg 5", "Vol Avg 10", "Vol Avg 20")
 MONEY_COLS = ("Vốn hoá (tỷ)", "GTGD TB (tỷ)", "Freefloat (tỷ)")
 
-# Từ token (P1 thiết kế lại giao diện). MISSING từng là #4b5563 (2,6:1 — dưới chuẩn đọc).
-GREEN, RED, GRAY = _T["up"], _T["down"], _T["text_muted"]
-MISSING = _T["text_faint"]
-DEFAULT = _T["text"]
+# Màu đọc từ token LÚC VẼ (P4 sáng/tối — hằng cấp module đứng yên ở màu tối).
+# Ô thiếu số từng là #4b5563 (2,6:1 — dưới chuẩn đọc) ⇒ nay `text_faint`.
 
 # Vol 5/20 %: trên 110 là dòng tiền đang vào, dưới 90 là đang rút.
 _VOL_RATIO_HOT, _VOL_RATIO_COLD = 110, 90
@@ -90,18 +88,18 @@ def fvol_colors(val, vmin, vrange) -> tuple:
 def color_val(val, col, amp_min=0, amp_range=1) -> str:
     """Màu chữ của một ô theo giá trị + tên cột."""
     if val is None or _is_nan(val):
-        return MISSING
+        return _T["text_faint"]
     if col in PRICE_PCT_COLS + NN_COLS + NET_BS_COLS + AVG_VOL_COLS:
         v = float(val)
-        return GREEN if v > 0 else (RED if v < 0 else GRAY)
+        return _T["up"] if v > 0 else (_T["down"] if v < 0 else _T["text_muted"])
     if col in FREE_VOL_COLS:
-        return DEFAULT              # ô này tô nền riêng bằng fvol_colors
+        return _T["text"]              # ô này tô nền riêng bằng fvol_colors
     if col == "Vol 5/20 %":
         v = float(val)
-        return GREEN if v > _VOL_RATIO_HOT else (RED if v < _VOL_RATIO_COLD else DEFAULT)
+        return _T["up"] if v > _VOL_RATIO_HOT else (_T["down"] if v < _VOL_RATIO_COLD else _T["text"])
     if col in AMP_COLS:
         return amp_color(val, amp_min, amp_range)
-    return DEFAULT
+    return _T["text"]
 
 
 def fmt(val, col) -> str:

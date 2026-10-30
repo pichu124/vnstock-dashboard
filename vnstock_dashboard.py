@@ -107,6 +107,20 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Bảng màu theo chế độ sáng/tối của LƯỢT NÀY (P4 giao diện) — phải trước mọi chỗ vẽ.
+# Streamlit theo chế độ của hệ điều hành ([theme.dark]/[theme.light] trong config.toml);
+# `dashboard.theme.TOKENS` đọc theo luồng nên mỗi phiên một chế độ.
+from dashboard.theme import (  # noqa: E402
+    THEME_SYNC_KEY as _THEME_SYNC_KEY, THEME_WATCH_KEY as _THEME_WATCH_KEY,
+    current_mode as _theme_current_mode, set_mode as _set_theme_mode,
+    theme_watch_html as _theme_watch_html,
+)
+
+try:
+    _set_theme_mode(st.context.theme.type)   # "dark" / "light" / None (chưa biết ⇒ tối)
+except Exception:                             # chạy ngoài Streamlit (test, bare mode)
+    _set_theme_mode(None)
+
 RESULTS_PATH  = Path("data_warehouse/_meta/screener_results.json")
 PRICES_DIR    = Path("data_warehouse/prices")
 INDUSTRY_PATH = Path("data_warehouse/_meta/industry_classification.parquet")
@@ -3335,9 +3349,13 @@ with st.sidebar:
         st.session_state["live_scan"] = False
         st.caption("⚠ Module `vnstock_wss` chưa có — Live mode không khả dụng")
 
-    # Công tắc "☀️ Light mode" cũ đã BỎ (P1 thiết kế lại giao diện, 30/10): nó chỉ đè 9
-    # selector nên bảng/chart/badge vẫn nền tối — nửa sáng nửa tối. Sáng/tối thật là
-    # P4 (`[theme.light]`/`[theme.dark]` trong .streamlit/config.toml).
+    # Công tắc "☀️ Light mode" cũ đã BỎ (P1): nó chỉ đè 9 selector — nửa sáng nửa tối.
+    # Sáng/tối thật (P4): theo hệ điều hành hoặc menu ⋮ của Streamlit (System/Light/Dark).
+    # Đổi trong menu KHÔNG chạy lại script ⇒ iframe ẩn thấy nền lệch thì bấm nút ẩn này
+    # một lần (dashboard/theme.py::theme_watch_html). Cả hai bị CSS giấu.
+    st.button("Đồng bộ giao diện", key=_THEME_SYNC_KEY)
+    with st.container(key=_THEME_WATCH_KEY):
+        _stc.html(_theme_watch_html(_theme_current_mode()), height=0)
     st.divider()
 
 # All constants and functions are defined above this point.

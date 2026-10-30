@@ -48,6 +48,18 @@ def section(title: str, caption: str | None = None) -> None:
         unsafe_allow_html=True)
 
 
+def empty_state(message: str, hint: str | None = None) -> None:
+    """Trạng thái RỖNG thống nhất (P5): một câu vì sao trống + việc nên làm — thay cho
+    `st.warning("Không có dữ liệu.")` vàng rực như báo lỗi."""
+    import streamlit as st
+    tip = (f'<div style="margin-top:4px;font-size:13px;color:{_T["text_muted"]}">'
+           f'{html.escape(hint)}</div>') if hint else ""
+    st.markdown(
+        f'<div style="padding:16px 18px;border:1px dashed {_T["border"]};border-radius:8px;'
+        f'background:{_T["surface"]}"><div style="color:{_T["text"]}">{html.escape(message)}</div>'
+        f'{tip}</div>', unsafe_allow_html=True)
+
+
 def status_dot(level: str, size: int = 8) -> str:
     """HTML chấm tròn theo mức ok/warn/error/off."""
     c = status_color(level)

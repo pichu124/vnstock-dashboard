@@ -8,13 +8,20 @@ file (chỉ được GIẢM) và canh `config.toml` khớp `TOKENS`.
 Giá theo quy ước bảng điện VN (user chốt 30/10): xanh tăng · đỏ giảm · vàng
 tham chiếu · tím trần · xanh lơ sàn. Màu nhấn là XANH DƯƠNG — xanh lá đã mang
 nghĩa "tăng". Mọi chữ nhỏ ≥ 4,5:1 trên `bg` (test đo).
+
+SÁNG/TỐI (P4): hai bảng `DARK`/`LIGHT` cùng bộ khoá. `TOKENS` là bảng ĐỘNG — mỗi lần
+đọc trả màu của chế độ đang dùng ở LƯỢT CHẠY hiện tại (`set_mode`, script chính gọi
+đầu mỗi lượt theo `st.context.theme.type`). Vì vậy đọc `TOKENS[...]` LÚC VẼ, đừng chép
+ra hằng ở cấp module (hằng đó đứng yên ở màu tối). Chưa ai gọi `set_mode` ⇒ tối.
 """
 from __future__ import annotations
 
 import math
+import threading
+from collections.abc import Mapping
 from types import MappingProxyType
 
-TOKENS = MappingProxyType({
+DARK = MappingProxyType({
     # nền
     "bg": "#0a0e1a",           # nền app + nền chart
     "surface": "#111827",      # thẻ, sidebar, header bảng
@@ -46,9 +53,77 @@ TOKENS = MappingProxyType({
     "on_light": "#111827",
 })
 
-# Thứ tự màu cho chuỗi phân loại (Plotly / Altair qua `chartCategoricalColors`).
-SERIES = (TOKENS["link"], TOKENS["warn"], TOKENS["category"], TOKENS["floor"],
-          TOKENS["up_soft"], TOKENS["down_soft"], TOKENS["ceil"], TOKENS["text_muted"])
+# Nền sáng: màu giá đậm hơn để chữ đạt 4,5:1 trên nền trắng (xanh #10b981 trên trắng chỉ
+# 2,5:1). Vàng tham chiếu đổi sang hổ phách — vàng tươi trên trắng không đọc được.
+LIGHT = MappingProxyType({
+    "bg": "#f6f8fb",
+    "surface": "#ffffff",
+    "surface_2": "#eef2f7",
+    "border": "#dfe5ee",
+    "text_strong": "#0b1220",
+    "text": "#1f2937",
+    "text_muted": "#4b5563",
+    "text_faint": "#5b6472",
+    "text_off": "#9ca3af",
+    "accent": "#2563eb",
+    "accent_fill": "#2563eb",
+    "link": "#1d4ed8",
+    "category": "#7c3aed",
+    "up": "#047857",
+    "down": "#c81e1e",
+    "ref": "#a15c07",
+    "ceil": "#a21caf",
+    "floor": "#0e7490",
+    "up_soft": "#0f766e",
+    "down_soft": "#b42318",
+    "warn": "#b45309",
+    "on_fill": "#ffffff",
+    "on_light": "#111827",
+})
+PALETTES = MappingProxyType({"dark": DARK, "light": LIGHT})
+
+# Chế độ theo LUỒNG: mỗi phiên Streamlit chạy script trong luồng riêng.
+_local = threading.local()
+
+
+def set_mode(mode) -> str:
+    """Chọn bảng màu cho lượt chạy hiện tại ('dark'/'light'; lạ ⇒ 'dark'). Trả chế độ đã chọn."""
+    m = mode if mode in PALETTES else "dark"
+    _local.mode = m
+    return m
+
+
+def current_mode() -> str:
+    return getattr(_local, "mode", "dark")
+
+
+class _Tokens(Mapping):
+    """Bảng màu theo chế độ hiện tại — đọc như dict thường."""
+
+    def __getitem__(self, key: str) -> str:
+        return PALETTES[current_mode()][key]
+
+    def __iter__(self):
+        return iter(DARK)
+
+    def __len__(self) -> int:
+        return len(DARK)
+
+    def __repr__(self) -> str:
+        return f"TOKENS[{current_mode()}]"
+
+
+TOKENS = _Tokens()
+
+
+def series(palette: Mapping | None = None) -> tuple[str, ...]:
+    """Thứ tự màu chuỗi phân loại (Plotly / Altair qua `chartCategoricalColors`)."""
+    t = palette or TOKENS
+    return (t["link"], t["warn"], t["category"], t["floor"],
+            t["up_soft"], t["down_soft"], t["ceil"], t["text_muted"])
+
+
+SERIES = series(DARK)   # bản tối — giữ tên cũ cho chỗ cần hằng
 
 FONT_SANS = "IBM Plex Sans"
 FONT_MONO = "IBM Plex Mono"
@@ -156,7 +231,10 @@ def app_css() -> str:
     t = TOKENS
     return f"""
 html, body, [class*="css"] {{ font-family: '{FONT_SANS}', sans-serif; }}
-.stApp {{ background: {t['bg']}; }}
+/* Nền app do theme Streamlit vẽ (config.toml [theme.dark]/[theme.light] = token `bg`).
+   KHÔNG đè `.stApp` ở đây: đè là đứng yên ở chế độ của lượt trước khi user đổi giao diện
+   trong menu ⋮ (Streamlit không chạy lại script) — và theme_watch_html đọc nền này. */
+.st-key-_theme_sync, .st-key-_theme_watch {{ display: none !important; }}
 .metric-card {{ background: {t['surface']}; border: 1px solid {t['border']};
   border-radius: 8px; padding: 16px 20px; text-align: center; }}
 .metric-card .label {{ font-size: 11px; color: {t['text_faint']}; text-transform: uppercase;
@@ -191,6 +269,42 @@ html, body, [class*="css"] {{ font-family: '{FONT_SANS}', sans-serif; }}
 .vn-side-label {{ font-size: 12px; color: {t['text_muted']}; text-transform: uppercase;
   letter-spacing: 0.06em; margin: 4px 0 6px; }}
 """
+
+
+THEME_SYNC_KEY = "_theme_sync"     # nút ẩn — bấm = chạy lại script
+THEME_WATCH_KEY = "_theme_watch"   # container ẩn chứa iframe theo dõi
+
+
+def theme_watch_html(mode: str, sync_key: str = THEME_SYNC_KEY) -> str:
+    """iframe ẩn (components.html) theo dõi nền `.stApp` của trang cha.
+
+    Đổi Light/Dark trong menu ⋮ thì Streamlit KHÔNG chạy lại script (issue #11920) ⇒ CSS,
+    bảng HTML, chart vẫn tô theo chế độ cũ (đo 31/10: chữ sáng trên nền sáng). Nền lệch
+    `mode` của lượt này ⇒ bấm nút ẩn `sync_key` MỘT lần ⇒ lượt mới đọc
+    `st.context.theme.type` đã cập nhật (đo 31/10). Không lặp: iframe chỉ dựng lại khi
+    `mode` đổi, cờ `fired` giữ một lần bấm cho mỗi chế độ đích.
+    """
+    m = "dark" if mode == "dark" else "light"
+    return f"""<script>
+(function () {{
+  var MODE = "{m}", fired = null, P = window.parent;
+  function kind() {{
+    var app = P.document.querySelector('[data-testid="stApp"]');
+    if (!app) return null;
+    var c = (P.getComputedStyle(app).backgroundColor.match(/[\d.]+/g) || []).map(Number);
+    if (c.length < 3 || (c.length > 3 && c[3] === 0)) return null;
+    return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255 < 0.5 ? "dark" : "light";
+  }}
+  setInterval(function () {{
+    try {{
+      var now = kind();
+      if (!now || now === MODE || fired === now) return;
+      var btn = P.document.querySelector('.st-key-{sync_key} button');
+      if (btn) {{ fired = now; btn.click(); }}
+    }} catch (e) {{}}
+  }}, 700);
+}})();
+</script>"""
 
 
 def lwc_palette() -> dict:

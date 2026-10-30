@@ -107,6 +107,11 @@ phản đo trên nền `bg`.
 | `up_soft` / `down_soft` | `#34d399` / `#f87171` | chữ trên nền nhạt (chip %, chip RSI) | 10,0 / 7,0 |
 | `series_1..3` | `#60a5fa` · `#f59e0b` · `#a78bfa` | EMA·MACD · đường tín hiệu · RSI | 7,6 · 9,0 · 7,1 |
 
+**Nền sáng (P4, `theme.LIGHT`)** — cùng bộ khoá, màu giá ĐẬM hơn để chữ đạt 4,5:1 trên trắng (xanh `#10b981`
+trên trắng chỉ 2,5:1; vàng `#fbbf24` gần như không đọc được): `bg #f6f8fb` · `surface #ffffff` · `text #1f2937` ·
+`text_muted #4b5563` · `text_faint #5b6472` · `up #047857` · `down #c81e1e` · `ref #a15c07` (hổ phách) · `ceil
+#a21caf` · `floor #0e7490` · `accent #2563eb`. Test đo tương phản cả hai bảng trên `bg` và `surface`.
+
 Trạng thái (ok/warn/error/off) dùng lại `up`/`warn`/`down`/`text_faint` — **một** sắc xanh trong cả app.
 Biểu đồ: `chartCategoricalColors` 8 màu cho ngành, `chartDivergingColors` đỏ→xám→xanh cho heatmap — kiểm
 phân biệt được với mù màu đỏ-lục trước khi chốt (P0).
@@ -217,7 +222,7 @@ Mỗi pha = 1 PR (P3 = mỗi trang 1 PR). Mỗi PR: `run.py test --fast` xanh + 
 | **P2** Khung ✅ 31/10 | `st.navigation(position="top")` 5 nhóm · 13 trang có URL (`/tong-quan` mặc định, `/bo-loc`, `/phan-tich`, `/he-thong`…) — sổ ở `dashboard/pages.py` · thanh trạng thái mọi trang (`dashboard/status_strip.py`: VN-Index từ KHO, phiên HOSE, dữ liệu screener/cũ, Live, chấm Hệ thống = gộp 3 badge, popover chi tiết, nút Làm mới) · sidebar còn Live + điều khiển trang · trang Hệ thống (trạng thái · 3 nút pipeline giữ khoá marker · công tắc chẩn đoán · sức khoẻ cũ) · thiếu screener KHÔNG chặn cả app nữa · 6 khối Debug/Stack trace/JSON thô chỉ hiện khi bật chẩn đoán · `dashboard/ui.py` (page_header, section, status_dot, show_error, diag_on) · ẩn nút Deploy (`toolbarMode=minimal`) | Claude | Cloud: 13 trang 0 exception, font Plex nạp ở trang con; FULL xanh. `test_live_mode_crosstab` giữ nguyên |
 | | Merge + restart; thử: mở `localhost:8501` vào thẳng Tổng quan; F5 ở `/phan-tich` vẫn ở Phân tích; chấm Hệ thống đỏ khi test đỏ | user ⇄ CẢ HAI (merge) · ○ (thử) | |
 | **P3** Từng trang | Thứ tự: Tổng quan → Bộ lọc → Phân tích mã → Danh mục → Dòng tiền → còn lại. Thay HTML inline bằng `ui.*`, chuẩn tiêu đề, màu giá VN | Claude · user soi mắt mỗi PR ○ | Allowlist hex của trang về 0; ảnh sau khớp mockup |
-| **P4** Sáng/tối | `[theme.light]`+`[theme.dark]` + nút chuyển sẵn của Streamlit (§9 câu 3a; toggle cũ đã bỏ ở P1) | Claude | Hai chế độ cùng đúng trên 9 ảnh |
+| **P4** Sáng/tối | `theme.DARK`/`LIGHT` + `TOKENS` ĐỘNG theo luồng (`set_mode` đầu mỗi lượt từ `st.context.theme.type`) · `[theme.dark]`+`[theme.light]` trong config (Streamlit theo chế độ sáng/tối của hệ điều hành; đo 31/10: nạp lần đầu đã báo đúng chế độ) · 3 module tô bảng đọc token LÚC VẼ (hằng cấp module đứng yên ở màu tối) · `toolbarMode="viewer"` (giữ mục người xem) | Claude | Hai chế độ cùng đúng trên ảnh chụp mọi trang; test tương phản cả hai bảng |
 | **P5** Hoàn thiện | Trạng thái rỗng / đang tải / lỗi đồng bộ cả app; màn laptop (cột co, bảng cuộn ngang); `FULL` test trước PR về `main` | Claude · user soi trên 💻 LAPTOP | `run.py test` FULL xanh; user duyệt |
 
 ## 8. Rủi ro & bất biến phải giữ
