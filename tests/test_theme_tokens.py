@@ -265,12 +265,8 @@ def test_light_mode_toggle_removed():
 # ⇒ thêm token ở dashboard/theme.py. Gỡ hex ⇒ HẠ con số ở đây (test đỏ nếu quên,
 # để con số không nằm cao chờ hex quay lại). Mốc HEAD f5029d7 trước P1: 582.
 
-HEX_BUDGET = {
-    "dashboard/brief_accuracy_panel.py": 5,
-    "dashboard/brief_agent_settings.py": 2,
-    "dashboard/brief_strategy_panel.py": 8,
-    "dashboard/market_tab.py": 113,
-}
+# P3 (31/10): MỌI file UI về 0 — ngân sách rỗng. Thêm hex vào file UI nào cũng đỏ.
+HEX_BUDGET: dict[str, int] = {}
 
 _HEX = re.compile(r"#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?(?![0-9a-zA-Z])")
 _STR_TOKENS = {tokenize.STRING} | (

@@ -10,12 +10,21 @@ của tab Thị trường vẫn chạy.
 """
 from __future__ import annotations
 
-from dashboard.theme import PLOTLY_BG as _PLOTLY_BG, TOKENS as _T
+from dashboard.theme import PLOTLY_BG as _PLOTLY_BG, TOKENS as _T, rgba as _rgba
 
 
 def render_strategy_panel() -> None:
     """Render panel. Streamlit import LƯỜI để pytest import được module."""
     import streamlit as st  # noqa: F401
+
+    from dashboard.ui import diag_on
+
+    def _show_run_error(err: str) -> None:
+        """Một dòng lỗi cho người dùng; traceback chỉ ở chế độ chẩn đoán."""
+        head, _, trace = err.partition("\n")
+        st.error(f"❌ {head}")
+        if trace and diag_on():
+            st.code(trace, language="text")
 
     # ── Strategy & recommendations panel ───────────────────────────
     with st.expander("🧪 Chiến lược & khuyến nghị (auto-trained)", expanded=False):
@@ -174,15 +183,16 @@ def render_strategy_panel() -> None:
                 except Exception as _ep:
                     st.caption(f"⚠ tầng vị thế disabled: {type(_ep).__name__}: {_ep}")
 
-                with st.expander("Xem params & code", expanded=False):
-                    try:
-                        _params = _json.loads(_active.get("params_json") or "{}")
-                        st.code(_json.dumps(_params, indent=2, ensure_ascii=False), language="json")
-                    except Exception as _ej:
-                        st.caption(f"⚠ params disabled: {type(_ej).__name__}: {_ej}")
-                    _code = _active.get("code") or ""
-                    if _code:
-                        st.code(_code[:1500] + ("…" if len(_code) > 1500 else ""), language="python")
+                if diag_on():   # JSON params + code chiến lược = ruột, chỉ ở chế độ chẩn đoán
+                    with st.expander("Xem params & code", expanded=False):
+                        try:
+                            _params = _json.loads(_active.get("params_json") or "{}")
+                            st.code(_json.dumps(_params, indent=2, ensure_ascii=False), language="json")
+                        except Exception as _ej:
+                            st.caption(f"⚠ params disabled: {type(_ej).__name__}: {_ej}")
+                        _code = _active.get("code") or ""
+                        if _code:
+                            st.code(_code[:1500] + ("…" if len(_code) > 1500 else ""), language="python")
 
                 # ── F6: Equity Curve & Trade Analysis ─────────────
                 with st.expander("📈 Equity Curve & Phân tích backtest", expanded=False):
@@ -209,7 +219,7 @@ def render_strategy_panel() -> None:
                             _idxs  = list(range(1, _n + 1))
 
                             _bar_colors = [
-                                "#22c55e" if p > 0 else "#ef4444" if p < 0 else "#94a3b8"
+                                _T["up"] if p > 0 else _T["down"] if p < 0 else _T["text_muted"]
                                 for p in _pnls
                             ]
 
@@ -224,17 +234,17 @@ def render_strategy_panel() -> None:
                             _fig1.add_trace(_go.Scatter(
                                 x=_idxs, y=_cum,
                                 mode="lines",
-                                line=dict(color="#60a5fa", width=2),
+                                line=dict(color=_T["link"], width=2),
                                 name="Equity tích lũy (%)",
                                 yaxis="y2",
                             ))
                             _fig1.update_layout(
                                 title=f"Equity Curve — {_n} lệnh",
-                                yaxis=dict(title="PnL / lệnh (%)", zeroline=True, zerolinecolor="#475569"),
+                                yaxis=dict(title="PnL / lệnh (%)", zeroline=True, zerolinecolor=_T["text_off"]),
                                 yaxis2=dict(
                                     title="Cumulative PnL (%)",
                                     overlaying="y", side="right",
-                                    zeroline=True, zerolinecolor="#475569",
+                                    zeroline=True, zerolinecolor=_T["text_off"],
                                 ),
                                 height=300,
                                 legend=dict(orientation="h", y=1.12),
@@ -249,13 +259,13 @@ def render_strategy_panel() -> None:
                             _fig2.add_trace(_go.Scatter(
                                 x=_idxs, y=_dd,
                                 fill="tozeroy",
-                                fillcolor="rgba(239,68,68,0.20)",
-                                line=dict(color="#ef4444", width=1.5),
+                                fillcolor=_rgba(_T["down"], 0.2),
+                                line=dict(color=_T["down"], width=1.5),
                                 name="Drawdown (%)",
                             ))
                             _fig2.update_layout(
                                 title="Drawdown",
-                                yaxis=dict(title="Drawdown (%)", zeroline=True, zerolinecolor="#475569"),
+                                yaxis=dict(title="Drawdown (%)", zeroline=True, zerolinecolor=_T["text_off"]),
                                 height=180,
                                 margin=dict(l=0, r=0, t=40, b=0),
                                 **_PLOTLY_BG,
@@ -564,7 +574,7 @@ def render_strategy_panel() -> None:
             if st.session_state.get("_train_result"):
                 _tr = st.session_state["_train_result"]
                 if _tr.get("error"):
-                    st.error(f"❌ {_tr['error']}")
+                    _show_run_error(_tr["error"])
                 else:
                     _sl_r = _tr.get("strategy_loop", {})
                     _msg = (
@@ -654,7 +664,7 @@ def render_strategy_panel() -> None:
             if st.session_state.get("_scan_result"):
                 _sr = st.session_state["_scan_result"]
                 if _sr.get("error"):
-                    st.error(f"❌ {_sr['error']}")
+                    _show_run_error(_sr["error"])
                 elif _sr.get("reason") == "no_validated_strategy":
                     st.warning("⚠️ Chưa có chiến lược validated. Chạy training thêm để đạt ≥ 10 trades.")
                 else:
@@ -676,7 +686,9 @@ def render_strategy_panel() -> None:
                             f"{_err_color} Errors: **{_n_err}**"
                         )
                         _samples = _diag.get('errors_sample') or []
-                        if _samples:
+                        if _samples and not diag_on():
+                            st.caption("Mẫu lỗi: bật **Chế độ chẩn đoán** ở trang Hệ thống.")
+                        elif _samples:
                             with st.expander(
                                 f"⚠️ {_n_err} mã throw exception — xem mẫu lỗi",
                                 expanded=(_diag.get('n_executed', 0) == 0),
