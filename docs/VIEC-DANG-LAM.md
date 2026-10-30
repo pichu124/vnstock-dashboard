@@ -26,6 +26,15 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
+## 🎨 Thiết kế lại giao diện — KẾ HOẠCH 30/10, CHỜ USER CHỐT (`docs/THIET-KE-GIAO-DIEN.md`)
+
+Chưa code. 5 pha (P1 bảng màu/chữ → P2 khung điều hướng → P3 từng trang → P4 sáng/tối → P5 hoàn thiện),
+mỗi pha 1 PR, không đổi số liệu.
+
+- ○ **Trả lời 6 câu ở §9** (trang mở đầu · màu bảng điện VN · light mode · gom nhóm · kiểu bản mẫu · badge).
+- ⇄ **CẢ HAI** — đo bản Streamlit (kế hoạch cần ≥ 1.56):
+  `python -c "import streamlit; print(streamlit.__version__)"`
+
 ## PR #31 — sửa ~60 lỗi dashboard + kit đội agent (18/10, nhánh `trial/agent-team`) — ĐÃ MERGE `4e8ba80`
 
 CI `tests.yml` xanh; 🖥️ CHECK_FULL tại `aa6afdf` 5.101 passed / 0 skipped. Chi tiết thay đổi + rủi ro: mô tả
