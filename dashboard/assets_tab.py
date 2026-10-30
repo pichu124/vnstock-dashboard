@@ -20,7 +20,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-_C1, _C2, _C3 = "#3987e5", "#d95926", "#199e70"     # xanh · cam · ngọc (ô 1–3, nền tối)
+from dashboard import ui
+from dashboard.theme import PLOTLY_BG, SERIES, TOKENS, rgba
+
+_C1, _C2, _C3 = SERIES[:3]                          # xanh · cam · tím (ô 1–3 bảng màu chung)
+_GRID = rgba(TOKENS["text_muted"], 0.15)
 _REF = "rgba(150,150,150,0.85)"
 _RANGES = {"3 tháng": 92, "6 tháng": 183, "1 năm": 366, "3 năm": 1096, "Tất cả": None}
 _SPARSE_POINTS = 3
@@ -38,9 +42,9 @@ def render_assets_tab() -> None:
         import vnstock_assets as va
         import vnstock_assets_view as av
     except ImportError as e:
-        st.error(f"Không nạp được kho tài sản: {e}")
+        ui.show_error("Không nạp được kho tài sản.", e)
         return
-    st.markdown("### 💱 Hàng hoá & Tiền tệ")
+    ui.page_header("Hàng hoá & Tiền tệ", "Vàng · dầu · USD")
     info = av.run_info()
     if not info["python_at"] and not av.card("XAU"):
         st.info("Kho tài sản trống — 🖥️ DESKTOP, ngoài khung pipeline: "
@@ -66,13 +70,15 @@ def render_assets_tab() -> None:
             try:
                 fn(va, av, start)
             except Exception as e:                                 # noqa: BLE001
-                st.warning(f"Mục {name} lỗi khi vẽ: {type(e).__name__}: {e}")
+                st.warning(f"Mục {name} lỗi khi vẽ."
+                           + (f" {type(e).__name__}: {e}" if ui.diag_on() else ""))
     with st.expander("🔍 Đối chiếu nguồn MCP ↔ Python (ngày đã đóng)"):
         try:
             tbl = av.agreement_table()
         except Exception as e:                                     # noqa: BLE001
             tbl = None
-            st.warning(f"Đối chiếu nguồn lỗi: {type(e).__name__}: {e}")
+            st.warning("Đối chiếu nguồn lỗi."
+                       + (f" {type(e).__name__}: {e}" if ui.diag_on() else ""))
         if tbl is not None and len(tbl):
             st.dataframe(tbl, hide_index=True, use_container_width=True)
         elif tbl is not None:
@@ -154,16 +160,16 @@ def _fig(series: list, *, height: int = 300, yfmt: str = ",.2f", hlines: "list |
     fig.update_layout(height=height, margin={"l": 10, "r": 10, "t": 30, "b": 10},
                       hovermode="x unified", showlegend=len(fig.data) >= 2,
                       legend={"orientation": "h", "y": 1.12, "x": 0},
-                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      **PLOTLY_BG,
                       xaxis={"showgrid": False, "tickformat": "%d/%m/%y", "hoverformat": "%d/%m/%Y"},
-                      yaxis={"gridcolor": "rgba(128,128,128,0.15)", "tickformat": yfmt})
+                      yaxis={"gridcolor": _GRID, "tickformat": yfmt})
     return fig
 
 
 def _chart(title: str, series: list, **kw) -> None:
     if not any(len(s[1].dropna()) for s in series):
         return
-    st.markdown(f"###### {title}")
+    ui.section(title)
     try:
         st.plotly_chart(_fig(series, **kw), use_container_width=True)
     except ImportError:
@@ -188,7 +194,7 @@ def _render_gold(va, av, start) -> None:
             st.metric("SJC miếng đắt hơn vàng TG", "—")
             st.caption("chưa đủ dữ liệu (cần SJC + vàng TG + USD/VND)")
 
-    st.markdown("###### Giá vàng 5 đại lý (đồng/lượng)")
+    ui.section("Giá vàng 5 đại lý (đồng/lượng)")
     tbl = av.dealer_table()
     if len(tbl):
         show = tbl.drop(columns=["Cũ"]).copy()
@@ -266,7 +272,7 @@ def _render_curves(va, av) -> None:
     if not any(s["latest"] for s in snaps.values()):
         return
     import plotly.graph_objects as go
-    st.markdown("###### Đường cong HĐTL theo tháng đáo hạn — USD/thùng")
+    ui.section("Đường cong HĐTL theo tháng đáo hạn — USD/thùng")
     fig = go.Figure()
     notes = []
     for key, name, color in (("CURVE_BRENT", "Brent", _C1), ("CURVE_WTI", "WTI", _C2)):
@@ -287,9 +293,9 @@ def _render_curves(va, av) -> None:
                          f"{'backwardation (gần đắt hơn xa — cung căng)' if cs['shape'] == 'backwardation' else 'contango (xa đắt hơn gần — cung dư)'}")
     fig.update_layout(height=300, margin={"l": 10, "r": 10, "t": 30, "b": 10},
                       hovermode="closest", legend={"orientation": "h", "y": 1.12, "x": 0},
-                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      **PLOTLY_BG,
                       xaxis={"showgrid": False, "type": "category"},
-                      yaxis={"gridcolor": "rgba(128,128,128,0.15)"})
+                      yaxis={"gridcolor": _GRID})
     st.plotly_chart(fig, use_container_width=True)
     st.caption("  \n".join(notes) + "  \nNét liền = ảnh mới nhất · nét chấm = ảnh ~1 tuần trước "
                "(chỉ có từ khi lượt mỗi giờ bắt đầu chụp).")

@@ -166,6 +166,10 @@ def test_assets_tab_renders_every_section(fake_st):
     captions = " ".join(str(c.args[0]) for c in st.caption.call_args_list)
     assert "ẩn: 4 phiên kể từ số EIA" in captions                  # lý do ẩn WTI giao ngay hiện ra
     assert "neo Fed 121.38" in captions
+    md = [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+    assert any(">Hàng hoá &amp; Tiền tệ<" in s for s in md), md         # tiêu đề trang (đã escape)
+    assert any(">Giá vàng 5 đại lý (đồng/lượng)<" in s for s in md), md  # tiêu đề mục
+    assert not [s for s in md if s.lstrip().startswith("#")], md          # hết "### 💱 …"/"######"
 
 
 @needs("plotly")

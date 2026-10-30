@@ -260,6 +260,37 @@ def test_ai_context_caption_tells_empty_cache_from_old_news(monkeypatch, on_disk
         assert any(f"{NEWS_FALLBACK_DAYS} ngày" in s for s in captions), captions
 
 
+def test_ticker_news_page_title_and_raw_keys_only_in_diag(monkeypatch):
+    """Trang "Tin theo mã": tiêu đề chuẩn thay "#### 🗞️ …"; tin thiếu tiêu đề chỉ báo một câu —
+    JSON thô của item là ruột, chỉ hiện ở chế độ chẩn đoán (trang Hệ thống)."""
+    import re
+    import sys
+    import types
+
+    nn = types.ModuleType("vnstock_news")
+    nn.NEWS_CACHE_PATH = __import__("pathlib").Path("không-có-news_cache.json")
+    nn.cache_info = lambda: {"exists": True, "count": 1, "age_minutes": 5}
+    nn.load_news_cache = lambda: [{"ticker": "VCB", "_date_sort": "2026-10-16"}]  # thiếu tiêu đề
+    nn.news_context_block = lambda **k: ""
+    monkeypatch.setitem(sys.modules, "vnstock_news", nn)
+    monkeypatch.setitem(sys.modules, "vnstock_sentiment", None)
+    st, news_tab = _news_tab_with_fake_st(monkeypatch)
+    st.selectbox = lambda label, options=(), key=None, **k: (
+        "Tất cả" if key == "_news_recency_filter" else list(options)[0])
+
+    news_tab.render_ticker_news()
+
+    md = [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+    assert any(">Tin theo mã<" in s for s in md), md
+    assert not [s for s in md if re.match(r"\s*#{1,6}\s", s)], md
+    assert any("thiếu trường tiêu đề" in str(c.args[0]) for c in st.warning.call_args_list)
+    assert not st.json.called
+
+    st.session_state["diag_mode"] = True
+    news_tab.render_ticker_news()
+    assert st.json.called
+
+
 @pytest.mark.parametrize("raw,expect_prefix,reject_prefix", [
     # 20:00 hôm qua, xem 08:00 sáng: timedelta.days == 0 từng ra "Hôm nay 20:00"
     # trong khi bộ lọc "Hôm nay" (so ngày lịch) loại tin đó.

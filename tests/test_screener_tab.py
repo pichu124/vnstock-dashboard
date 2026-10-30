@@ -670,3 +670,63 @@ def test_top_hits_tolerates_missing_rsi_and_volume():
     hits = [{"ticker": "AAA", "rsi_14": None, "vol_spike": None},
             {"ticker": "BBB", "rsi_14": 28.4, "vol_spike": 1.56}]
     assert _top_hits(hits) == [("BBB", "RSI 28 Vol 1.6x"), ("AAA", "RSI — Vol —")]
+
+
+# ── Trang Bộ lọc: tiêu đề chuẩn (giao diện P3) ───────────────────────────────
+
+def _render_screener_page(monkeypatch, tmp_path):
+    """Vẽ cả trang bằng Streamlit giả; `vnstock_dashboard` thật dựng UI khi import ⇒ stub,
+    chấm điểm preset + thống kê phiên đọc/ghi kho ⇒ bản rỗng."""
+    import types
+    from unittest.mock import MagicMock
+
+    from tests.test_tab_render_smoke import _fake_streamlit
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    vd = types.ModuleType("vnstock_dashboard")
+    vd.PRESET_ICONS = {"oversold": "🟢", "momentum": "⚡"}
+    vd.WSS_AVAILABLE = False
+    vd.INDEX_SYMBOLS = ["VNINDEX"]
+    vd._is_stock = lambda t: True
+    vd.load_watchlist = lambda: []
+    vd.save_watchlist = lambda t: None
+    vd.WATCHLIST_PATH = tmp_path / "watchlist.json"
+    vd.compute_alerts = lambda gen_time: []
+    vd.df_from_preset = lambda info: pd.DataFrame(
+        {"Ticker": ["VCB", "FPT"], "Ngành": ["Ngân hàng", "Công nghệ"]})
+    vd.render_table = MagicMock()
+    vd.SESSION_WINDOWS = {k: ("09:00", "10:00") for k in ("a", "b", "c", "d")}
+    vd.save_session_stats = lambda s: None
+    vd.load_session_stats_history = MagicMock(return_value={})
+    vd.render_session_stats_table = MagicMock()
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", vd)
+    psc = types.ModuleType("vnstock_preset_score")
+    psc.load_scorecard = lambda: None
+    monkeypatch.setitem(sys.modules, "vnstock_preset_score", psc)
+    monkeypatch.setitem(sys.modules, "vnstock_session_stats", None)   # ImportError ⇒ bản rỗng
+
+    from dashboard.screener_tab import render_screener_tab
+    presets = {"oversold": {"count": 2, "desc": "RSI thấp",
+                            "results": [{"ticker": "VCB"}, {"ticker": "FPT"}]},
+               "momentum": {"count": 0, "desc": "Đà tăng", "results": []}}
+    render_screener_tab(presets_data=presets, industry_summary={"Ngân hàng": 1, "Công nghệ": 1},
+                        gen_time="2026-10-30T18:30:00", total_tickers=1100, classified=1000,
+                        total_hits=2, top_preset=("oversold", presets["oversold"]),
+                        stale_excluded=None)
+    return st
+
+
+def test_screener_page_titles_follow_one_scheme(monkeypatch, tmp_path):
+    """Tiêu đề trang (ui.page_header) + tiêu đề mục (ui.section) thay `### {icon} …` lẫn lộn;
+    nhãn sidebar gọn, không emoji."""
+    import re
+
+    st = _render_screener_page(monkeypatch, tmp_path)
+
+    md = [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+    assert any(">Bộ lọc<" in s and "1,100 mã" in s for s in md), md   # tiêu đề + dòng phụ
+    assert any(">OVERSOLD<" in s for s in md), md                      # preset = mục, bỏ icon
+    assert any(">Tổng quan tất cả preset<" in s for s in md), md
+    for label in ("Watchlist", "Bộ lọc nâng cao", "Phân bố ngành"):
+        assert any(f">{label}<" in s for s in md), (label, md)
+    assert not [s for s in md if re.match(r"\s*#{1,6}\s", s)], md

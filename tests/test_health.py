@@ -36,7 +36,30 @@ def test_collect_on_empty_warehouse(tmp_path):
     snap = collect(tmp_path)
     assert isinstance(snap, HealthSnapshot)
     assert snap.ticker_count == 0
-    assert any("empty" in w.lower() or "not found" in w.lower() for w in snap.warnings)
+    # Hiện thẳng lên trang Hệ thống ⇒ tiếng Việt (giao diện P3)
+    assert any("Không thấy thư mục giá" in w for w in snap.warnings), snap.warnings
+    assert any("Kho trống" in w for w in snap.warnings), snap.warnings
+
+
+def test_health_panel_section_titles_and_vietnamese_warnings(tmp_path, monkeypatch):
+    """Phần dưới trang Hệ thống (tiêu đề trang do `_page_system` vẽ): tiêu đề mục chuẩn thay
+    `st.subheader("⚕️ …")`/`### 🛠 …`, cảnh báo kho bằng tiếng Việt."""
+    import sys
+    from tests.test_tab_render_smoke import _fake_streamlit
+    from vnstock_health import render_health_tab
+
+    st = _fake_streamlit()
+    st.form_submit_button = lambda *a, **k: False          # không bấm gì (nhánh sau bấm = sửa kho)
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+
+    render_health_tab(tmp_path)
+
+    md = [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+    for title in ("Sức khoẻ nguồn dữ liệu", "Hành động nhanh"):
+        assert any(f">{title}<" in s for s in md), (title, md)
+    assert not st.subheader.called
+    assert not [s for s in md if s.lstrip().startswith("#")], md
+    assert any("Kho trống" in str(c.args[0]) for c in st.warning.call_args_list)
 
 
 def test_collect_reports_tickers_and_rows(mini_warehouse):

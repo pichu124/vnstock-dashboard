@@ -7,23 +7,25 @@ Telegram. Lazy-import streamlit trong render → smoke test import không cần 
 """
 from __future__ import annotations
 
+from dashboard import ui
+
 
 def render_rates_report_subtab() -> None:
     import streamlit as st
+    ui.page_header("Báo cáo tuần", "Lãi suất & tiền tệ")
     try:
         import vnstock_rates_report as rr
     except ImportError:
         st.error("Không tìm thấy `vnstock_rates_report.py`.")
         return
 
-    st.markdown("##### 📄 Báo cáo tuần lãi suất & tiền tệ")
     st.caption("Sinh từ cache dashboard (macro + HNX + SBV) — zero fetch, "
                "không dự đoán tương lai. Refresh dữ liệu qua `run.py macro`.")
 
     try:
         data = rr.build_report_data()
     except Exception as e:                                    # noqa
-        st.error(f"Không dựng được báo cáo: {e}")
+        ui.show_error("Không dựng được báo cáo tuần.", e)
         return
     if not data.get("rates") and not data.get("curve"):
         st.info("Cache vĩ mô/HNX rỗng — chạy `python run.py macro` để có dữ liệu.")

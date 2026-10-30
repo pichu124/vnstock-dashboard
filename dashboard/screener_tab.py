@@ -35,7 +35,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from dashboard import ui
+from dashboard.theme import TOKENS as _T
 from vnstock_price_units import normalize_live_price, normalize_price_units
+
+
+def _side_label(st, text: str) -> None:
+    """Nhãn mục ở sidebar (cùng kiểu nhãn "Live" của sidebar chung)."""
+    st.markdown(f'<div class="vn-side-label">{text}</div>', unsafe_allow_html=True)
 
 
 def render_screener_tab(
@@ -99,7 +106,7 @@ def render_screener_tab(
 
     # Sidebar filters (chỉ hiện khi ở tab screener)
     with st.sidebar:
-        st.markdown("### 📊 Screener")
+        _side_label(st, "Bộ lọc")
         preset_options = list(presets_data.keys())
         selected_preset = st.selectbox(
             "Preset", preset_options,
@@ -111,12 +118,12 @@ def render_screener_tab(
         top_n = st.slider("Hiển thị top", 10, 100, 50, step=10, key="scr_top_n")
 
         st.divider()
-        st.markdown("### ⭐ Watchlist")
+        _side_label(st, "Watchlist")
         _wl_tickers, _filter_wl = _render_watchlist_sidebar(
             st, load_watchlist, save_watchlist, _vnd.WATCHLIST_PATH)
 
         st.divider()
-        st.markdown("### ⚙️ Bộ lọc nâng cao")
+        _side_label(st, "Bộ lọc nâng cao")
         price_min    = st.number_input("Giá từ (nghìn đồng)", min_value=0.0, value=0.0, step=1.0, format="%.1f", key="scr_price_min")
         price_max    = st.number_input("Giá đến", min_value=0.0, value=0.0, step=1.0, format="%.1f", help="0 = không giới hạn", key="scr_price_max")
         chg1d_range  = st.slider("1D%", -20.0, 20.0, (-20.0, 20.0), step=0.5, format="%.1f%%", key="scr_chg1d")
@@ -126,15 +133,22 @@ def render_screener_tab(
 
         st.divider()
         if industry_summary:
-            st.markdown("### 🏭 Phân bố ngành")
+            _side_label(st, "Phân bố ngành")
             for ind, cnt in list(industry_summary.items())[:10]:
                 pct = cnt / classified * 100 if classified else 0
                 st.markdown(
-                    f"<div style='display:flex;justify-content:space-between;font-size:12px;color:#9ca3af;margin:3px 0'>"
-                    f"<span>{ind[:22]}</span><span style='color:#6ee7b7;font-family:monospace'>{cnt}</span></div>",
+                    f"<div style='display:flex;justify-content:space-between;font-size:12px;color:{_T['text_muted']};margin:3px 0'>"
+                    f"<span>{ind[:22]}</span><span style='color:{_T['text']};font-family:monospace'>{cnt}</span></div>",
                     unsafe_allow_html=True
                 )
                 st.progress(pct / 100)
+
+    if selected_preset in presets_data:
+        ui.page_header("Bộ lọc", f"Preset {selected_preset} · "
+                       f"{presets_data[selected_preset].get('count', 0):,} mã khớp / "
+                       f"{total_tickers:,} mã theo dõi")
+    else:
+        ui.page_header("Bộ lọc")
 
     # ── 📋 Preset scorecard — alpha 30 ngày + "đọc kết quả" deterministic ──
     with st.expander("📋 Chấm điểm preset — alpha ~30 ngày so VNINDEX", expanded=False):
@@ -179,7 +193,8 @@ def render_screener_tab(
                     for _b in _bullets:
                         st.markdown(f"- {_b}")
         except Exception as _e:
-            st.caption(f"⚠ preset scorecard lỗi: {type(_e).__name__}: {_e}")
+            st.caption("⚠ Không tính được chấm điểm preset."
+                       + (f" {type(_e).__name__}: {_e}" if ui.diag_on() else ""))
 
     # ── Live Screener (real-time scan trong phiên) ──────────────────────
     # 05/10: công tắc Live Scan GỘP về sidebar chung (dưới 🔴 Live Mode) —
@@ -213,9 +228,9 @@ def render_screener_tab(
             # Render results
             total_hits_live = sum(len(v) for v in live_hits.values())
             st.markdown(
-                f'<div style="background:#1e293b;padding:8px 14px;border-radius:6px;'
-                f'margin:8px 0;font-size:13px;color:#94a3b8">'
-                f'🔴 <b style="color:#ef4444">LIVE</b> — Scanned {scanned} mã '
+                f'<div style="background:{_T["surface_2"]};padding:8px 14px;border-radius:6px;'
+                f'margin:8px 0;font-size:13px;color:{_T["text_muted"]}">'
+                f'🔴 <b style="color:{_T["down"]}">LIVE</b> — Đã quét {scanned} mã '
                 f'— {total_hits_live} tín hiệu real-time'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -224,7 +239,7 @@ def render_screener_tab(
                 st.caption(f"⏳ Mỗi lượt tính tối đa ~{_LIVE_BUDGET_S:g}s — còn {pending} mã "
                            f"chờ tính lượt sau")
             if errors:
-                st.caption(f"⚠ {len(errors)} mã lỗi — vd {errors[0]}")
+                st.caption(f"⚠ {len(errors)} mã lỗi" + (f" — vd {errors[0]}" if ui.diag_on() else ""))
             _stale = st.session_state["live_screener_state"].get("stale")
             if _stale:
                 from vnstock_screener import stale_limit
@@ -239,7 +254,7 @@ def render_screener_tab(
                     for p, h in _active_presets
                 )
                 st.markdown(
-                    f'<div style="font-size:12px;color:#94a3b8;margin:4px 0">{_summary}</div>',
+                    f'<div style="font-size:12px;color:{_T["text_muted"]};margin:4px 0">{_summary}</div>',
                     unsafe_allow_html=True,
                 )
                 with st.expander("Xem chi tiết tín hiệu live", expanded=False):
@@ -251,8 +266,8 @@ def render_screener_tab(
                             st.markdown(f"**{icon} {pname}** ({len(hits)})")
                             for _tk, _txt in _top_hits(hits):
                                 st.markdown(
-                                    f"<span style='color:#60a5fa;font-size:12px'>{_tk}</span>"
-                                    f" <span style='color:#6b7280;font-size:10px'>{_txt}</span>",
+                                    f"<span style='color:{_T['link']};font-size:12px'>{_tk}</span>"
+                                    f" <span style='color:{_T['text_faint']};font-size:10px'>{_txt}</span>",
                                     unsafe_allow_html=True,
                                 )
                         col_idx += 1
@@ -273,7 +288,7 @@ def render_screener_tab(
                     st.markdown("**🆕 Mới vào preset:**")
                     for a in _new_alerts[:20]:
                         icon = PRESET_ICONS.get(a["preset"], "")
-                        st.markdown(f"- <span style='color:#10b981'>{a['ticker']}</span> → {icon} {a['preset']}", unsafe_allow_html=True)
+                        st.markdown(f"- <span style='color:{_T['up']}'>{a['ticker']}</span> → {icon} {a['preset']}", unsafe_allow_html=True)
                 else:
                     st.caption("Không có mã mới vào preset")
             with _ac2:
@@ -281,7 +296,7 @@ def render_screener_tab(
                     st.markdown("**❌ Ra khỏi preset:**")
                     for a in _rem_alerts[:20]:
                         icon = PRESET_ICONS.get(a["preset"], "")
-                        st.markdown(f"- <span style='color:#ef4444'>{a['ticker']}</span> ← {icon} {a['preset']}", unsafe_allow_html=True)
+                        st.markdown(f"- <span style='color:{_T['down']}'>{a['ticker']}</span> ← {icon} {a['preset']}", unsafe_allow_html=True)
                 else:
                     st.caption("Không có mã nào ra khỏi preset")
 
@@ -383,14 +398,14 @@ def render_screener_tab(
                     render_session_stats_table(
                         windows[3], stats.get(windows[3], {}), history, mode=_mode)
             except Exception as e:
-                st.warning(f"Không tải được thống kê phiên: {e}")
+                st.warning("Không tải được thống kê phiên."
+                           + (f" {type(e).__name__}: {e}" if ui.diag_on() else ""))
 
         _session_stats_fragment()
 
     if selected_preset and selected_preset in presets_data:
         preset_info = presets_data[selected_preset]
-        icon = PRESET_ICONS.get(selected_preset, "📊")
-        st.markdown(f"### {icon} {selected_preset.upper()}")
+        ui.section(selected_preset.upper())
         st.caption(preset_info.get("desc", ""))
         _stale_tbl = _stale_table(stale_excluded)
         if _stale_tbl:
@@ -447,7 +462,7 @@ def render_screener_tab(
                 )
 
     st.divider()
-    st.markdown("### 📊 Tổng quan tất cả presets")
+    ui.section("Tổng quan tất cả preset")
     overview_data = [{"Preset": f"{PRESET_ICONS.get(p,'')} {p}", "Mô tả": v.get("desc",""), "Số mã": v.get("count",0)}
                      for p, v in presets_data.items()]
     overview_df = pd.DataFrame(overview_data).sort_values("Số mã", ascending=False)

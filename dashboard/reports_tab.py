@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from datetime import date
 
+from dashboard import ui
+
 _STATUS = {"ok": "✅ vào phân tích", "meta": "📥 thiếu metadata",
            "scan": "🖼 không trích được chữ (scan/ảnh)"}   # PDF lẫn DOCX (04/10)
 
@@ -49,6 +51,7 @@ def _show_result(st, key: str) -> None:
 
 def render_reports_subtab() -> None:
     import streamlit as st
+    ui.page_header("Báo cáo", "Báo cáo CTCK / chuyên gia · thư viện · digest & consensus")
     try:
         import vnstock_reports as rp
     except ImportError:
@@ -61,7 +64,7 @@ def render_reports_subtab() -> None:
 
 
 def _render_ingest(st, rp) -> None:
-    st.markdown("##### 📥 Thêm báo cáo")
+    ui.section("Thêm báo cáo")
     st.caption("Metadata **ngày báo cáo + nguồn** là BẮT BUỘC để báo cáo vào "
                "phân tích — thiếu thì báo cáo chỉ nằm thư viện, bổ sung sau ở "
                "form dưới. Upload trùng nội dung không nhân bản (dedup sha256).")
@@ -110,7 +113,7 @@ def _ingest_feedback(st, rp, rec) -> None:
 
 
 def _render_library(st, rp) -> None:
-    st.markdown("##### 📚 Thư viện")
+    ui.section("Thư viện")
     reports = rp.list_reports()
     if not reports:
         st.info("Thư viện trống — thêm báo cáo ở trên hoặc CLI "
@@ -182,7 +185,7 @@ def _render_vision(st, rp, rec) -> None:
 
 
 def _render_digest(st, rp) -> None:
-    st.markdown("##### 🧠 Digest & consensus")
+    ui.section("Digest & consensus")
     try:
         import vnstock_report_digest as dg
     except ImportError:

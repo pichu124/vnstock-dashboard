@@ -202,18 +202,13 @@ def test_light_mode_toggle_removed():
 HEX_BUDGET = {
     "vnstock_dashboard.py": 40,
     "dashboard/analysis_tab.py": 83,
-    "dashboard/assets_tab.py": 3,
     "dashboard/brief_accuracy_panel.py": 5,
     "dashboard/brief_agent_settings.py": 2,
     "dashboard/brief_strategy_panel.py": 8,
-    "dashboard/futures_foreign_tab.py": 7,
-    "dashboard/macro_tab.py": 1,
     "dashboard/market_tab.py": 113,
     "dashboard/money_flow_score.py": 7,
     "dashboard/money_flow_tab.py": 79,
-    "dashboard/news_tab.py": 14,
     "dashboard/portfolio_tab.py": 44,
-    "dashboard/screener_tab.py": 10,
 }
 
 _HEX = re.compile(r"#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?(?![0-9a-zA-Z])")
