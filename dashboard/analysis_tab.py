@@ -184,7 +184,7 @@ def render_analysis_tab() -> None:
         _active_alerts = [a for a in _alerts if not a.get("fired")]
         _fired_alerts = [a for a in _alerts if a.get("fired")]
 
-        st.caption(f"{len(_active_alerts)} active · {len(_fired_alerts)} fired")
+        st.caption(f"{len(_active_alerts)} đang chờ · {len(_fired_alerts)} đã kích hoạt")
         _save_fails = st.session_state.get("_alert_save_fails", 0)
         # Không còn alert active thì không có gì bị chặn gửi — bộ đếm giữ nguyên để
         # alert kế tiếp vẫn phải qua lượt dò.
@@ -356,7 +356,7 @@ def render_analysis_tab() -> None:
          _board),
         ("5 ngày",        fmt_pct(tech.get("chg5d")),   "so với 5 phiên trước"),
         ("20 ngày",       fmt_pct(tech.get("chg20d")),  "so với 20 phiên trước"),
-        ("52W Range",     f"{tech.get('pct52', 0):.0f}%", f"Low {tech.get('lo52',0):,.1f} — High {tech.get('hi52',0):,.1f}"),
+        ("Biên 52 tuần",  f"{tech.get('pct52', 0):.0f}%", f"Thấp {tech.get('lo52',0):,.1f} — Cao {tech.get('hi52',0):,.1f}"),
     ])
 
     # ── Chart ─────────────────────────────────────────────────────────────────────
@@ -889,7 +889,7 @@ def render_analysis_tab() -> None:
 
         # EMA levels
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">EMA Levels</div>', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Các mức EMA</div>', unsafe_allow_html=True)
         for span, val in [("EMA 9", tech.get("ema9")), ("EMA 21", tech.get("ema21")),
                            ("EMA 50", tech.get("ema50")), ("EMA 200", tech.get("ema200"))]:
             if val:
@@ -1101,7 +1101,7 @@ def render_analysis_tab() -> None:
             f'<div style="font-size:24px;font-weight:600;color:{rec_color};margin:8px 0">'
             f'{rec_label}</div>'
             f'<div style="font-size:12px;color:{_T["text_faint"]}">'
-            f'Composite score: <span style="color:{rec_color};font-family:IBM Plex Mono">'
+            f'Điểm tổng hợp: <span style="color:{rec_color};font-family:IBM Plex Mono">'
             f'{composite:+.2f}</span></div>'
             f'</div>',
             unsafe_allow_html=True
@@ -1180,7 +1180,7 @@ def render_analysis_tab() -> None:
                         f'<span style="font-size:12px;color:{_T["text_faint"]}">'
                         f'Tin strategy: {_strat_pct}%</span>'
                         f'<span style="font-size:12px;color:{_T["text_faint"]}">'
-                        f'Signal conf: {_r.get("confidence",0):.0%}</span>'
+                        f'Độ tin tín hiệu: {_r.get("confidence",0):.0%}</span>'
                         f'</div></div>',
                         unsafe_allow_html=True,
                     )
@@ -1205,7 +1205,7 @@ def render_analysis_tab() -> None:
                         f'<div class="card-title" style="font-size:11px">{_r.get("strategy_name","—")}</div>'
                         f'<div style="font-size:26px;font-weight:700;color:{_col};margin:6px 0">{_act_label}</div>'
                         f'<div style="font-size:12px;color:{_T["text_faint"]}">'
-                        f'Confidence: {_r.get("confidence",0):.0%}</div>'
+                        f'Độ tin cậy: {_r.get("confidence",0):.0%}</div>'
                         f'</div>',
                         unsafe_allow_html=True,
                     )
