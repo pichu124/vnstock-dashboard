@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from dashboard.theme import TOKENS as T
 from vnstock_freshness import (
     _format_age, file_age_seconds, freshness_color, freshness_html,
 )
@@ -57,19 +58,19 @@ def test_file_age_seconds_grows_after_backdating(tmp_path):
 # ─── freshness_color ──────────────────────────────────────────────────────────
 
 def test_freshness_color_green_when_fresh():
-    assert freshness_color(60, 3600) == "#10b981"
+    assert freshness_color(60, 3600) == T["up"]
 
 
 def test_freshness_color_amber_at_70pct_of_stale():
-    assert freshness_color(2520, 3600) == "#f59e0b"
+    assert freshness_color(2520, 3600) == T["warn"]
 
 
 def test_freshness_color_red_when_stale():
-    assert freshness_color(7200, 3600) == "#ef4444"
+    assert freshness_color(7200, 3600) == T["down"]
 
 
 def test_freshness_color_red_when_exactly_at_threshold():
-    assert freshness_color(3600, 3600) == "#ef4444"
+    assert freshness_color(3600, 3600) == T["down"]
 
 
 # ─── freshness_html ───────────────────────────────────────────────────────────
@@ -95,11 +96,11 @@ def test_freshness_html_uses_red_for_stale(tmp_path):
     two_hr_ago = time.time() - 7200
     os.utime(p, (two_hr_ago, two_hr_ago))
     html = freshness_html("Test", p, 3600)
-    assert "#ef4444" in html
+    assert T["down"] in html
 
 
 def test_freshness_html_uses_green_for_fresh(tmp_path):
     p = tmp_path / "x.json"
     p.write_text("{}")
     html = freshness_html("Test", p, 3600)
-    assert "#10b981" in html
+    assert T["up"] in html

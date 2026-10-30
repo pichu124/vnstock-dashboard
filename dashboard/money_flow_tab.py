@@ -28,7 +28,7 @@ from vnstock_sectors import (  # noqa: E402
     custom_sector_for as _custom_sector_for,
 )
 from vnstock_price_units import normalize_quote_price  # noqa: E402
-from dashboard.theme import PLOTLY_BG, TOKENS as _T  # noqa: E402
+from dashboard.theme import PLOTLY_BG, TOKENS as _T, pct_color as _pct_color  # noqa: E402
 
 
 def _th(label: str, align: str = "right", pad: str = "6px") -> str:
@@ -148,9 +148,9 @@ def render_money_flow_tab() -> None:
                 "hoặc ngày T-1 nếu ngoài giờ / cuối tuần).\n"
                 "- **5D**: 5 ngày — xu hướng tuần, lọc nhiễu ngày.\n"
                 "- **20D**: 20 ngày — xu hướng tháng, tay to tích/xả dần.\n\n"
-                "**Lưu ý**: chỉ **NN ròng** thay đổi theo khung. Các cột "
-                "**GTGD**, **Vol**, **Buy/Sell** luôn là **snapshot hôm nay** "
-                "(từ live quotes), không đổi theo 1D/5D/20D."
+                "**Lưu ý**: **NN ròng** và **GTGD** tính theo khung (tiêu đề cột ghi "
+                "khung); **Vol**, **Buy/Sell** là **snapshot hôm nay** (live quote), "
+                "không đổi theo 1D/5D/20D."
             ),
         )
         _mf_days = {"1D": 0, "5D": 7, "20D": 30}[_mf_window]
@@ -385,7 +385,7 @@ def render_money_flow_tab() -> None:
         _top_score = _top_sector[1].get("score", 0)
         st.markdown(
             f'<div class="metric-card"><div class="label">Ngành mạnh nhất</div>'
-            f'<div class="value" style="color:{_T["up"]}">{_MF_SECTOR_ICONS.get(_top_name, "")} '
+            f'<div class="value" style="color:{_pct_color(_top_score)}">{_MF_SECTOR_ICONS.get(_top_name, "")} '
             f'{_top_name}</div>'
             f'<div class="sub">Score: {_top_score:+.0f}</div></div>',
             unsafe_allow_html=True)
