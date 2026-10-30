@@ -874,6 +874,7 @@ def cmd_test(args) -> int:
             "tests/test_prompt_sentinels.py",
             "tests/test_loader_breadcrumbs.py",
             "tests/test_tab_render_smoke.py",
+            "tests/test_theme_tokens.py",     # màu/chữ một nguồn + ngân sách hex chỉ giảm (giao diện P1)
             "tests/test_portfolio_tab.py",
             "tests/test_screener_tab.py",
             "tests/test_screener_stale_visible.py",

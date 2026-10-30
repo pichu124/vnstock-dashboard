@@ -619,6 +619,12 @@ from dashboard.money_flow_score import (  # noqa: E402
     score_label as _score_label,
 )
 from dashboard.table_style import cell_color, cell_weight  # noqa: E402
+# Màu + chữ: MỘT nguồn (P1 thiết kế lại giao diện). Đừng gõ hex mới ở file này —
+# lưới tests/test_theme_tokens.py đếm và chỉ cho GIẢM.
+from dashboard.theme import (  # noqa: E402
+    TOKENS as _T, app_css as _app_css, font_face_css as _font_face_css,
+    lwc_palette as _lwc_palette, rgba as _rgba, status_color as _status_color,
+)
 
 
 from vnstock_console_launch import build_ps_command as _build_ps_command  # noqa: E402
@@ -666,14 +672,6 @@ def launch_in_new_console(commands: list, log_filename: str = "subprocess.log") 
     return False, log_path
 
 
-# Theme — dark mode đã là default, light mode override CSS
-THEMES = {
-    "light": {
-        "bg": "#f8fafc", "card_bg": "#ffffff", "border": "#e2e8f0",
-        "text": "#1e293b", "text2": "#475569", "text3": "#94a3b8",
-    },
-}
-
 PRESET_ICONS = {
     "oversold":      "🟢",
     "overbought":    "🔴",
@@ -686,91 +684,10 @@ PRESET_ICONS = {
 }
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'IBM Plex Sans', sans-serif;
-}
-
-.stApp { background: #0a0e1a; }
-
-.metric-card {
-    background: #111827;
-    border: 1px solid #1f2937;
-    border-radius: 8px;
-    padding: 16px 20px;
-    text-align: center;
-}
-.metric-card .label {
-    font-size: 11px;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 6px;
-}
-.metric-card .value {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 26px;
-    font-weight: 500;
-    color: #f9fafb;
-}
-.metric-card .sub {
-    font-size: 11px;
-    color: #4b5563;
-    margin-top: 4px;
-}
-
-.preset-tag {
-    display: inline-block;
-    background: #1f2937;
-    color: #9ca3af;
-    font-size: 11px;
-    padding: 3px 10px;
-    border-radius: 20px;
-    margin: 2px;
-    cursor: pointer;
-}
-.preset-tag.active {
-    background: #065f46;
-    color: #6ee7b7;
-    border: 1px solid #059669;
-}
-
-.up   { color: #10b981 !important; }
-.down { color: #ef4444 !important; }
-.neutral { color: #9ca3af !important; }
-
-.updated-at {
-    font-size: 11px;
-    color: #4b5563;
-    font-family: 'IBM Plex Mono', monospace;
-}
-
-/* Dataframe styling */
-[data-testid="stDataFrame"] {
-    border: 1px solid #1f2937;
-    border-radius: 8px;
-}
-.card {
-    background: #111827; border: 1px solid #1f2937;
-    border-radius: 10px; padding: 16px 20px; margin-bottom: 12px;
-}
-.card-title {
-    font-size: 11px; color: #6b7280; text-transform: uppercase;
-    letter-spacing: 0.08em; margin-bottom: 8px;
-}
-.section-title {
-    font-size: 13px; font-weight: 500; color: #6b7280;
-    text-transform: uppercase; letter-spacing: 0.06em; margin: 20px 0 10px;
-}
-.fscore-bar { height: 8px; border-radius: 4px; background: #1f2937; margin: 6px 0; }
-.fscore-fill { height: 8px; border-radius: 4px; }
-.tag { display: inline-block; padding: 2px 10px; border-radius: 20px;
-    font-size: 11px; font-weight: 500; margin: 2px; }
-</style>
-""", unsafe_allow_html=True)
+# Khối CSS chung dựng từ token (dashboard/theme.py). Font IBM Plex tự host ở
+# static/fonts/, nạp qua [[theme.fontFaces]] của .streamlit/config.toml — không
+# còn @import Google Fonts (máy mất mạng là rơi về font hệ thống).
+st.markdown(f"<style>{_app_css()}</style>", unsafe_allow_html=True)
 
 
 # ── Load data ─────────────────────────────────────────────────────────────────
@@ -2248,6 +2165,7 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
     def ts(t):
         return int(pd.Timestamp(t).timestamp())
 
+    pal = _lwc_palette()   # màu chart: dashboard/theme.py (logical-range KHÔNG đi qua đây)
     candles, volumes = [], []
     ema9_d, ema21_d, ema50_d, ema200_d = [], [], [], []
     bb_up_d, bb_lo_d, bb_mid_d = [], [], []
@@ -2261,7 +2179,7 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
         if None in (o, h, l, c):
             continue
         candles.append({"time": t, "open": o, "high": h, "low": l, "close": c})
-        col = "rgba(16,185,129,0.6)" if c >= o else "rgba(239,68,68,0.6)"
+        col = pal["vol_up"] if c >= o else pal["vol_down"]
         volumes.append({"time": t, "value": v or 0, "color": col})
         if (x := safe(row.get("ema9")))       is not None: ema9_d.append({"time":t,"value":x})
         if (x := safe(row.get("ema21")))      is not None: ema21_d.append({"time":t,"value":x})
@@ -2289,7 +2207,7 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
         macd_s.append({"time":t,"value":x} if x is not None else {"time":t})
         x = safe(row.get("macd_hist"))
         if x is not None:
-            macd_h.append({"time":t,"value":x,"color":"rgba(16,185,129,0.8)" if x>=0 else "rgba(239,68,68,0.8)"})
+            macd_h.append({"time":t,"value":x,"color":pal["hist_up"] if x>=0 else pal["hist_down"]})
         else:
             macd_h.append({"time":t})
 
@@ -2321,11 +2239,11 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
     html = """<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8">
-<style>
+<style>""" + _font_face_css() + """
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:#0a0e1a; font-family:monospace; color:#9ca3af; }
+body { background:""" + pal["bg"] + """; font-family:'IBM Plex Mono',monospace; color:""" + pal["text"] + """; }
 #wrapper { display:flex; flex-direction:column; height:100vh; padding:6px; gap:4px; }
-.lbl { font-size:10px; color:#6b7280; text-transform:uppercase; padding:2px 4px; }
+.lbl { font-size:10px; color:""" + pal["label"] + """; text-transform:uppercase; padding:2px 4px; }
 .ohlcv { font-size:11px; padding:1px 4px; min-height:16px; }
 #mw { flex:5; display:flex; flex-direction:column; min-height:0; position:relative; }
 #vw { flex:1.5; display:flex; flex-direction:column; min-height:0; }
@@ -2369,20 +2287,21 @@ var ML=""" + _json.dumps(macd_l) + """;
 var MS=""" + _json.dumps(macd_s) + """;
 var MH=""" + _json.dumps(macd_h) + """;
 var LP=""" + str(last_price) + """;
+var PAL=""" + _json.dumps(pal) + """;
 
 var BASE={
-  layout:{background:{color:"#0d1117"},textColor:"#9ca3af",fontSize:11},
-  grid:{vertLines:{color:"#1a2234"},horzLines:{color:"#1a2234"}},
+  layout:{background:{color:PAL.bg},textColor:PAL.text,fontSize:11,fontFamily:"'IBM Plex Mono',monospace"},
+  grid:{vertLines:{color:PAL.grid},horzLines:{color:PAL.grid}},
   crosshair:{
     mode:LightweightCharts.CrosshairMode.Normal,
-    vertLine:{color:"#4b5563",width:1,style:1,labelBackgroundColor:"#1f2937"},
-    horzLine:{color:"#4b5563",width:1,style:1,labelBackgroundColor:"#1f2937"},
+    vertLine:{color:PAL.crosshair,width:1,style:1,labelBackgroundColor:PAL.crosshair_label},
+    horzLine:{color:PAL.crosshair,width:1,style:1,labelBackgroundColor:PAL.crosshair_label},
   },
   // Fixed minimumWidth on the right price scale so all panels reserve the
   // same gutter for axis labels — keeps candle/volume/RSI/MACD chart areas
   // perfectly column-aligned regardless of the value range each shows.
-  rightPriceScale:{borderColor:"#1f2937",minimumWidth:60},
-  timeScale:{borderColor:"#1f2937",timeVisible:true,secondsVisible:false,rightOffset:5,shiftVisibleRangeOnNewBar:false},
+  rightPriceScale:{borderColor:PAL.border,minimumWidth:60},
+  timeScale:{borderColor:PAL.border,timeVisible:true,secondsVisible:false,rightOffset:5,shiftVisibleRangeOnNewBar:false},
   handleScroll:{mouseWheel:true,pressedMouseMove:true},
   handleScale:{mouseWheel:true,pinch:true},
 };
@@ -2395,12 +2314,12 @@ function mk(id,extra){
 
 var main=mk("mc");
 var cs=main.addCandlestickSeries({
-  upColor:"#10b981",downColor:"#ef4444",
-  borderUpColor:"#10b981",borderDownColor:"#ef4444",
-  wickUpColor:"#059669",wickDownColor:"#dc2626",
+  upColor:PAL.up,downColor:PAL.down,
+  borderUpColor:PAL.up,borderDownColor:PAL.down,
+  wickUpColor:PAL.wick_up,wickDownColor:PAL.wick_down,
 });
 cs.setData(C);
-var _livePriceLine = cs.createPriceLine({price:LP,color:"#fbbf24",lineWidth:1,
+var _livePriceLine = cs.createPriceLine({price:LP,color:PAL.last,lineWidth:1,
   lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true,title:""});
 
 function line(chart,data,color,width,title,lvVisible){
@@ -2410,28 +2329,28 @@ function line(chart,data,color,width,title,lvVisible){
   s.setData(data);
   return s;
 }
-line(main,E9,"#60a5fa",1,"EMA9");
-line(main,E21,"#c084fc",1,"EMA21");
-line(main,E50,"#fbbf24",1.5,"EMA50");
-line(main,E200,"#f97316",2,"EMA200");
-line(main,BU,"rgba(139,92,246,0.5)",1,"BB+",false);
-line(main,BL,"rgba(139,92,246,0.5)",1,"BB-",false);
-line(main,BM,"rgba(139,92,246,0.25)",1,"",false);
-line(main,VW,"#e879f9",2,"VWAP");
-line(main,VU1,"rgba(232,121,249,0.3)",1,"",false);
-line(main,VL1,"rgba(232,121,249,0.3)",1,"",false);
-line(main,VU2,"rgba(232,121,249,0.15)",1,"",false);
-line(main,VL2,"rgba(232,121,249,0.15)",1,"",false);
+line(main,E9,PAL.ema9,1,"EMA9");
+line(main,E21,PAL.ema21,1,"EMA21");
+line(main,E50,PAL.ema50,1.5,"EMA50");
+line(main,E200,PAL.ema200,2,"EMA200");
+line(main,BU,PAL.bb,1,"BB+",false);
+line(main,BL,PAL.bb,1,"BB-",false);
+line(main,BM,PAL.bb_mid,1,"",false);
+line(main,VW,PAL.vwap,2,"VWAP");
+line(main,VU1,PAL.vwap_1,1,"",false);
+line(main,VL1,PAL.vwap_1,1,"",false);
+line(main,VU2,PAL.vwap_2,1,"",false);
+line(main,VL2,PAL.vwap_2,1,"",false);
 
 main.subscribeCrosshairMove(function(p){
   if(!p.time) return;
   var d=p.seriesData.get(cs);
   if(!d) return;
   document.getElementById("ohlcv").innerHTML=
-    "O <b style='color:#e5e7eb'>"+d.open.toFixed(2)+"</b>  "+
-    "H <b style='color:#10b981'>"+d.high.toFixed(2)+"</b>  "+
-    "L <b style='color:#ef4444'>"+d.low.toFixed(2)+"</b>  "+
-    "C <b style='color:#fbbf24'>"+d.close.toFixed(2)+"</b>";
+    "O <b style='color:"+PAL.o+"'>"+d.open.toFixed(2)+"</b>  "+
+    "H <b style='color:"+PAL.h+"'>"+d.high.toFixed(2)+"</b>  "+
+    "L <b style='color:"+PAL.l+"'>"+d.low.toFixed(2)+"</b>  "+
+    "C <b style='color:"+PAL.c+"'>"+d.close.toFixed(2)+"</b>";
 });
 
 var vol=mk("vc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0}}});
@@ -2441,10 +2360,10 @@ volSeries.setData(V);
 var SUB=[volSeries];
 
 var rsi=mk("rc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0.1}}});
-SUB.push(line(rsi,RSI,"#a78bfa",1.5,"RSI",true));
+SUB.push(line(rsi,RSI,PAL.rsi,1.5,"RSI",true));
 if(RSI.length){
-  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:70}}),"rgba(239,68,68,0.4)",1,"",false));
-  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:30}}),"rgba(16,185,129,0.4)",1,"",false));
+  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:70}}),PAL.rsi_hi,1,"",false));
+  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:30}}),PAL.rsi_lo,1,"",false));
 }
 
 var mac=mk("dc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0.1}}});
@@ -2453,8 +2372,8 @@ if(MH.length){
   mhSeries.setData(MH);
   SUB.push(mhSeries);
 }
-SUB.push(line(mac,ML,"#60a5fa",1.5,"MACD",true));
-SUB.push(line(mac,MS,"#f97316",1.5,"Signal",true));
+SUB.push(line(mac,ML,PAL.macd,1.5,"MACD",true));
+SUB.push(line(mac,MS,PAL.signal,1.5,"Signal",true));
 SUB=SUB.filter(Boolean);
 
 var charts=[main,vol,rsi,mac];
@@ -2532,8 +2451,8 @@ function drawVP(){
     bar.style.cssText="position:absolute;right:0;height:3px;display:flex;top:"+Math.round(y)+"px";
     var bw=Math.max(1,v.b);
     var sw=Math.max(1,v.s);
-    bar.innerHTML='<div style="width:'+bw+'px;height:100%;background:#10b981"></div>'+
-      '<div style="width:'+sw+'px;height:100%;background:#ef4444"></div>';
+    bar.innerHTML='<div style="width:'+bw+'px;height:100%;background:'+PAL.up+'"></div>'+
+      '<div style="width:'+sw+'px;height:100%;background:'+PAL.down+'"></div>';
     ov.appendChild(bar);
   });
 }
@@ -2617,11 +2536,11 @@ if (LIVE_URL) {
         }
         if (_livePriceLine) _livePriceLine.applyOptions({price: b.close});
         document.getElementById("ohlcv").innerHTML =
-          "O <b style='color:#e5e7eb'>"+b.open.toFixed(2)+"</b>  "+
-          "H <b style='color:#10b981'>"+b.high.toFixed(2)+"</b>  "+
-          "L <b style='color:#ef4444'>"+b.low.toFixed(2)+"</b>  "+
-          "C <b style='color:#fbbf24'>"+b.close.toFixed(2)+"</b>  "+
-          "<span style='color:#6b7280;font-size:10px'>· LIVE</span>";
+          "O <b style='color:"+PAL.o+"'>"+b.open.toFixed(2)+"</b>  "+
+          "H <b style='color:"+PAL.h+"'>"+b.high.toFixed(2)+"</b>  "+
+          "L <b style='color:"+PAL.l+"'>"+b.low.toFixed(2)+"</b>  "+
+          "C <b style='color:"+PAL.c+"'>"+b.close.toFixed(2)+"</b>  "+
+          "<span style='color:"+PAL.label+";font-size:10px'>· LIVE</span>";
       })
       .catch(function(e){ console.log("[live] fetch error", e); });
   }
@@ -2642,9 +2561,9 @@ if (LIVE_URL) {
 # ═════════════════════════════════════════════════════════════════════════════
 
 def sig_color(sig: str) -> str:
-    if sig == "BUY":     return "#10b981"
-    if sig == "SELL":    return "#ef4444"
-    return "#9ca3af"
+    if sig == "BUY":     return _T["up"]
+    if sig == "SELL":    return _T["down"]
+    return _T["text_muted"]
 
 
 def fmt_pct(v) -> str:
@@ -2655,11 +2574,12 @@ def fmt_pct(v) -> str:
 
 def render_signal_badge(label: str, sig: str):
     color = sig_color(sig)
-    bg = "#064e3b" if sig=="BUY" else ("#450a0a" if sig=="SELL" else "#1f2937")
+    bg = (_rgba(_T["up"], 0.18) if sig == "BUY"
+          else (_rgba(_T["down"], 0.18) if sig == "SELL" else _T["border"]))
     st.markdown(
         f'<div style="display:flex;justify-content:space-between;'
-        f'align-items:center;padding:6px 0;border-bottom:1px solid #1f2937">'
-        f'<span style="font-size:13px;color:#9ca3af">{label}</span>'
+        f'align-items:center;padding:6px 0;border-bottom:1px solid {_T["border"]}">'
+        f'<span style="font-size:13px;color:{_T["text_muted"]}">{label}</span>'
         f'<span style="background:{bg};color:{color};font-size:11px;'
         f'font-weight:600;padding:3px 10px;border-radius:20px">{sig}</span>'
         f'</div>',
@@ -2672,17 +2592,17 @@ def render_metric_row(items: list):
     cols = st.columns(len(items))
     for col, (label, value, sub) in zip(cols, items):
         with col:
-            color = "#f9fafb"
+            color = _T["text_strong"]
             if isinstance(value, str) and value.startswith("+"):
-                color = "#10b981"
+                color = _T["up"]
             elif isinstance(value, str) and value.startswith("-"):
-                color = "#ef4444"
+                color = _T["down"]
             st.markdown(
                 f'<div class="card">'
                 f'<div class="card-title">{label}</div>'
                 f'<div style="font-family:IBM Plex Mono,monospace;font-size:22px;'
                 f'font-weight:500;color:{color}">{value}</div>'
-                f'<div style="font-size:11px;color:#4b5563;margin-top:4px">{sub}</div>'
+                f'<div style="font-size:11px;color:{_T["text_faint"]};margin-top:4px">{sub}</div>'
                 f'</div>',
                 unsafe_allow_html=True
             )
@@ -2839,7 +2759,7 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
     # Build rows HTML
     rows_html_parts = []
     for i, rd in enumerate(rows_data):
-        bg = "#0d1117" if i%2==0 else "#111827"
+        bg = _T["bg"] if i % 2 == 0 else _T["surface"]
         cells = []
         for col in cols:
             val = rd.get(col,"—")
@@ -2847,7 +2767,7 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
             weight = cell_weight(col, val)
             fs = "12px" if col=="Ngành" else "13px"
             cells.append(
-                f'<td style="padding:7px 12px;border-bottom:1px solid #1a2234;'
+                f'<td style="padding:7px 12px;border-bottom:1px solid {_T["surface_2"]};'
                 f'white-space:nowrap;color:{color};font-weight:{weight};font-size:{fs};">'
                 f'{val}</td>'
             )
@@ -2867,20 +2787,21 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
 <head>
 <meta charset="utf-8">
 <style>
+  {_font_face_css()}
   * {{ box-sizing:border-box; margin:0; padding:0; }}
-  body {{ background:#0a0e1a; font-family:'IBM Plex Mono',monospace; overflow-x:auto; }}
+  body {{ background:{_T["bg"]}; font-family:'IBM Plex Mono',monospace; overflow-x:auto; }}
   table {{ width:100%; border-collapse:collapse; }}
   thead th {{
-    background:#111827; color:#6b7280; font-size:11px; font-weight:500;
+    background:{_T["surface"]}; color:{_T["text_faint"]}; font-size:11px; font-weight:500;
     text-transform:uppercase; letter-spacing:0.06em;
-    padding:10px 12px; border-bottom:2px solid #1f2937;
+    padding:10px 12px; border-bottom:2px solid {_T["border"]};
     white-space:nowrap; cursor:pointer; user-select:none;
     font-family:'IBM Plex Sans',sans-serif;
   }}
-  thead th:hover {{ color:#e5e7eb; background:#1a2234; }}
+  thead th:hover {{ color:{_T["text"]}; background:{_T["surface_2"]}; }}
   thead th .arrow {{ margin-left:4px; opacity:0.3; font-size:10px; }}
-  thead th.active .arrow {{ opacity:1; color:#60a5fa; }}
-  tbody tr:hover td {{ background:#1e2a3a !important; }}
+  thead th.active .arrow {{ opacity:1; color:{_T["link"]}; }}
+  tbody tr:hover td {{ background:{_T["surface_2"]} !important; }}
 </style>
 </head>
 <body>
@@ -2958,7 +2879,7 @@ function doSort(col, th) {{
   ROWS.forEach(function(row, i) {{
     var tr = idxMap[row.__idx];
     if (!tr) return;
-    var bg = i%2===0?"#0d1117":"#111827";
+    var bg = i%2===0?"{_T["bg"]}":"{_T["surface"]}";
     tr.style.background = bg;
     tbody.appendChild(tr);
   }});
@@ -3201,7 +3122,7 @@ _screener_stale = _screener_is_stale(gen_time, datetime.now())
 _info_col, _update_col = st.columns([5, 3])
 with _info_col:
     if _screener_stale:
-        st.markdown(f'<p class="updated-at" style="color:#f59e0b">⚠️ Screener cũ: {gen_time} — Bấm "📥 Cập nhật giá" để làm mới</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="updated-at" style="color:{_T["warn"]}">⚠️ Screener cũ: {gen_time} — Bấm "📥 Cập nhật giá" để làm mới</p>', unsafe_allow_html=True)
     else:
         st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
 with _update_col:
@@ -3380,7 +3301,7 @@ with st.sidebar:
                 _age_str = f"{_age_d}d trước" if _age_d > 0 else "hôm nay"
             except Exception:
                 _age_str = "?"
-            _ts_color = "#22c55e" if _ts_total_bad == 0 else "#ef4444"
+            _ts_color = _status_color("ok" if _ts_total_bad == 0 else "error")
             _ts_icon  = "✅" if _ts_total_bad == 0 else "❌"
             st.markdown(
                 f'<div style="padding:6px 10px;border-radius:6px;'
@@ -3389,15 +3310,15 @@ with st.sidebar:
                 f'font-family:\'IBM Plex Sans\',sans-serif">'
                 f'{_ts_icon} <b>Tests {_ts_mode}</b>: {_ts_passed} passed'
                 + (f", <b>{_ts_total_bad} fail</b>" if _ts_total_bad else "")
-                + f'<br><span style="color:#9ca3af">Chạy {_age_str} · {_ts.get("elapsed_s","?")}s</span>'
+                + f'<br><span style="color:{_T["text_muted"]}">Chạy {_age_str} · {_ts.get("elapsed_s","?")}s</span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
         else:
             st.markdown(
-                '<div style="padding:6px 10px;border-radius:6px;'
-                'border:1px solid #6b7280;background:rgba(30,41,59,0.4);'
-                'font-size:11px;color:#9ca3af;margin-bottom:8px;'
+                f'<div style="padding:6px 10px;border-radius:6px;'
+                f'border:1px solid {_T["text_off"]};background:rgba(30,41,59,0.4);'
+                f'font-size:11px;color:{_T["text_muted"]};margin-bottom:8px;'
                 'font-family:\'IBM Plex Sans\',sans-serif">'
                 '⏸ Tests chưa chạy.<br>'
                 '<code>python run.py test --fast</code>'
@@ -3420,8 +3341,7 @@ with st.sidebar:
                 _dr_age = f"{_dr_age_d}d trước" if _dr_age_d > 0 else "hôm nay"
             except Exception:
                 _dr_age = "?"
-            _dr_color = {"ok": "#22c55e", "off": "#9ca3af",
-                         "warn": "#eab308", "error": "#ef4444"}.get(_dr_worst, "#9ca3af")
+            _dr_color = _status_color(_dr_worst)
             _dr_parts = " · ".join(
                 f"{_dr_counts.get(_s, 0)}{_i}"
                 for _s, _i in (("ok", "✅"), ("warn", "⚠️"), ("off", "⬜"), ("error", "❌"))
@@ -3432,7 +3352,7 @@ with st.sidebar:
                 f'font-size:11px;color:{_dr_color};margin-bottom:8px;'
                 f'font-family:\'IBM Plex Sans\',sans-serif">'
                 f'🩺 <b>Nguồn dữ liệu</b>: {_dr_parts or "?"}'
-                f'<br><span style="color:#9ca3af">Khám {_dr_age} · {_dr.get("machine", "?")}'
+                f'<br><span style="color:{_T["text_muted"]}">Khám {_dr_age} · {_dr.get("machine", "?")}'
                 f' · {_dr.get("mode", "?")}'
                 f' · <code>run.py doctor</code></span>'
                 f'</div>',
@@ -3453,8 +3373,7 @@ with st.sidebar:
                 _mw_age = f"{_mw_age_d}d trước" if _mw_age_d > 0 else "hôm nay"
             except Exception:
                 _mw_age = "?"
-            _mw_color = {"green": "#22c55e", "warn": "#eab308",
-                         "red": "#ef4444", "skipped": "#9ca3af"}.get(_mw_level, "#9ca3af")
+            _mw_color = _status_color(_mw_level)
             _mw_probe = _mw.get("probe") or {}
             _mw_gone = len((_mw.get("catalog") or {}).get("gone_in_use", []))
             _mw_ripe = sum(1 for _p in (_mw.get("proposals") or []) if _p.get("ripe"))
@@ -3470,7 +3389,7 @@ with st.sidebar:
                 f'font-size:11px;color:{_mw_color};margin-bottom:8px;'
                 f'font-family:\'IBM Plex Sans\',sans-serif">'
                 f'🧠 <b>Ladder model</b>: {_mw_line or "?"}'
-                f'<br><span style="color:#9ca3af">Soi {_mw_age}'
+                f'<br><span style="color:{_T["text_muted"]}">Soi {_mw_age}'
                 f' · <code>run.py models</code></span>'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -3503,18 +3422,16 @@ with st.sidebar:
                 _status_label = _wss_status.get("status", "unknown")
                 _mode_label = _wss_status.get("mode", "?")
                 _color = {
-                    "connected": "#10b981",
-                    "reconnecting": "#fbbf24",
-                    "market_closed": "#6b7280",
-                    "error": "#ef4444",
-                    "disconnected": "#6b7280",
-                }.get(_status_label, "#6b7280")
+                    "connected": _T["up"],
+                    "reconnecting": _T["warn"],
+                    "error": _T["down"],
+                }.get(_status_label, _T["text_off"])   # market_closed / disconnected
                 st.markdown(
                     f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0">'
                     f'<span style="width:8px;height:8px;border-radius:50%;background:{_color};'
                     f'box-shadow:0 0 8px {_color}"></span>'
-                    f'<span style="color:#d1d5db;font-size:12px">{_status_label.upper()}</span>'
-                    f'<span style="color:#6b7280;font-size:11px">({_mode_label})</span>'
+                    f'<span style="color:{_T["text"]};font-size:12px">{_status_label.upper()}</span>'
+                    f'<span style="color:{_T["text_faint"]};font-size:11px">({_mode_label})</span>'
                     f'</div>',
                     unsafe_allow_html=True
                 )
@@ -3555,21 +3472,10 @@ with st.sidebar:
         st.session_state["live_scan"] = False
         st.caption("⚠ Module `vnstock_wss` chưa có — Live mode không khả dụng")
 
+    # Công tắc "☀️ Light mode" cũ đã BỎ (P1 thiết kế lại giao diện, 30/10): nó chỉ đè 9
+    # selector nên bảng/chart/badge vẫn nền tối — nửa sáng nửa tối. Sáng/tối thật là
+    # P4 (`[theme.light]`/`[theme.dark]` trong .streamlit/config.toml).
     st.divider()
-    _theme = st.toggle("☀️ Light mode", value=False, key="light_mode")
-    if _theme:
-        _t = THEMES["light"]
-        st.markdown(f"""<style>
-        .stApp {{ background: {_t['bg']} !important; }}
-        .metric-card {{ background: {_t['card_bg']} !important; border-color: {_t['border']} !important; }}
-        .metric-card .value {{ color: {_t['text']} !important; }}
-        .metric-card .label, .metric-card .sub {{ color: {_t['text3']} !important; }}
-        .card {{ background: {_t['card_bg']} !important; border-color: {_t['border']} !important; }}
-        .card-title {{ color: {_t['text2']} !important; }}
-        .section-title {{ color: {_t['text2']} !important; }}
-        [data-testid="stSidebar"] {{ background: {_t['card_bg']} !important; }}
-        [data-testid="stMarkdownContainer"] p {{ color: {_t['text2']}; }}
-        </style>""", unsafe_allow_html=True)
 
 # All constants and functions are defined above this point.
 # Refresh the sys.modules alias on every run so tab modules that do

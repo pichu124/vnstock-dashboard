@@ -34,6 +34,8 @@ Còn inline: ``_live_market_fragment`` — fragment Streamlit
 
 from __future__ import annotations
 
+from dashboard.theme import PLOTLY_BG as _PLOTLY_BG, TOKENS as _T
+
 # Tổng bề rộng các ô heatmap VN30 tính theo bề ngang khung (%): 300 ≈ 3 hàng
 # cho 30 mã. Tăng = ô to hơn/nhiều hàng hơn, giảm = dẹt lại. Xem khối
 # "Chiều rộng ô ≈ VỐN HOÁ" trong `_live_market_fragment` để biết vì sao là
@@ -1157,8 +1159,8 @@ def render_market_tab() -> None:
                     )
                     fig_tm.update_layout(
                         height=600,
-                        paper_bgcolor="#0a0e1a",
-                        font=dict(color="#e5e7eb", size=11),
+                        **_PLOTLY_BG,
+                        font=dict(color=_T["text"], size=11),
                         margin=dict(l=5, r=5, t=30, b=5),
                         coloraxis_colorbar=dict(
                             title="1M %", ticksuffix="%",
@@ -1198,9 +1200,9 @@ def render_market_tab() -> None:
                     ))
                 fig.update_layout(
                     height=max(350, len(chart_df)*22),
-                    paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-                    font=dict(color="#9ca3af", size=11),
-                    xaxis=dict(gridcolor="#1f2937", zeroline=True,
+                    **_PLOTLY_BG,
+                    font=dict(color=_T["text_muted"], size=11),
+                    xaxis=dict(gridcolor=_T["border"], zeroline=True,
                                zerolinecolor="#374151", zerolinewidth=2,
                                ticksuffix="%",
                                range=_symmetric_xrange(chart_df["Giá 1M %"],

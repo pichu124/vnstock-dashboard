@@ -27,6 +27,7 @@ from dashboard.market_table_format import (
     scale_range,
 )
 from dashboard.sparkline import sparkline_svg
+from dashboard.theme import TOKENS as T, rgba
 
 
 # ── scale_range: chốt chặn chia 0 ───────────────────────────────────────────
@@ -89,15 +90,15 @@ class TestFvolColors:
     def test_returns_background_and_text(self):
         bg, text = fvol_colors(0, 0, 10)
         assert bg.startswith("rgb(")
-        assert text == "#111827"
+        assert text == T["on_light"]
 
     def test_dark_background_flips_text_to_white(self):
         """Nền đậm mà chữ vẫn đen là ô không đọc được."""
-        assert fvol_colors(10, 0, 10)[1] == "#ffffff"
+        assert fvol_colors(10, 0, 10)[1] == T["on_fill"]
 
     def test_threshold_is_at_35_percent(self):
-        assert fvol_colors(3.4, 0, 10)[1] == "#111827"
-        assert fvol_colors(3.6, 0, 10)[1] == "#ffffff"
+        assert fvol_colors(3.4, 0, 10)[1] == T["on_light"]
+        assert fvol_colors(3.6, 0, 10)[1] == T["on_fill"]
 
 
 def _rgb(css: str) -> tuple:
@@ -110,30 +111,30 @@ class TestColorVal:
 
     @pytest.mark.parametrize("col", ["Giá 1T %", "NN 1M (tỷ)", "Net BS 3M", "AVG 5-10 %"])
     def test_sign_columns_are_green_red_gray(self, col):
-        assert color_val(1.0, col) == "#10b981"
-        assert color_val(-1.0, col) == "#ef4444"
-        assert color_val(0.0, col) == "#9ca3af"
+        assert color_val(1.0, col) == T["up"]
+        assert color_val(-1.0, col) == T["down"]
+        assert color_val(0.0, col) == T["text_muted"]
 
     def test_missing_value_is_gray(self):
-        assert color_val(None, "Giá 1T %") == "#4b5563"
-        assert color_val(float("nan"), "Giá 1T %") == "#4b5563"
+        assert color_val(None, "Giá 1T %") == T["text_faint"]
+        assert color_val(float("nan"), "Giá 1T %") == T["text_faint"]
 
     def test_vol_ratio_thresholds(self):
-        assert color_val(110.1, "Vol 5/20 %") == "#10b981"
-        assert color_val(89.9, "Vol 5/20 %") == "#ef4444"
-        assert color_val(100, "Vol 5/20 %") == "#e5e7eb"
+        assert color_val(110.1, "Vol 5/20 %") == T["up"]
+        assert color_val(89.9, "Vol 5/20 %") == T["down"]
+        assert color_val(100, "Vol 5/20 %") == T["text"]
 
     def test_free_vol_columns_defer_to_cell_heatmap(self):
         """Cột này tô NỀN riêng bằng fvol_colors nên màu chữ phải trung tính."""
         for col in FREE_VOL_COLS:
-            assert color_val(5.0, col) == "#e5e7eb"
+            assert color_val(5.0, col) == T["text"]
 
     def test_amp_columns_use_the_passed_scale(self):
         for col in AMP_COLS:
             assert color_val(0, col, 0, 10) == amp_color(0, 0, 10)
 
     def test_unknown_column_gets_default(self):
-        assert color_val(123, "Cột lạ") == "#e5e7eb"
+        assert color_val(123, "Cột lạ") == T["text"]
 
 
 # ── fmt ─────────────────────────────────────────────────────────────────────
@@ -194,11 +195,14 @@ class TestSparkline:
 
     def test_positive_ending_is_green(self):
         svg = sparkline_svg([-1.0, 0.0, 2.5])
-        assert "#10b981" in svg and "#ef4444" not in svg
+        assert T["up"] in svg and T["down"] not in svg
+        # Nền tô là rgba (không chứa hex của đường) ⇒ canh riêng chiều của nền.
+        assert rgba(T["up"], 0.13) in svg and rgba(T["down"], 0.13) not in svg
 
     def test_negative_ending_is_red(self):
         svg = sparkline_svg([1.0, 0.0, -2.5])
-        assert "#ef4444" in svg and "#10b981" not in svg
+        assert T["down"] in svg and T["up"] not in svg
+        assert rgba(T["down"], 0.13) in svg and rgba(T["up"], 0.13) not in svg
 
     def test_label_shows_last_value_with_sign(self):
         assert ">+2.5%<" in sparkline_svg([0.0, 2.5])

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import math
 
+from dashboard.theme import TOKENS as _T
+
 # ── Nhóm cột ────────────────────────────────────────────────────────────────
 PRICE_PCT_COLS = ("Giá 1T %", "Giá 1M %", "Giá 3M %")
 AMP_COLS = ("Biên 1T (%)", "Biên 1M (%)", "Biên 3M (%)")
@@ -25,9 +27,10 @@ FREE_VOL_COLS = ("Vol 5/Free %", "Vol 10/Free %", "Vol 20/Free %")
 VOL_AVG_COLS = ("Vol Avg 5", "Vol Avg 10", "Vol Avg 20")
 MONEY_COLS = ("Vốn hoá (tỷ)", "GTGD TB (tỷ)", "Freefloat (tỷ)")
 
-GREEN, RED, GRAY = "#10b981", "#ef4444", "#9ca3af"
-MISSING = "#4b5563"
-DEFAULT = "#e5e7eb"
+# Từ token (P1 thiết kế lại giao diện). MISSING từng là #4b5563 (2,6:1 — dưới chuẩn đọc).
+GREEN, RED, GRAY = _T["up"], _T["down"], _T["text_muted"]
+MISSING = _T["text_faint"]
+DEFAULT = _T["text"]
 
 # Vol 5/20 %: trên 110 là dòng tiền đang vào, dưới 90 là đang rút.
 _VOL_RATIO_HOT, _VOL_RATIO_COLD = 110, 90
@@ -81,7 +84,7 @@ def fvol_colors(val, vmin, vrange) -> tuple:
         r = int(249 + (153 - 249) * s)
         g = int(115 + (27 - 115) * s)
         b = int(22 + (27 - 22) * s)
-    return f"rgb({r},{g},{b})", ("#111827" if t < 0.35 else "#ffffff")
+    return f"rgb({r},{g},{b})", (_T["on_light"] if t < 0.35 else _T["on_fill"])
 
 
 def color_val(val, col, amp_min=0, amp_range=1) -> str:

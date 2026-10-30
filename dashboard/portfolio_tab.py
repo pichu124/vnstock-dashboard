@@ -43,6 +43,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from dashboard.theme import PLOTLY_BG as _PLOTLY_BG, TOKENS as _T
 from vnstock_parquet_io import write_json_atomic
 
 
@@ -489,9 +490,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                     yaxis=dict(title="Rebase 100"),
                     xaxis=_xaxis_nw,
                     legend=dict(orientation="h", y=1.1),
-                    plot_bgcolor="#0e1117",
-                    paper_bgcolor="#0e1117",
-                    font=dict(color="#f1f5f9"),
+                    **_PLOTLY_BG,
+                    font=dict(color=_T["text"]),
                 )
                 st.plotly_chart(_fig_nw, use_container_width=True)
             except Exception:
@@ -586,9 +586,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                     height=max(280, len(_names) * 38),
                     margin=dict(l=0, r=0, t=40, b=0),
                     legend=dict(orientation="h", y=1.12),
-                    plot_bgcolor="#0e1117",
-                    paper_bgcolor="#0e1117",
-                    font=dict(color="#f1f5f9"),
+                    **_PLOTLY_BG,
+                    font=dict(color=_T["text"]),
                 )
                 st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -613,9 +612,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                     height=max(280, len(_names) * 38),
                     margin=dict(l=0, r=0, t=40, b=10),
                     legend=dict(font=dict(size=10)),
-                    plot_bgcolor="#0e1117",
-                    paper_bgcolor="#0e1117",
-                    font=dict(color="#f1f5f9"),
+                    **_PLOTLY_BG,
+                    font=dict(color=_T["text"]),
                 )
                 st.plotly_chart(fig_pie, use_container_width=True)
 

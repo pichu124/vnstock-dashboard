@@ -1,5 +1,74 @@
 [server]
 # Serve files from <repo>/static/ at /app/static/* — used by the analysis tab
 # to push today's OHLCV bar to the chart iframe for smooth live updates
-# without rebuilding the LWC chart on each tick.
+# without rebuilding the LWC chart on each tick. Also serves static/fonts/
+# (IBM Plex, self-hosted — see [[theme.fontFaces]] below).
 enableStaticServing = true
+
+# Theme — giá trị CHÉP từ dashboard/theme.py TOKENS (tests/test_theme_tokens.py
+# canh hai bên khớp). Ghim nền TỐI: thiếu dòng `base`, máy để chế độ sáng thì
+# Streamlit dựng theme sáng dưới CSS nền tối ⇒ chữ tiêu đề chìm (đo 30/10).
+# Sáng/tối thật là việc P4 (docs/THIET-KE-GIAO-DIEN.md).
+[theme]
+base = "dark"
+primaryColor = "#3b82f6"
+backgroundColor = "#0a0e1a"
+secondaryBackgroundColor = "#111827"
+textColor = "#e5e7eb"
+borderColor = "#1f2937"
+linkColor = "#60a5fa"
+greenColor = "#10b981"
+redColor = "#ef4444"
+yellowColor = "#fbbf24"
+orangeColor = "#f59e0b"
+violetColor = "#a78bfa"
+blueColor = "#3b82f6"
+grayColor = "#9ca3af"
+dataframeBorderColor = "#1f2937"
+dataframeHeaderBackgroundColor = "#111827"
+chartCategoricalColors = ["#60a5fa", "#f59e0b", "#a78bfa", "#22d3ee", "#34d399", "#f87171", "#d946ef", "#9ca3af"]
+font = "IBM Plex Sans, sans-serif"
+codeFont = "IBM Plex Mono, monospace"
+baseRadius = "8px"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/IBMPlexSans-Regular.woff2"
+weight = "400"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/IBMPlexSans-Medium.woff2"
+weight = "500"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/IBMPlexSans-SemiBold.woff2"
+weight = "600"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/IBMPlexSans-Bold.woff2"
+weight = "700"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Mono"
+url = "app/static/fonts/IBMPlexMono-Regular.woff2"
+weight = "400"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Mono"
+url = "app/static/fonts/IBMPlexMono-Medium.woff2"
+weight = "500"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Mono"
+url = "app/static/fonts/IBMPlexMono-SemiBold.woff2"
+weight = "600"
+style = "normal"

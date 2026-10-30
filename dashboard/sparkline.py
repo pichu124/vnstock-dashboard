@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import math
 
-_EMPTY = '<span style="color:#4b5563;font-size:10px">—</span>'
+from dashboard.theme import TOKENS as _T, rgba as _rgba
 
-_UP_LINE, _DOWN_LINE = "#10b981", "#ef4444"
-_UP_FILL, _DOWN_FILL = "#10b98122", "#ef444422"
-_ZERO_LINE = "#4b5563"
+_EMPTY = f'<span style="color:{_T["text_faint"]};font-size:10px">—</span>'
+
+_UP_LINE, _DOWN_LINE = _T["up"], _T["down"]
+_UP_FILL, _DOWN_FILL = _rgba(_T["up"], 0.13), _rgba(_T["down"], 0.13)
+_ZERO_LINE = _T["text_off"]
 
 
 def _clean(values) -> list:

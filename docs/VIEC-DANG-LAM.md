@@ -26,15 +26,19 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
-## 🎨 Thiết kế lại giao diện — 6 câu ĐÃ CHỐT 30/10 · bản mẫu P0 CHỜ DUYỆT (`docs/THIET-KE-GIAO-DIEN.md`)
+## 🎨 Thiết kế lại giao diện — P1 (màu + chữ) CODE XONG 31/10 · đang làm tiếp P2→P5 (`docs/THIET-KE-GIAO-DIEN.md`)
 
-Chưa code app. Chốt: mở vào Tổng quan · màu bảng điện VN · bỏ light mode hỏng ở P1, làm thật ở P4 · gom
-Vĩ mô→Thị trường, Phân bổ→Danh mục · gộp 3 badge thành 1 chấm. 5 pha, mỗi pha 1 PR, không đổi số liệu.
+Nhánh `claude/adoring-bardeen-vpuq5b`. User đã duyệt bản mẫu P0 + 6 câu §9. Một máy đã đo Streamlit 1.56.0.
 
-- ○ **Duyệt bản mẫu** (3 artboard, số thật SSI phiên 30/10): https://claude.ai/artifact/ERUSopdPGkjDQsS9KGWgxD
-  — bấm Play ở artboard Tổng quan để mở menu / chấm "Hệ thống ổn"; góp ý thẳng bằng comment trên canvas.
-- ⇄ **CẢ HAI** — đo bản Streamlit (kế hoạch cần ≥ 1.56):
-  `python -c "import streamlit; print(streamlit.__version__)"`
+- ⇄ **CẢ HAI** — lấy code + **RESTART** dashboard (theme/font chỉ đọc lúc khởi động):
+  `git fetch origin claude/adoring-bardeen-vpuq5b` rồi `git merge origin/claude/adoring-bardeen-vpuq5b`
+  → đóng cửa sổ dashboard cũ → `python run.py dashboard`. Đúng thì: nút/slider XANH DƯƠNG (hết đỏ), chữ IBM Plex,
+  ô 1D% = 0.0% tô VÀNG, công tắc "☀️ Light mode" biến mất (P4 làm lại bản thật).
+- ⇄ **CẢ HAI** — máy còn lại chưa đo Streamlit: `python -c "import streamlit; print(streamlit.__version__)"` (≥ 1.56,
+  chạy TRONG venv).
+- ○ **Soi mắt tab 🔬 Phân tích** (cloud không có kho giá thật): chart 4 panel vẫn kéo/zoom đồng bộ, màu nến như cũ.
+- ○ (tuỳ) Chụp mốc để so các pha sau: `pip install playwright` → `python -m playwright install chromium` →
+  `python scripts/ui_snapshots.py --label p1` (ảnh ở `ui_snapshots/p1/`, gitignore).
 
 ## PR #31 — sửa ~60 lỗi dashboard + kit đội agent (18/10, nhánh `trial/agent-team`) — ĐÃ MERGE `4e8ba80`
 

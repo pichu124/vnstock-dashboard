@@ -10,6 +10,8 @@ của tab Thị trường vẫn chạy.
 """
 from __future__ import annotations
 
+from dashboard.theme import PLOTLY_BG as _PLOTLY_BG, TOKENS as _T
+
 
 def render_strategy_panel() -> None:
     """Render panel. Streamlit import LƯỜI để pytest import được module."""
@@ -237,9 +239,8 @@ def render_strategy_panel() -> None:
                                 height=300,
                                 legend=dict(orientation="h", y=1.12),
                                 margin=dict(l=0, r=0, t=45, b=0),
-                                plot_bgcolor="#0e1117",
-                                paper_bgcolor="#0e1117",
-                                font=dict(color="#f1f5f9"),
+                                **_PLOTLY_BG,
+                                font=dict(color=_T["text"]),
                             )
                             st.plotly_chart(_fig1, use_container_width=True)
 
@@ -257,9 +258,8 @@ def render_strategy_panel() -> None:
                                 yaxis=dict(title="Drawdown (%)", zeroline=True, zerolinecolor="#475569"),
                                 height=180,
                                 margin=dict(l=0, r=0, t=40, b=0),
-                                plot_bgcolor="#0e1117",
-                                paper_bgcolor="#0e1117",
-                                font=dict(color="#f1f5f9"),
+                                **_PLOTLY_BG,
+                                font=dict(color=_T["text"]),
                             )
                             st.plotly_chart(_fig2, use_container_width=True)
 

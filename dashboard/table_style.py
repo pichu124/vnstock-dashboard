@@ -11,19 +11,26 @@ từ `__str__` của object lạ.
 """
 from __future__ import annotations
 
-GRAY_EMPTY = "#4b5563"      # ô trống / "—"
-GRAY_UNPARSEABLE = "#6b7280"  # có giá trị nhưng không parse nổi
-GRAY_NEUTRAL = "#9ca3af"
-DEFAULT_COLOR = "#d1d5db"
+from dashboard.theme import TOKENS as _T
+
+# Màu lấy từ token (P1 thiết kế lại giao diện). Ô trống/không parse nổi từng là
+# #4b5563/#6b7280 — 2,6:1 và 4,0:1 trên nền, dưới chuẩn đọc ⇒ nay `text_faint`.
+GRAY_EMPTY = _T["text_faint"]        # ô trống / "—"
+GRAY_UNPARSEABLE = _T["text_faint"]  # có giá trị nhưng không parse nổi
+GRAY_NEUTRAL = _T["text_muted"]
+DEFAULT_COLOR = _T["text"]
 
 _PCT_COLUMNS = ("1D%", "5D%", "20D%", "BB%", "52W%")
+# Đổi 1 PHIÊN = so tham chiếu ⇒ 0% tô VÀNG như bảng điện; đổi nhiều phiên thì 0 chỉ
+# là "không đổi" — để xám.
+_SESSION_PCT = "1D%"
 _MACD_COLORS = {
-    "BUY": "#10b981", "BULL": "#34d399",
-    "SELL": "#ef4444", "BEAR": "#f87171",
+    "BUY": _T["up"], "BULL": _T["up_soft"],
+    "SELL": _T["down"], "BEAR": _T["down_soft"],
 }
 
-_GREEN, _RED = "#10b981", "#ef4444"
-_GREEN_SOFT, _RED_SOFT = "#6ee7b7", "#fca5a5"
+_GREEN, _RED = _T["up"], _T["down"]
+_GREEN_SOFT, _RED_SOFT = _T["up_soft"], _T["down_soft"]
 
 
 def _as_pct(val) -> float:
@@ -38,7 +45,14 @@ def cell_color(col, val) -> str:
     if col in _PCT_COLUMNS:
         try:
             v = _as_pct(val)
-            return _GREEN if v > 0 else (_RED if v < 0 else GRAY_NEUTRAL)
+            if v == 0:
+                # Chuỗi đã làm tròn 1 chữ số: "+0.0%"/"-0.0%" là có đổi (mã giá cao lên/xuống
+                # 1 bước giá ≈ 0,04%) — giữ CHIỀU theo dấu; chỉ "0.0%" mới là đứng giá.
+                sign = str(val).strip()[:1]
+                if sign in "+-":
+                    return _GREEN if sign == "+" else _RED
+                return _T["ref"] if col == _SESSION_PCT else GRAY_NEUTRAL
+            return _GREEN if v > 0 else _RED
         except (ValueError, TypeError):
             return GRAY_UNPARSEABLE
     if col == "RSI":
@@ -54,16 +68,16 @@ def cell_color(col, val) -> str:
             return _GREEN_SOFT
         if v > 60:
             return _RED_SOFT
-        return "#e5e7eb"
+        return _T["text"]
     if col == "MACD":
         return _MACD_COLORS.get(str(val).upper(), GRAY_NEUTRAL)
     if col == "Trend":
         up = str(val).upper()
         return _GREEN if up == "UP" else (_RED if up in ("DOWN", "DN") else GRAY_NEUTRAL)
     if col == "Ticker":
-        return "#60a5fa"
+        return _T["link"]
     if col == "Ngành":
-        return "#a78bfa"
+        return _T["category"]
     return DEFAULT_COLOR
 
 

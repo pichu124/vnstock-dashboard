@@ -1,8 +1,9 @@
 # Thiết kế lại GIAO DIỆN dashboard cho chuyên nghiệp — KẾ HOẠCH
 
-> **Trạng thái 30/10/2026 tối: user CHỐT 6 câu §9 (cả 6 theo đề xuất) · P0 BẢN MẪU XONG — CHỜ USER DUYỆT.**
+> **Trạng thái 31/10/2026: user DUYỆT bản mẫu P0 · P1 (màu + chữ) CODE XONG trên nhánh
+> `claude/adoring-bardeen-vpuq5b` — chờ user merge + restart dashboard (§7 hàng P1). Kế tiếp: P2.**
 > Bản mẫu (canvas riêng tư của user, 3 artboard, số thật SSI phiên 30/10): https://claude.ai/artifact/ERUSopdPGkjDQsS9KGWgxD
-> Khảo sát code ở `f5029d7`. Duyệt xong mới làm P1. Mỗi pha một PR, merge riêng được, **không đổi một con
+> Khảo sát code ở `f5029d7`. Mỗi pha một PR, merge riêng được, **không đổi một con
 > số nào** — chỉ đổi cách trình bày.
 
 ## 1. "Chuyên nghiệp" nghĩa là gì — tiêu chí đo được
@@ -117,17 +118,24 @@ bỏ `@import` Google Fonts (máy mất mạng/chậm thì app rơi về font h�
 
 ### 4c. Hai module mới (thuần, test được)
 
-- **`dashboard/theme.py`** — `TOKENS` (dict ở §4a) · `css()` sinh biến CSS `--vn-*` · Plotly template
-  `vnstock` đăng ký làm mặc định (`pio.templates.default`) ⇒ bỏ `paper_bgcolor=` rải rác · `price_color(price,
-  ref, ceil, floor)` · `pct_color(pct)` · `status_color(level)` · `lwc_palette()` truyền vào iframe chart.
+- **`dashboard/theme.py`** ✅ P1 — `TOKENS` (§4a + `text_strong`, `text_off` cho ô khoá, `link`, `category`,
+  `on_fill`/`on_light`) · `app_css()` (khối CSS chung, giữ tên class cũ) · `font_face_css()` cho iframe ·
+  `lwc_palette()` → biến JS `PAL` trong iframe chart · `PLOTLY_BG` (nền trong suốt) · `price_color(price, ref,
+  ceil, floor)` · `pct_color(v, flat=)` · `status_color(level)` · `rgba()` · `contrast()`.
   `.streamlit/config.toml [theme]` ghi cùng giá trị — test canh hai bên khớp.
+  **Plotly KHÔNG dùng `pio.templates.default`** (đổi so kế hoạch, 31/10): `st.plotly_chart` mặc định
+  `theme="streamlit"` tự dựng template từ `config.toml` (font, chữ, `chartCategoricalColors`) — template riêng
+  sẽ bị đè. Chỉ cần bỏ nền hex ở call site (`**PLOTLY_BG`).
 - **`dashboard/ui.py`** — thành phần dùng chung thay HTML tự vẽ: `page_header(title, subtitle)` ·
   `kpi_row(items)` (`st.metric(border=True)`) · `section(title, help=)` · `status_pill(level, text)` ·
   `empty_state(msg, action=)` · `price_table(df, ...)` (`st.dataframe` + `column_config`) ·
   `diag_expander(title)` (chỉ hiện khi bật chế độ chẩn đoán).
 
-**Lưới canh (giống lưới slug chết):** `tests/test_theme_tokens.py` quét mọi file UI, hex nằm ngoài
-`theme.py` phải có trong ALLOWLIST; allowlist chỉ được GIẢM qua từng PR. Thêm vào whitelist `--fast`.
+**Lưới canh (giống lưới slug chết)** ✅ P1: `tests/test_theme_tokens.py` đếm mã hex trong CHUỖI (comment
+không tính) của từng file UI so `HEX_BUDGET`; vượt ⇒ đỏ, gỡ bớt mà quên hạ ngân sách ⇒ cũng đỏ (để hex không
+quay lại). Mốc trước P1: **582** · sau P1: **416**. Cùng file: config↔token, 7 file font + OFL có thật,
+tương phản ≥ 4,5:1 cho 14 màu chữ trên `bg` và `surface`, `theme.py` không import Streamlit, toggle Light mode
+cũ không quay lại. Đã vào whitelist `--fast`.
 
 ## 5. Bố cục & điều hướng (P2)
 
@@ -202,7 +210,8 @@ Mỗi pha = 1 PR (P3 = mỗi trang 1 PR). Mỗi PR: `run.py test --fast` xanh + 
 |---|---|---|---|
 | **P0** Bản mẫu ✅ 30/10 | Canvas 3 artboard: Tổng quan · Phân tích mã FPT (4 panel, warmup RSI/MACD để trống như bất biến chart) · Bảng màu & chữ — token §4a, số thật SSI phiên 30/10 | Claude (cloud) · **user duyệt** ○ máy nào cũng được | User duyệt hướng (hoặc sửa) |
 | | (Đầu P1) Chụp 9 trang HIỆN TẠI làm mốc so: script Playwright `scripts/ui_snapshots.py` (cloud không có kho ⇒ phải chạy trên máy thật) | Claude viết · user chạy ○ máy nào cũng được | 9 ảnh trong `ui_snapshots/before/` (gốc repo, gitignore — KHÔNG để trong kho) |
-| **P1** Nền | `theme.py` + `config.toml [theme]` + font tự host + Plotly template + `lwc_palette()` + thay hex ở `table_style`/`market_table_format`/`sparkline`/CSS chung; nâng `requirements` `streamlit>=1.56`; bỏ toggle ☀️ Light mode hỏng + `THEMES` (§9 câu 3a); lưới hex | Claude | Bố cục y cũ, chỉ màu/chữ đổi; lưới hex xanh; `--fast` xanh |
+| **P1** Nền ✅ 31/10 | `theme.py` + `config.toml [theme]` (ghim `base="dark"`, nhấn xanh dương thay đỏ mặc định của Streamlit) + IBM Plex tự host `static/fonts/` (7 file, 432 KB, OFL) + nền Plotly trong suốt + `PAL` cho chart LWC + token ở `table_style`/`market_table_format`/`sparkline`/CSS chung/badge sidebar/bảng screener; `streamlit>=1.56`; bỏ toggle ☀️ Light mode + `THEMES`; lưới hex; `scripts/ui_snapshots.py` | Claude | Cloud 31/10: 9 tab 0 exception, font Plex nạp từ static, chart 4 panel vẽ đủ (62 phiên FPT, 0 lỗi JS); FULL 5.153 passed. **Sửa luôn 1 lỗi thật:** máy để chế độ SÁNG ⇒ Streamlit dựng theme sáng dưới CSS tối, tiêu đề chìm (ảnh `ui_snapshots/before-light`) |
+| | Merge + **restart** dashboard (theme đọc lúc khởi động) | user ⇄ CẢ HAI | Mở app: nút/slider xanh dương, font Plex, 1D% = 0 tô vàng |
 | | Kiểm bản Streamlit: `python -c "import streamlit; print(streamlit.__version__)"` ≥ 1.56 | user ⇄ CẢ HAI (venv theo máy) | Cả hai máy ≥ 1.56 |
 | **P2** Khung | `st.navigation` top + 5 nhóm + URL · thanh trạng thái · sidebar gọn · nút pipeline + chẩn đoán → Hệ thống | Claude | Smoke render từng trang xanh; `test_live_mode_crosstab` xanh; test marker khoá nút ở chỗ mới |
 | **P3** Từng trang | Thứ tự: Tổng quan → Bộ lọc → Phân tích mã → Danh mục → Dòng tiền → còn lại. Thay HTML inline bằng `ui.*`, chuẩn tiêu đề, màu giá VN | Claude · user soi mắt mỗi PR ○ | Allowlist hex của trang về 0; ảnh sau khớp mockup |
@@ -210,6 +219,11 @@ Mỗi pha = 1 PR (P3 = mỗi trang 1 PR). Mỗi PR: `run.py test --fast` xanh + 
 | **P5** Hoàn thiện | Trạng thái rỗng / đang tải / lỗi đồng bộ cả app; màn laptop (cột co, bảng cuộn ngang); `FULL` test trước PR về `main` | Claude · user soi trên 💻 LAPTOP | `run.py test` FULL xanh; user duyệt |
 
 ## 8. Rủi ro & bất biến phải giữ
+
+- **`st.components.v1.html` bị Streamlit báo bỏ** (log 1.56: "will be removed after 2026-06-01", thay bằng
+  `st.iframe`). Chart LWC + bảng screener + báo cáo lãi suất đều đi đường này; 1.56 vẫn chạy (reviewer kiểm
+  wheel 1.66.1: hàm vẫn còn, chỉ báo bỏ). `requirements` ghim `>=1.56.0,<1.57` — bản đã thử — để `pip install -r`
+  ở máy cũ không nhảy thẳng lên bản mới nhất. Nâng trần = thử chart Phân tích trước.
 
 - **Chart 4 panel** (CLAUDE.md bất biến): P1 chỉ thay chuỗi màu trong CSS/JS iframe, không chạm
   logical-range hay whitespace bar warmup. Đổi màu nến ⇒ soi mắt thêm 1 lần trên máy thật.

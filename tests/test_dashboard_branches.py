@@ -28,6 +28,7 @@ import pytest
 
 from dashboard.chart_indicators import compute_indicators
 from dashboard.table_style import cell_color, cell_weight
+from dashboard.theme import TOKENS as T, font_face_css, lwc_palette
 from dashboard.watchlist_io import load_watchlist, save_watchlist
 from vnstock_console_launch import build_ps_command
 from vnstock_parquet_io import write_json_atomic
@@ -172,41 +173,41 @@ class TestNormalizeMissingColumns:
 class TestCellColorUncoveredBranches:
 
     def test_trend_up_is_green(self):
-        assert cell_color("Trend", "UP") == "#10b981"
+        assert cell_color("Trend", "UP") == T["up"]
 
     @pytest.mark.parametrize("val", ["DOWN", "DN", "down", "dn"])
     def test_trend_down_variants_are_red(self, val):
-        assert cell_color("Trend", val) == "#ef4444"
+        assert cell_color("Trend", val) == T["down"]
 
     def test_trend_unknown_is_neutral(self):
-        assert cell_color("Trend", "SIDEWAY") == "#9ca3af"
+        assert cell_color("Trend", "SIDEWAY") == T["text_muted"]
 
     def test_ticker_and_industry_have_own_colors(self):
-        assert cell_color("Ticker", "VCB") == "#60a5fa"
-        assert cell_color("Ngành", "Ngân hàng") == "#a78bfa"
+        assert cell_color("Ticker", "VCB") == T["link"]
+        assert cell_color("Ngành", "Ngân hàng") == T["category"]
 
     def test_rsi_soft_bands(self):
         """Bậc 40/60 (cảnh báo mềm) — replica cũ nhảy thẳng từ 30 sang 70."""
-        assert cell_color("RSI", "35") == "#6ee7b7"
-        assert cell_color("RSI", "65") == "#fca5a5"
-        assert cell_color("RSI", "50") == "#e5e7eb"
+        assert cell_color("RSI", "35") == T["up_soft"]
+        assert cell_color("RSI", "65") == T["down_soft"]
+        assert cell_color("RSI", "50") == T["text"]
 
     @pytest.mark.parametrize("val,expected", [
-        ("BUY", "#10b981"), ("BULL", "#34d399"),
-        ("SELL", "#ef4444"), ("BEAR", "#f87171"),
-        ("buy", "#10b981"),
+        ("BUY", T["up"]), ("BULL", T["up_soft"]),
+        ("SELL", T["down"]), ("BEAR", T["down_soft"]),
+        ("buy", T["up"]),
     ])
     def test_macd_palette(self, val, expected):
         assert cell_color("MACD", val) == expected
 
     def test_macd_unknown_is_neutral(self):
-        assert cell_color("MACD", "???") == "#9ca3af"
+        assert cell_color("MACD", "???") == T["text_muted"]
 
     def test_unknown_column_gets_default(self):
-        assert cell_color("Vốn hoá", "12,345") == "#d1d5db"
+        assert cell_color("Vốn hoá", "12,345") == T["text"]
 
     def test_empty_string_is_empty_gray(self):
-        assert cell_color("Ticker", "") == "#4b5563"
+        assert cell_color("Ticker", "") == T["text_faint"]
 
 
 class TestCellWeightUncoveredBranches:
@@ -846,7 +847,8 @@ def _render_chart_html(lwc_path: Path, df=None, **chart_kw) -> tuple[list, list]
     stc = types.SimpleNamespace(html=lambda h, **k: html.append(h))
     ns = load_source_fns("vnstock_dashboard.py", "_lwc_js", "render_chart",
                          st=st, _stc=stc, pd=pd, compute_indicators=compute_indicators,
-                         LWC_JS_PATH=lwc_path)
+                         LWC_JS_PATH=lwc_path, _lwc_palette=lwc_palette,
+                         _font_face_css=font_face_css)
     ns["render_chart"](_rising() if df is None else df, "VCB", **chart_kw)
     return html, said
 

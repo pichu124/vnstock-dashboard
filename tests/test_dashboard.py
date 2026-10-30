@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dashboard.chart_indicators import compute_indicators          # noqa: E402
 from dashboard.table_style import cell_color, cell_weight          # noqa: E402
+from dashboard.theme import TOKENS as T                            # noqa: E402
 from dashboard.volume_profile import calc_value_area as _calc_value_area  # noqa: E402
 from dashboard.watchlist_io import (                               # noqa: E402
     load_watchlist as _load_watchlist,
@@ -261,32 +262,42 @@ _cell_weight = cell_weight
 class TestCellColor:
 
     def test_positive_pct_is_green(self):
-        assert _cell_color("1D%", "+2.5%") == "#10b981"
+        assert _cell_color("1D%", "+2.5%") == T["up"]
 
     def test_negative_pct_is_red(self):
-        assert _cell_color("5D%", "-3.1%") == "#ef4444"
+        assert _cell_color("5D%", "-3.1%") == T["down"]
 
-    def test_zero_pct_is_gray(self):
-        assert _cell_color("1D%", "0.0%") == "#9ca3af"
+    def test_zero_session_pct_is_reference_yellow(self):
+        """1D% so với tham chiếu ⇒ đứng giá tô VÀNG như bảng điện (user chốt 30/10)."""
+        assert _cell_color("1D%", "0.0%") == T["ref"]
+
+    @pytest.mark.parametrize("val,tok", [("+0.0%", "up"), ("-0.0%", "down")])
+    def test_rounded_zero_keeps_its_direction(self, val, tok):
+        """Mã giá cao đổi 1 bước giá (~0,04%) hiện "+0.0%" — có đổi thật, không phải đứng giá."""
+        assert _cell_color("1D%", val) == T[tok]
+
+    def test_zero_multi_session_pct_is_gray(self):
+        """5D%/20D% bằng 0 chỉ là "không đổi" — không có tham chiếu nào để vàng."""
+        assert _cell_color("5D%", "0.0%") == T["text_muted"]
 
     def test_rsi_oversold_green(self):
-        assert _cell_color("RSI", "25") == "#10b981"
+        assert _cell_color("RSI", "25") == T["up"]
 
     def test_rsi_overbought_red(self):
-        assert _cell_color("RSI", "75") == "#ef4444"
+        assert _cell_color("RSI", "75") == T["down"]
 
     def test_dash_placeholder_returns_gray(self):
-        assert _cell_color("1D%", "—") == "#4b5563"
+        assert _cell_color("1D%", "—") == T["text_faint"]
 
     def test_none_returns_gray(self):
-        assert _cell_color("1D%", None) == "#4b5563"
+        assert _cell_color("1D%", None) == T["text_faint"]
 
     def test_garbage_string_falls_back(self):
         # ValueError from float("abc") — caught by narrow except
-        assert _cell_color("1D%", "abc%") == "#6b7280"
+        assert _cell_color("1D%", "abc%") == T["text_faint"]
 
     def test_rsi_garbage_falls_back(self):
-        assert _cell_color("RSI", "N/A") == "#6b7280"
+        assert _cell_color("RSI", "N/A") == T["text_faint"]
 
     def test_narrow_except_lets_keyboardinterrupt_escape(self):
         """Proves bare except would have swallowed this — narrow one doesn't."""

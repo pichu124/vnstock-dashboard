@@ -309,6 +309,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 ## Quy ước
 - Output cho người dùng (brief, UI) bằng tiếng Việt; format số kiểu EN
   (`{:,.2f}` — phẩy nghìn, chấm thập phân).
+- Màu/chữ UI: MỘT nguồn `dashboard/theme.py` (`TOKENS`; `.streamlit/config.toml` chép lại, test canh).
+  Đừng gõ hex vào file UI — `tests/test_theme_tokens.py` đếm hex từng file, ngân sách chỉ GIẢM. Giá theo
+  bảng điện VN (tím trần · xanh tăng · vàng TC · đỏ giảm · xanh lơ sàn); font IBM Plex tự host `static/fonts/`.
+  Lộ trình giao diện P1→P5: `docs/THIET-KE-GIAO-DIEN.md`.
 - LLM hay phớt chỉ thị prompt → mọi ràng buộc quan trọng chốt bằng guard
   deterministic trong code + test đi kèm. Thêm guard = viết trong
   `vnstock_brief_guards.py` + NỐI VÀO `apply_brief_guards` + viết test (guard
