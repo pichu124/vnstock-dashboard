@@ -82,3 +82,21 @@ def test_index_change():
 def test_fmt_signed_uses_en_format():
     assert fmt_signed(-13.987) == "-13.99"
     assert fmt_signed(1234.5) == "+1,234.50"
+
+
+@pytest.mark.parametrize("payload", ["[]", "123", '{"counts": "lạ", "worst": 5}'])
+def test_odd_shaped_file_warns_instead_of_crashing_every_page(tmp_path, payload):
+    """JSON hợp lệ nhưng sai hình (list, số, trường sai kiểu) từng làm sập MỌI trang."""
+    _write(tmp_path, "doctor_status.json", payload)
+    doc = next(i for i in system_items(tmp_path, FRI) if i["name"] == "Nguồn dữ liệu")
+    assert doc["level"] in ("warn", "ok", "off")
+    if payload in ("[]", "123"):
+        assert doc["level"] == "warn" and "không đọc được" in doc["text"]
+
+
+def test_pytest_crash_without_fail_count_is_red(tmp_path):
+    """run.py ghi exit_code; thoát ≠ 0 mà 0 fail ('no tests ran') vẫn phải đỏ."""
+    _write(tmp_path, "test_status.json", {"passed": 0, "failed": 0, "errors": 0, "exit_code": 2,
+                                          "mode": "fast", "ran_at": "2026-10-30T08:00:00"})
+    t = system_items(tmp_path, FRI)[0]
+    assert t["level"] == "error" and "thoát mã 2" in t["text"]

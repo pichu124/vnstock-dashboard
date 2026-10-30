@@ -65,21 +65,30 @@ def system_items(meta: Path = META, now: datetime | None = None) -> list[dict]:
     items = []
 
     def add(name, fname, build):
+        # Hỏng ở BẤT KỲ khâu nào (đọc, JSON lạ như `[]`, trường sai kiểu) ⇒ dòng "warn" nói rõ.
+        # Thanh trạng thái vẽ trên MỌI trang: ném ra ở đây là sập cả trang Hệ thống — nơi
+        # cần vào để bấm 📥 (review P2, 31/10).
         try:
             data = _read(meta / fname)
-        except (OSError, ValueError) as e:
+            if data is not None and not isinstance(data, dict):
+                raise ValueError(f"không phải object JSON ({type(data).__name__})")
+            items.append(build(data))
+        except Exception as e:  # noqa: BLE001 — badge phải sống dù file lạ cỡ nào
             items.append({"name": name, "level": "warn",
                           "text": f"không đọc được {fname}", "sub": type(e).__name__})
-            return
-        items.append(build(data))
 
     def tests(d):
         if d is None:
             return {"name": "Tests", "level": "off", "text": "chưa chạy",
                     "sub": "python run.py test --fast"}
         bad = int(d.get("failed", 0) or 0) + int(d.get("errors", 0) or 0)
+        # pytest thoát ≠ 0 mà không parse ra số fail ("no tests ran", lỗi nội bộ) vẫn là ĐỎ —
+        # chấm gộp là chỗ duy nhất còn lại cho quy tắc "đỏ = KHÔNG merge" (review P2).
+        crashed = int(d.get("exit_code", 0) or 0) not in (0,) and not bad
         text = f"{d.get('mode', '?')}: {d.get('passed', 0)} passed" + (f", {bad} fail" if bad else "")
-        return {"name": "Tests", "level": "error" if bad else "ok", "text": text,
+        if crashed:
+            text += f" · pytest thoát mã {d.get('exit_code')}"
+        return {"name": "Tests", "level": "error" if (bad or crashed) else "ok", "text": text,
                 "sub": f"Chạy {_age(d.get('ran_at', ''), now)} · {d.get('elapsed_s', '?')}s"}
 
     def doctor(d):

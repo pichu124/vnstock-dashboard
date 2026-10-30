@@ -3439,7 +3439,8 @@ def _vnindex_tail() -> tuple:
     if df is None or df.empty or "close" not in df.columns:
         return (), ""
     if "time" in df.columns:
-        df = df.sort_values("time")
+        # Dropbox đẻ "… (conflicted copy).parquet" ⇒ cùng ngày hai dòng ⇒ "+0.00%" giả (review P2).
+        df = df.sort_values("time").drop_duplicates("time", keep="last")
     tail = df.tail(2)
     last = str(tail["time"].iloc[-1])[:10] if "time" in tail.columns else ""
     return tuple(float(x) for x in tail["close"]), last
@@ -3462,8 +3463,11 @@ def _render_status_strip(system_page) -> None:
     _, phase = _session_phase(datetime.now())
     parts.append(f'<span style="color:{_T["text_muted"]}">Phiên</span> <span class="vn-chip">{phase}</span>')
     if _screener_stale:
-        parts.append(f'<span style="color:{_T["warn"]}">⚠ Screener cũ ({str(gen_time)[:16]}) — '
+        parts.append(f'<span style="color:{_T["warn"]}">⚠ Screener cũ ({str(gen_time)[:16].replace("T", " ")}) — '
                      f'vào Hệ thống bấm "📥 Cập nhật giá"</span>')
+    elif data is None:
+        parts.append(f'<span style="color:{_T["warn"]}">⚠ Chưa có dữ liệu screener — vào Hệ thống bấm '
+                     f'"📥 Cập nhật giá"</span>')
     else:
         parts.append(f'<span style="color:{_T["text_muted"]}">Dữ liệu</span> '
                      f'<span style="{mono}">{str(gen_time)[:16].replace("T", " ")}</span>')
@@ -3519,5 +3523,8 @@ for _sec, _specs in _page_sections().items():
         _NAV_SPEC[_sec].append(_PAGE_OBJS[_spec.url_path])
 
 _nav = st.navigation(_NAV_SPEC, position="top")
-_render_status_strip(_PAGE_OBJS["he-thong"])
+try:
+    _render_status_strip(_PAGE_OBJS["he-thong"])
+except Exception:  # thanh trạng thái hỏng KHÔNG được kéo sập trang (nhất là trang Hệ thống)
+    log.exception("Thanh trạng thái lỗi")
 _nav.run()
