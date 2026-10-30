@@ -149,33 +149,65 @@ def test_main_script_registers_mode_resolver():
     assert "_set_theme_mode_resolver(lambda: st.context.theme.type)" in src
 
 
-# Tên ở dashboard.theme trả màu THEO CHẾ ĐỘ — gọi lúc import là đóng băng màu tối.
-_MODE_NAMES = {"TOKENS", "SERIES", "series", "pct_color", "price_color", "status_color",
-               "category_colors", "lwc_palette", "app_css", "current_mode"}
+# Tên ở dashboard.theme trả màu THEO CHẾ ĐỘ — dùng lúc import là đóng băng màu tối.
+#   bảng động (TOKENS, và `_T` mà ui.py xuất lại): chỉ khi TRA (`_T["up"]`, `_T.get`) — truyền nguyên bảng thì vô hại;
+#   hằng (SERIES = bản tối): mọi lần nhắc; hàm: khi GỌI.
+_MAPPING_NAMES = {"TOKENS", "_T"}
+_CONST_NAMES = {"SERIES"}
+_FUNC_NAMES = {"series", "pct_color", "price_color", "status_color", "category_colors",
+               "lwc_palette", "app_css", "current_mode"}
 
 
-def _theme_aliases(tree: ast.Module) -> set[str]:
-    names = set()
+def _theme_names(tree: ast.Module) -> dict[str, str]:
+    """Tên cục bộ → tên gốc, cho mọi `from …theme import X [as Y]` (kể cả `.theme`)."""
+    out = {}
     for n in ast.walk(tree):
-        if isinstance(n, ast.ImportFrom) and n.module == "dashboard.theme":
-            names |= {a.asname or a.name for a in n.names if a.name in _MODE_NAMES}
-        if isinstance(n, (ast.Import, ast.ImportFrom)):
-            names |= {a.asname for a in n.names if a.asname and a.name.endswith("theme")}
-            names |= {"theme" for a in n.names if a.name == "theme" and not a.asname}
-    return names
+        if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[-1] == "theme":
+            for a in n.names:
+                if a.name in _MAPPING_NAMES | _CONST_NAMES | _FUNC_NAMES:
+                    out[a.asname or a.name] = a.name
+    return out
 
 
-def _eager_reads(node, aliases: set[str]) -> list[int]:
-    """Dòng đọc màu THEO CHẾ ĐỘ ngay khi biểu thức chạy (bỏ qua thân lambda — chạy sau)."""
-    hits, stack = [], [node]
-    while stack:
-        n = stack.pop()
+def _frozen_reads(tree: ast.Module) -> list[int]:
+    """Dòng đọc màu theo chế độ NGAY LÚC IMPORT: đi mọi nút cấp module (cả if/try/with/for, thân
+    class, mặc định tham số, decorator), bỏ thân hàm, thân lambda và khối `if __name__ == "__main__"`."""
+    names = _theme_names(tree)
+    hits = []
+
+    def kind(n):   # tên gốc nếu nút là một tên theo chế độ (Name hoặc thuộc tính `x.TOKENS`, `ui._T`)
+        if isinstance(n, ast.Name):
+            return names.get(n.id)
+        if isinstance(n, ast.Attribute) and n.attr in _MAPPING_NAMES | _CONST_NAMES | _FUNC_NAMES:
+            return n.attr
+        return None
+
+    def visit(n, parent=None):
         if isinstance(n, ast.Lambda):
-            continue
-        if isinstance(n, ast.Name) and n.id in aliases:
+            return
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for x in [n.args, *n.decorator_list]:
+                visit(x, n)
+            return
+        if (isinstance(n, ast.If) and isinstance(n.test, ast.Compare)
+                and isinstance(n.test.left, ast.Name) and n.test.left.id == "__name__"):
+            return
+        k = kind(n)
+        if k in _CONST_NAMES:
             hits.append(n.lineno)
-        stack.extend(ast.iter_child_nodes(n))
-    return hits
+        elif k in _MAPPING_NAMES and (
+                (isinstance(parent, ast.Subscript) and parent.value is n)
+                or (isinstance(parent, ast.Attribute) and parent.value is n)):
+            hits.append(n.lineno)
+        elif k in _FUNC_NAMES and isinstance(parent, ast.Call) and parent.func is n:
+            hits.append(n.lineno)
+        for c in ast.iter_child_nodes(n):
+            if not isinstance(c, (ast.Import, ast.ImportFrom)):
+                visit(c, n)
+
+    for stmt in tree.body:
+        visit(stmt)
+    return sorted(set(hits))
 
 
 def _import_time_files() -> list[Path]:
@@ -185,35 +217,42 @@ def _import_time_files() -> list[Path]:
     return [f for f in files if f.name != "theme.py"]
 
 
-def test_eager_read_scanner_catches_frozen_constants():
-    src = ("from dashboard.theme import TOKENS as _T, series\n"
-           "_A = _T['up']\n_B = {'x': series()[0]}\n_OK = lambda: _T['up']\n"
-           "def f(c=_T['down']):\n    return _T['up']\n")
-    tree = ast.parse(src)
-    al = _theme_aliases(tree)
-    hits = [ln for st in tree.body if not isinstance(st, ast.ImportFrom)
-            for ln in (_eager_reads(st.value, al) if isinstance(st, ast.Assign)
-                       else _eager_reads(st.args, al) if isinstance(st, ast.FunctionDef) else [])]
-    assert sorted(hits) == [2, 3, 5]
+def test_frozen_read_scanner_cases():
+    """Tự kiểm ĐÚNG hàm mà lưới dùng — sửa hàm quét mà hở thì test này đỏ."""
+    src = """\
+from dashboard.theme import TOKENS as _T, series, SERIES
+from .theme import pct_color as pc
+from dashboard import theme, ui
+import dashboard.theme
+_A = _T["up"]                                   # 5  tra bảng
+_B: dict = {"x": series()[0]}                   # 6  gọi hàm
+try:
+    _C = pc(1.0)                                # 8  trong try, import tương đối
+except Exception:
+    pass
+class K:
+    COLOR = ui._T["down"]                       # 12 thuộc tính class, bảng xuất lại
+@deco(color=theme.TOKENS["up"])                 # 13 decorator
+def f(c=_T.get("down"), t=_T):                  # 14 mặc định tham số (t=_T vô hại)
+    return _T["up"], series()                   #    thân hàm — chạy lúc vẽ
+_D = dashboard.theme.SERIES[0]                  # 16 hằng tối qua đường đầy đủ
+_OK1 = lambda: _T["up"]
+_OK2 = theme.THEME_SYNC_KEY
+_OK3 = {"bull": "up"}
+for _i in range(1):
+    _E = SERIES                                 # 21 trong for
+if __name__ == "__main__":
+    print(_T["up"])
+"""
+    assert _frozen_reads(ast.parse(src)) == [5, 6, 8, 12, 13, 14, 16, 21]
 
 
 @pytest.mark.parametrize("path", _import_time_files(), ids=lambda p: p.relative_to(ROOT).as_posix())
 def test_no_mode_colors_frozen_at_import(path):
     """Hằng màu cấp module (vd `_SENTIMENT_BADGE`, `_C1 = SERIES[0]`) nạp lúc import = màu TỐI mãi
     mãi. Đọc lúc vẽ: hàm nhỏ trả màu, hoặc lưu TÊN token rồi tra `TOKENS[tên]` khi vẽ."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    aliases = _theme_aliases(tree)
-    bad = []
-    for st in tree.body:
-        if isinstance(st, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and st.value is not None:
-            bad += _eager_reads(st.value, aliases)
-        elif isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            bad += _eager_reads(st.args, aliases)            # giá trị mặc định chạy lúc import
-            bad += [ln for d in st.decorator_list for ln in _eager_reads(d, aliases)]
-        elif isinstance(st, ast.ClassDef):
-            bad += [ln for s in st.body if isinstance(s, (ast.Assign, ast.AnnAssign)) and s.value
-                    for ln in _eager_reads(s.value, aliases)]
-    assert not bad, f"{path.name}: đọc màu lúc import ở dòng {sorted(set(bad))}"
+    bad = _frozen_reads(ast.parse(path.read_text(encoding="utf-8")))
+    assert not bad, f"{path.name}: đọc màu lúc import ở dòng {bad}"
 
 
 def test_category_colors_do_not_repeat_for_many_slices():
