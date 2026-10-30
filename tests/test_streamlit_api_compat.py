@@ -13,8 +13,36 @@ from pathlib import Path
 
 import pytest
 
-st = pytest.importorskip("streamlit")
-import streamlit.components.v1 as stc  # noqa: E402
+
+
+def _real_streamlit():
+    """Streamlit THẬT dù test chạy trước đã nhét bản giả vào `sys.modules` (vài test gán
+    `sys.modules["streamlit"] = MagicMock()` cấp module, không trả lại). Đọc chữ ký của
+    bản giả là test xanh giả. Nạp bản thật rồi TRẢ LẠI `sys.modules` y như cũ."""
+    import importlib
+    import sys
+    cur = sys.modules.get("streamlit")
+    if cur is not None and getattr(cur, "__file__", None):
+        import streamlit.components.v1 as comp
+        return cur, comp
+    saved = {k: v for k, v in sys.modules.items() if k == "streamlit" or k.startswith("streamlit.")}
+    for k in saved:
+        del sys.modules[k]
+    try:
+        real = importlib.import_module("streamlit")
+        comp = importlib.import_module("streamlit.components.v1")
+    except ImportError:
+        real = comp = None
+    finally:
+        for k in [k for k in sys.modules if k == "streamlit" or k.startswith("streamlit.")]:
+            del sys.modules[k]
+        sys.modules.update(saved)
+    return real, comp
+
+
+st, stc = _real_streamlit()
+if st is None:
+    pytest.skip("không có streamlit", allow_module_level=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 _UI_FILES = [ROOT / "vnstock_dashboard.py", ROOT / "vnstock_health.py",
@@ -55,6 +83,11 @@ def _calls(path: Path):
         sig = _signature(node.func.attr, _receiver(node.func))
         if sig is not None:
             yield node.lineno, node.func.attr, kws, sig
+
+
+def test_reads_the_real_streamlit_not_a_fake():
+    assert getattr(st, "__file__", None) and isinstance(st.__version__, str)
+    assert "horizontal" in inspect.signature(st.container).parameters
 
 
 def test_scanner_catches_the_wrap_case():
