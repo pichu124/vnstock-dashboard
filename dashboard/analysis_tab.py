@@ -287,18 +287,26 @@ def render_analysis_tab() -> None:
             with col1:
                 _ui.section("Đà tăng mạnh nhất")
                 mom = data["presets"].get("momentum", {}).get("results", [])[:5]
+                if not mom:
+                    _ui.empty_state("Preset Momentum chưa có mã nào.",
+                                    "Preset tính cùng screener mỗi tối.")
                 for r in mom:
-                    chg = r.get("chg_20d_pct", "")
+                    chg = r.get("chg_20d_pct")
+                    _chg_txt = f"{chg:+.1f}% (20 phiên)" if isinstance(chg, (int, float)) else "—"
                     st.markdown(
                         f'<div style="display:flex;justify-content:space-between;'
                         f'padding:5px 0;border-bottom:1px solid {_T["surface_2"]};cursor:pointer">'
                         f'<span style="color:{_T["link"]};font-weight:600">{r["ticker"]}</span>'
-                        f'<span style="color:{_T["up"]}">{chg}</span></div>',
+                        f'<span style="color:{_pct_color(chg if isinstance(chg, (int, float)) else None)};'
+                        f'font-family:IBM Plex Mono,monospace">{_chg_txt}</span></div>',
                         unsafe_allow_html=True
                     )
             with col2:
                 _ui.section("Quá bán tiềm năng")
                 ov = data["presets"].get("oversold", {}).get("results", [])[:5]
+                if not ov:
+                    _ui.empty_state("Preset Oversold chưa có mã nào.",
+                                    "Preset tính cùng screener mỗi tối.")
                 for r in ov:
                     rsi = r.get("rsi_14", "")
                     st.markdown(
