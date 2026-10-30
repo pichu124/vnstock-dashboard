@@ -1213,58 +1213,58 @@ def render_volume_profile(profile: list, current_price: float = 0,
 
         # Row background: POC > current price > Value Area > default
         if is_poc:
-            row_bg = "background:rgba(251,191,36,0.25)"
+            row_bg = f"background:{_rgba(_T['ref'], 0.25)}"
         elif is_current:
-            row_bg = "background:rgba(251,191,36,0.10)"
+            row_bg = f"background:{_rgba(_T['ref'], 0.1)}"
         elif in_va:
-            row_bg = "background:rgba(59,130,246,0.08)"
+            row_bg = f"background:{_rgba(_T['accent'], 0.08)}"
         else:
             row_bg = ""
 
         # Price label
         label = ""
         if is_poc:
-            label = " <span style='color:#fbbf24;font-size:9px;font-weight:700'>POC</span>"
+            label = f" <span style='color:{_T['ref']};font-size:9px;font-weight:700'>POC</span>"
         elif i == vah_idx and vah_idx != poc_idx:
-            label = " <span style='color:#3b82f6;font-size:9px;font-weight:600'>VAH</span>"
+            label = f" <span style='color:{_T['accent']};font-size:9px;font-weight:600'>VAH</span>"
         elif i == val_idx and val_idx != poc_idx:
-            label = " <span style='color:#3b82f6;font-size:9px;font-weight:600'>VAL</span>"
+            label = f" <span style='color:{_T['accent']};font-size:9px;font-weight:600'>VAL</span>"
 
         buy_pct = (buy_v / total_v * 100) if total_v > 0 else 0
         sell_pct = (sell_v / total_v * 100) if total_v > 0 else 0
 
         # Delta bar — xanh nếu >0, đỏ nếu <0
         delta_width = abs(delta) / max_abs_delta * 50  # max 50% width
-        delta_color = "#10b981" if delta >= 0 else "#ef4444"
+        delta_color = _T["up"] if delta >= 0 else _T["down"]
         delta_sign = "+" if delta >= 0 else ""
         delta_str = f"{delta_sign}{int(delta):,}"
 
         # Cumulative delta color
-        cum_color = "#10b981" if cum_d >= 0 else "#ef4444"
+        cum_color = _T["up"] if cum_d >= 0 else _T["down"]
         cum_sign = "+" if cum_d >= 0 else ""
         cum_str = f"{cum_sign}{int(cum_d):,}"
 
         rows_html += (
             f"<tr style='{row_bg}'>"
             # Price + label
-            f"<td style='color:#f9fafb;text-align:right;padding:4px 8px;"
+            f"<td style='color:{_T['text_strong']};text-align:right;padding:4px 8px;"
             f"font-weight:{'700' if is_poc or is_current else '500'};white-space:nowrap'>"
             f"{price_str}{label}</td>"
             # Buy
-            f"<td style='color:#10b981;text-align:right;padding:4px 8px'>"
+            f"<td style='color:{_T['up']};text-align:right;padding:4px 8px'>"
             f"{int(buy_v):,}</td>"
             # Sell
-            f"<td style='color:#ef4444;text-align:right;padding:4px 8px'>"
+            f"<td style='color:{_T['down']};text-align:right;padding:4px 8px'>"
             f"{int(sell_v):,}</td>"
             # Total
-            f"<td style='color:#9ca3af;text-align:right;padding:4px 8px'>"
+            f"<td style='color:{_T['text_muted']};text-align:right;padding:4px 8px'>"
             f"{int(total_v):,}</td>"
             # Delta (buy - sell)
             f"<td style='color:{delta_color};text-align:right;padding:4px 8px;"
             f"font-size:11px'>"
             f"<div style='display:flex;align-items:center;justify-content:flex-end;gap:4px'>"
             f"<span>{delta_str}</span>"
-            f"<div style='width:50px;height:10px;background:#1f2937;border-radius:1px;"
+            f"<div style='width:50px;height:10px;background:{_T['border']};border-radius:1px;"
             f"position:relative;overflow:hidden'>"
             f"<div style='position:absolute;{'right' if delta < 0 else 'left'}:0;top:0;"
             f"height:100%;width:{delta_width:.1f}%;background:{delta_color};opacity:0.7'>"
@@ -1274,29 +1274,29 @@ def render_volume_profile(profile: list, current_price: float = 0,
             f"font-size:11px'>{cum_str}</td>"
             # Distribution bar
             f"<td style='padding:4px 8px;min-width:100px'>"
-            f"<div style='position:relative;height:14px;background:#1f2937;"
+            f"<div style='position:relative;height:14px;background:{_T['border']};"
             f"border-radius:2px;overflow:hidden'>"
             f"<div style='position:absolute;left:0;top:0;height:100%;"
-            f"width:{buy_pct * pct / 100:.1f}%;background:#10b981'></div>"
+            f"width:{buy_pct * pct / 100:.1f}%;background:{_T['up']}'></div>"
             f"<div style='position:absolute;left:{buy_pct * pct / 100:.1f}%;top:0;"
-            f"height:100%;width:{sell_pct * pct / 100:.1f}%;background:#ef4444'></div>"
+            f"height:100%;width:{sell_pct * pct / 100:.1f}%;background:{_T['down']}'></div>"
             f"</div></td>"
             f"</tr>"
         )
 
     # ── Summary line: POC / VAH / VAL ──
     summary_parts = [
-        f"<span style='color:#fbbf24'>■</span> POC {poc_price/scale:,.2f}",
+        f"<span style='color:{_T['ref']}'>■</span> POC {poc_price/scale:,.2f}",
     ]
     if vah_idx != val_idx:
         summary_parts.append(
-            f"<span style='color:#3b82f6'>■</span> "
+            f"<span style='color:{_T['accent']}'>■</span> "
             f"VA [{val_price/scale:,.2f} — {vah_price/scale:,.2f}]"
         )
 
     # Total cumulative delta
     total_cum = cum_deltas[0] if cum_deltas else 0
-    cum_total_color = "#10b981" if total_cum >= 0 else "#ef4444"
+    cum_total_color = _T["up"] if total_cum >= 0 else _T["down"]
     cum_total_sign = "+" if total_cum >= 0 else ""
     summary_parts.append(
         f"Σ Delta <span style='color:{cum_total_color}'>"
@@ -1305,15 +1305,15 @@ def render_volume_profile(profile: list, current_price: float = 0,
 
     html = (
         f"<div style='margin:14px 0'>"
-        f"<div style='color:#9ca3af;font-size:11px;margin-bottom:6px;"
+        f"<div style='color:{_T['text_muted']};font-size:11px;margin-bottom:6px;"
         f"text-transform:uppercase;letter-spacing:0.08em;font-weight:500'>"
         f"📊 Volume Profile — Top {min(len(profile), max_rows)} mức giá sôi động "
         f"(cả phiên)</div>"
         f"<table style='width:100%;font-family:IBM Plex Mono,monospace;"
         f"font-size:12px;border-collapse:collapse;"
-        f"border:1px solid #1f2937;border-radius:6px;overflow:hidden'>"
-        f"<thead><tr style='color:#6b7280;font-size:10px;"
-        f"text-transform:uppercase;letter-spacing:0.05em;background:#111827'>"
+        f"border:1px solid {_T['border']};border-radius:6px;overflow:hidden'>"
+        f"<thead><tr style='color:{_T['text_faint']};font-size:10px;"
+        f"text-transform:uppercase;letter-spacing:0.05em;background:{_T['surface']}'>"
         f"<th style='text-align:right;padding:6px 8px'>Giá</th>"
         f"<th style='text-align:right;padding:6px 8px'>Mua</th>"
         f"<th style='text-align:right;padding:6px 8px'>Bán</th>"
@@ -1323,14 +1323,14 @@ def render_volume_profile(profile: list, current_price: float = 0,
         f"<th style='text-align:left;padding:6px 8px'>Phân bổ</th>"
         f"</tr></thead>"
         f"<tbody>{rows_html}</tbody></table>"
-        f"<div style='color:#6b7280;font-size:10px;margin-top:4px'>"
+        f"<div style='color:{_T['text_faint']};font-size:10px;margin-top:4px'>"
         f"{' &nbsp;|&nbsp; '.join(summary_parts)}"
         f"</div>"
-        f"<div style='color:#6b7280;font-size:9px;margin-top:2px'>"
-        f"<span style='color:#fbbf24'>█</span> POC &nbsp; "
-        f"<span style='color:#3b82f6;opacity:0.5'>█</span> Value Area 70% &nbsp; "
-        f"<span style='color:#10b981'>■</span> Mua &nbsp; "
-        f"<span style='color:#ef4444'>■</span> Bán &nbsp; "
+        f"<div style='color:{_T['text_faint']};font-size:9px;margin-top:2px'>"
+        f"<span style='color:{_T['ref']}'>█</span> POC &nbsp; "
+        f"<span style='color:{_T['accent']};opacity:0.5'>█</span> Value Area 70% &nbsp; "
+        f"<span style='color:{_T['up']}'>■</span> Mua &nbsp; "
+        f"<span style='color:{_T['down']}'>■</span> Bán &nbsp; "
         f"Delta = Mua − Bán &nbsp; Σ = tích luỹ từ giá thấp"
         f"</div>"
         f"</div>"
@@ -1372,26 +1372,26 @@ def render_order_book(bids: list, asks: list, scale: float = 1.0,
         rank_label = f"{i+1}" if i < 3 else f"{i+1}"
         rows_html += (
             f"<tr>"
-            f"<td style='color:#6b7280;text-align:center;padding:4px 6px;"
+            f"<td style='color:{_T['text_faint']};text-align:center;padding:4px 6px;"
             f"font-size:10px'>{rank_label}</td>"
-            f"<td style='color:#9ca3af;text-align:right;padding:4px 10px'>{bv}</td>"
-            f"<td style='color:#10b981;text-align:right;padding:4px 10px;"
-            f"font-weight:600;background:rgba(16,185,129,0.08)'>{bp}</td>"
-            f"<td style='color:#ef4444;text-align:left;padding:4px 10px;"
-            f"font-weight:600;background:rgba(239,68,68,0.08)'>{ap}</td>"
-            f"<td style='color:#9ca3af;text-align:left;padding:4px 10px'>{av}</td>"
+            f"<td style='color:{_T['text_muted']};text-align:right;padding:4px 10px'>{bv}</td>"
+            f"<td style='color:{_T['up']};text-align:right;padding:4px 10px;"
+            f"font-weight:600;background:{_rgba(_T['up'], 0.08)}'>{bp}</td>"
+            f"<td style='color:{_T['down']};text-align:left;padding:4px 10px;"
+            f"font-weight:600;background:{_rgba(_T['down'], 0.08)}'>{ap}</td>"
+            f"<td style='color:{_T['text_muted']};text-align:left;padding:4px 10px'>{av}</td>"
             f"</tr>"
         )
 
     html = (
         f"<div style='margin:10px 0 16px 0'>"
-        f"<div style='color:#9ca3af;font-size:11px;margin-bottom:6px;"
+        f"<div style='color:{_T['text_muted']};font-size:11px;margin-bottom:6px;"
         f"text-transform:uppercase;letter-spacing:0.08em;font-weight:500'>{title}</div>"
         f"<table style='width:100%;font-family:IBM Plex Mono,monospace;"
         f"font-size:13px;border-collapse:collapse;"
-        f"border:1px solid #1f2937;border-radius:6px;overflow:hidden'>"
-        f"<thead><tr style='color:#6b7280;font-size:10px;"
-        f"text-transform:uppercase;letter-spacing:0.05em;background:#111827'>"
+        f"border:1px solid {_T['border']};border-radius:6px;overflow:hidden'>"
+        f"<thead><tr style='color:{_T['text_faint']};font-size:10px;"
+        f"text-transform:uppercase;letter-spacing:0.05em;background:{_T['surface']}'>"
         f"<th style='text-align:center;padding:6px;width:24px'>#</th>"
         f"<th style='text-align:right;padding:6px 10px'>KL Mua</th>"
         f"<th style='text-align:right;padding:6px 10px'>Giá Mua</th>"
@@ -2081,14 +2081,14 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         result = []
         for v in vals:
             if v <= 0:
-                result.append("color:#6b7280")
+                result.append(f"color:{_T['text_faint']}")
             else:
                 n = (v - vmin) / (vmax - vmin)
                 if n < 0.5:
                     r, g, b = 220, int(80 + n * 2 * 160), 60
                 else:
                     r, g, b = int(220 - (n - 0.5) * 2 * 180), 200, 60
-                result.append(f"background-color:rgba({r},{g},{b},0.3);color:#e5e7eb")
+                result.append(f"background-color:rgba({r},{g},{b},0.3);color:{_T['text']}")
         return result
 
     fmt = {c: "{:,.1f}" for c in num_cols}
@@ -2602,12 +2602,14 @@ def render_signal_badge(label: str, sig: str):
 
 
 def render_metric_row(items: list):
-    """items = [(label, value, sub), ...]"""
+    """items = [(label, value, sub[, color]), ...] — không có `color` thì tô theo dấu +/-."""
     cols = st.columns(len(items))
-    for col, (label, value, sub) in zip(cols, items):
+    for col, (label, value, sub, *forced) in zip(cols, items):
         with col:
             color = _T["text_strong"]
-            if isinstance(value, str) and value.startswith("+"):
+            if forced:
+                color = forced[0]
+            elif isinstance(value, str) and value.startswith("+"):
                 color = _T["up"]
             elif isinstance(value, str) and value.startswith("-"):
                 color = _T["down"]

@@ -489,15 +489,15 @@ class _Rerun(Exception):
 
 
 def _run_alert_sidebar(alert_env, **session):
-    """Chạy ĐÚNG khối 🔔 Price Alerts ở sidebar analysis_tab, bấm "✅ Tạo alert"
+    """Chạy ĐÚNG khối "Cảnh báo giá" ở sidebar analysis_tab, bấm "✅ Tạo alert"
     (nút giả tôn trọng `disabled` như Streamlit thật)."""
-    from dashboard.analysis_tab import _ALERT_SAVE_FAIL_MAX
+    import dashboard.analysis_tab as tab
     from tests.test_tab_render_smoke import _fake_streamlit
 
     tree = ast.parse((_ROOT / "dashboard" / "analysis_tab.py").read_text(encoding="utf-8"))
     side = next(n for n in ast.walk(tree)
-                if isinstance(n, ast.With) and "🔔 Price Alerts" in ast.unparse(n))
-    start = next(i for i, n in enumerate(side.body) if "🔔 Price Alerts" in ast.unparse(n))
+                if isinstance(n, ast.With) and "Cảnh báo giá" in ast.unparse(n))
+    start = next(i for i, n in enumerate(side.body) if "Cảnh báo giá" in ast.unparse(n))
     st = _fake_streamlit()
     st.button = lambda label, key=None, **k: key == "alert_create" and not k.get("disabled")
     st.text_input = lambda label, **k: "VCB" if k.get("key") == "alert_ticker" else ""
@@ -508,8 +508,7 @@ def _run_alert_sidebar(alert_env, **session):
 
     st.rerun = _rerun
     st.session_state.update(session)
-    ns = {"st": st, "ALERTS_PATH": alert_env["ALERTS_PATH"],
-          "_ALERT_SAVE_FAIL_MAX": _ALERT_SAVE_FAIL_MAX,
+    ns = {**vars(tab), "st": st, "ALERTS_PATH": alert_env["ALERTS_PATH"],
           "load_alerts": alert_env["load_alerts"], "save_alerts": alert_env["save_alerts"]}
     try:
         exec(compile(ast.Module(side.body[start:], []), "analysis_tab.py", "exec"), ns)
