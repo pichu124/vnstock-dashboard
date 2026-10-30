@@ -139,9 +139,11 @@ def render_health_tab(warehouse: Path = DEFAULT_WAREHOUSE) -> None:
         print("[health] streamlit not available — call collect() instead")
         return
 
+    from dashboard import ui
+
     snap = collect(Path(warehouse))
 
-    st.subheader("⚕️ Sức khỏe Hệ thống")
+    ui.section("Sức khoẻ nguồn dữ liệu")
     if snap.warnings:
         for w in snap.warnings:
             st.warning(w)
@@ -301,7 +303,7 @@ def render_health_tab(warehouse: Path = DEFAULT_WAREHOUSE) -> None:
 
     # ── 🛠 Hành động nhanh — Phase 5C click-to-fix UI ────────────────────────
     st.divider()
-    st.markdown("### 🛠 Hành động nhanh")
+    ui.section("Hành động nhanh")
     st.caption(
         "Thao tác trực tiếp trên anomaly / quarantine không cần mở PowerShell. "
         "Xem `_meta/remediation_log.jsonl` để audit trail."
@@ -582,7 +584,7 @@ def _scan_warehouse_single_pass(
 
     prices_dir = warehouse / PRICES_SUBDIR
     if not prices_dir.exists():
-        snap.warnings.append("Warehouse prices directory not found")
+        snap.warnings.append("Không thấy thư mục giá `prices/` trong kho")
         return
 
     # Separate real equities from CW / bonds / futures / HNX internal
@@ -895,7 +897,7 @@ def _summarise_wss_coverage(recon_dict: dict) -> dict:
 
 def _populate_warnings(snap: HealthSnapshot) -> None:
     if snap.ticker_count == 0:
-        snap.warnings.append("Warehouse is empty — run `vnstock_warehouse.py --load`")
+        snap.warnings.append("Kho trống — chạy `python vnstock_warehouse.py --load`")
     else:
         # Alert on the active figure — the raw figure is dominated by zombies
         rate = snap.missing_rate_active_pct

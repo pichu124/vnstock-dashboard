@@ -386,6 +386,10 @@ def test_tab_renders_every_section(fake_st, seeded):
     assert labels[:4] == ["Vị thế ròng (sau đáo hạn)", "Dòng lệnh khối ngoại phiên", "Chuỗi hiện tại",
                           "Giá trị danh nghĩa"]
     assert st.metric.call_args_list[0].args[1] == "short 1,881 HĐ"
+    md = [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+    assert any(">Phái sinh NN<" in s and "HĐTL VN30" in s for s in md), md   # tiêu đề trang
+    assert any(">Cuối mỗi tháng<" in s for s in md), md                      # tiêu đề mục
+    assert not [s for s in md if s.lstrip().startswith("#")], md              # hết "### 📑 …"
 
 
 def test_tab_empty_store_tells_how_to_fill(fake_st):

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from dashboard.ui import diag_on
+from dashboard.theme import PLOTLY_BG, TOKENS as _T, rgba
+from dashboard.ui import diag_on, page_header
 from datetime import datetime, date, timedelta, timezone
 import importlib
 import inspect
@@ -116,10 +117,11 @@ def _pick(item: dict, *keys: str, default: str = "") -> str:
     return default
 
 
+_BADGE_STYLE = "padding:1px 7px;border-radius:4px;font-size:12px"
 _SENTIMENT_BADGE = {
-    "positive": '<span style="background:#14532d;color:#86efac;padding:1px 7px;border-radius:4px;font-size:12px">🟢 Tích cực</span>',
-    "negative": '<span style="background:#450a0a;color:#fca5a5;padding:1px 7px;border-radius:4px;font-size:12px">🔴 Tiêu cực</span>',
-    "neutral":  '<span style="background:#1c1917;color:#a8a29e;padding:1px 7px;border-radius:4px;font-size:12px">⚪ Trung lập</span>',
+    "positive": f'<span style="background:{rgba(_T["up"], 0.2)};color:{_T["up_soft"]};{_BADGE_STYLE}">🟢 Tích cực</span>',
+    "negative": f'<span style="background:{rgba(_T["down"], 0.2)};color:{_T["down_soft"]};{_BADGE_STYLE}">🔴 Tiêu cực</span>',
+    "neutral":  f'<span style="background:{_T["border"]};color:{_T["text_muted"]};{_BADGE_STYLE}">⚪ Trung lập</span>',
 }
 
 
@@ -148,7 +150,7 @@ def _news_card(item: dict, idx: int) -> None:
         col_badge, col_sent, col_age = st.columns([1, 1, 4])
         with col_badge:
             st.markdown(
-                f'<span style="background:#1e3a5f;color:#60a5fa;padding:2px 8px;'
+                f'<span style="background:{rgba(_T["accent"], 0.18)};color:{_T["link"]};padding:2px 8px;'
                 f'border-radius:4px;font-size:13px;font-weight:600">{ticker}</span>',
                 unsafe_allow_html=True,
             )
@@ -164,7 +166,7 @@ def _news_card(item: dict, idx: int) -> None:
         # Short content always visible
         if short:
             st.markdown(
-                f'<p style="color:#9ca3af;font-size:14px;margin:4px 0 8px 0">'
+                f'<p style="color:{_T["text_muted"]};font-size:14px;margin:4px 0 8px 0">'
                 f'{short[:300]}{"…" if len(short) > 300 else ""}</p>',
                 unsafe_allow_html=True,
             )
@@ -258,7 +260,7 @@ def _render_ticker_news() -> None:
     except ImportError:
         _sentiment_available = False
 
-    st.markdown("#### 🗞️ Tin tức thị trường")
+    page_header("Tin theo mã", "Tin doanh nghiệp từ vnstock (VCI/KBS) · VN30 + top screener")
 
     # ── Cache status & controls ────────────────────────────────────────────
     _p = _nn.NEWS_CACHE_PATH
@@ -643,26 +645,25 @@ def _render_ticker_news() -> None:
                             fig = go.Figure()
                             fig.add_bar(
                                 x=dates, y=[r["positive"] for r in timeline],
-                                name="Tích cực", marker_color="#22c55e",
+                                name="Tích cực", marker_color=_T["up"],
                             )
                             fig.add_bar(
                                 x=dates, y=[-r["negative"] for r in timeline],
-                                name="Tiêu cực", marker_color="#ef4444",
+                                name="Tiêu cực", marker_color=_T["down"],
                             )
                             fig.add_bar(
                                 x=dates, y=[r["neutral"] for r in timeline],
-                                name="Trung lập", marker_color="#6b7280",
+                                name="Trung lập", marker_color=_T["text_off"],
                             )
                             fig.update_layout(
                                 barmode="relative",
                                 height=220,
                                 margin=dict(l=0, r=0, t=0, b=0),
-                                paper_bgcolor="rgba(0,0,0,0)",
-                                plot_bgcolor="rgba(0,0,0,0)",
-                                font_color="#e5e7eb",
+                                **PLOTLY_BG,
+                                font_color=_T["text"],
                                 legend=dict(orientation="h", y=1.1),
                                 xaxis=dict(showgrid=False),
-                                yaxis=dict(title="# tin", showgrid=True, gridcolor="#374151"),
+                                yaxis=dict(title="# tin", showgrid=True, gridcolor=_T["border"]),
                             )
                             st.plotly_chart(fig, use_container_width=True)
                         except ImportError:
@@ -692,13 +693,14 @@ def _render_ticker_news() -> None:
         if _pick(n, "news_title", "title", "newsTitle", "headline", "name")
     )
     if _n_renderable == 0:
-        with st.expander("⚠️ Không hiển thị được tin — xem cấu trúc dữ liệu", expanded=True):
-            st.warning(
-                "Tất cả items đều thiếu trường tiêu đề. "
-                "Hãy **Cập nhật tin tức** lại để refresh cache."
-            )
-            st.caption("Keys của item đầu tiên:")
-            st.json(dict(list(filtered[0].items())[:20]))
+        st.warning(
+            "Tất cả items đều thiếu trường tiêu đề. "
+            "Hãy **Cập nhật tin tức** lại để refresh cache."
+        )
+        if diag_on():  # JSON thô chỉ ở chế độ chẩn đoán (trang Hệ thống)
+            with st.expander("Cấu trúc dữ liệu của tin (chẩn đoán)", expanded=True):
+                st.caption("Keys của item đầu tiên:")
+                st.json(dict(list(filtered[0].items())[:20]))
         return
 
     # ── Render cards ───────────────────────────────────────────────────────

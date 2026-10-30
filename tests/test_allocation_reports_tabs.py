@@ -138,6 +138,22 @@ def _said(mock):
     return [str(c.args[0]) for c in mock.call_args_list if c.args]
 
 
+def _markdown(st):
+    return [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+
+
+def test_reports_page_has_page_title_and_section_headings(monkeypatch):
+    """Trang Báo cáo (P2 tách khỏi Tin tức): tiêu đề trang + tiêu đề mục chuẩn, không "##### 📥 …"."""
+    st, _, _ = _reports_env(monkeypatch)
+    _render_reports()
+
+    md = _markdown(st)
+    assert any(">Báo cáo<" in s for s in md), md
+    for title in ("Thêm báo cáo", "Thư viện", "Digest &amp; consensus"):
+        assert any(f">{title}<" in s for s in md), (title, md)
+    assert not [s for s in md if s.lstrip().startswith("#")], md
+
+
 def test_reports_digest_result_survives_rerun_and_runs_under_spinner(monkeypatch):
     st, _, dg = _reports_env(monkeypatch, pressed={"_rp_digest"})
     spinning = []
@@ -218,6 +234,36 @@ def _rates_env(monkeypatch, sure, pressed=True):
     monkeypatch.setitem(sys.modules, "vnstock_rates_report", rr)
     monkeypatch.setitem(sys.modules, "vnstock_telegram", tg)
     return st, tg
+
+
+def test_rates_page_has_page_title(monkeypatch):
+    from dashboard.rates_report_tab import render_rates_report_subtab
+    st, _ = _rates_env(monkeypatch, sure=False, pressed=False)
+
+    render_rates_report_subtab()
+
+    md = _markdown(st)
+    assert any(">Báo cáo tuần<" in s and "Lãi suất" in s for s in md), md
+    assert not [s for s in md if s.lstrip().startswith("#")], md
+
+
+def test_rates_report_failure_is_one_sentence_details_in_diag(monkeypatch):
+    """Dựng báo cáo lỗi ⇒ một câu tiếng Việt; chi tiết ngoại lệ chỉ ở chế độ chẩn đoán."""
+    import sys
+    from dashboard.rates_report_tab import render_rates_report_subtab
+    st, _ = _rates_env(monkeypatch, sure=False, pressed=False)
+
+    def _boom():
+        raise KeyError("rates_table")
+    sys.modules["vnstock_rates_report"].build_report_data = _boom
+
+    render_rates_report_subtab()
+
+    assert _said(st.error) == ["Không dựng được báo cáo tuần."]
+    assert not st.exception.called
+    st.session_state["diag_mode"] = True
+    render_rates_report_subtab()
+    st.exception.assert_called_once()
 
 
 @pytest.mark.parametrize("sure,calls", [(False, 0), (True, 1)])
