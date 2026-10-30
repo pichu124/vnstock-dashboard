@@ -26,12 +26,13 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
-## 🎨 Thiết kế lại giao diện — KẾ HOẠCH 30/10, CHỜ USER CHỐT (`docs/THIET-KE-GIAO-DIEN.md`)
+## 🎨 Thiết kế lại giao diện — 6 câu ĐÃ CHỐT 30/10 · bản mẫu P0 CHỜ DUYỆT (`docs/THIET-KE-GIAO-DIEN.md`)
 
-Chưa code. 5 pha (P1 bảng màu/chữ → P2 khung điều hướng → P3 từng trang → P4 sáng/tối → P5 hoàn thiện),
-mỗi pha 1 PR, không đổi số liệu.
+Chưa code app. Chốt: mở vào Tổng quan · màu bảng điện VN · bỏ light mode hỏng ở P1, làm thật ở P4 · gom
+Vĩ mô→Thị trường, Phân bổ→Danh mục · gộp 3 badge thành 1 chấm. 5 pha, mỗi pha 1 PR, không đổi số liệu.
 
-- ○ **Trả lời 6 câu ở §9** (trang mở đầu · màu bảng điện VN · light mode · gom nhóm · kiểu bản mẫu · badge).
+- ○ **Duyệt bản mẫu** (3 artboard, số thật SSI phiên 30/10): https://claude.ai/artifact/ERUSopdPGkjDQsS9KGWgxD
+  — bấm Play ở artboard Tổng quan để mở menu / chấm "Hệ thống ổn"; góp ý thẳng bằng comment trên canvas.
 - ⇄ **CẢ HAI** — đo bản Streamlit (kế hoạch cần ≥ 1.56):
   `python -c "import streamlit; print(streamlit.__version__)"`
 

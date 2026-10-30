@@ -1,8 +1,9 @@
 # Thiết kế lại GIAO DIỆN dashboard cho chuyên nghiệp — KẾ HOẠCH
 
-> **Trạng thái 30/10/2026: KẾ HOẠCH, CHƯA CODE.** Khảo sát code ở `f5029d7`. Chờ user chốt 6 câu ở §9
-> rồi mới làm P0 (bản mẫu để duyệt). Mỗi pha một PR, merge riêng được, **không đổi một con số nào** —
-> chỉ đổi cách trình bày.
+> **Trạng thái 30/10/2026 tối: user CHỐT 6 câu §9 (cả 6 theo đề xuất) · P0 BẢN MẪU XONG — CHỜ USER DUYỆT.**
+> Bản mẫu (canvas riêng tư của user, 3 artboard, số thật SSI phiên 30/10): https://claude.ai/artifact/ERUSopdPGkjDQsS9KGWgxD
+> Khảo sát code ở `f5029d7`. Duyệt xong mới làm P1. Mỗi pha một PR, merge riêng được, **không đổi một con
+> số nào** — chỉ đổi cách trình bày.
 
 ## 1. "Chuyên nghiệp" nghĩa là gì — tiêu chí đo được
 
@@ -10,7 +11,7 @@ Không đo bằng cảm giác. Xong khi đạt cả 8 điều sau:
 
 | # | Tiêu chí | Hôm nay (đo 30/10) | Đích |
 |---|---|---|---|
-| 1 | Một bảng màu | **60 mã hex** khác nhau trong 29 file UI; 4 sắc xanh "tăng" (`#10b981` `#22c55e` `#34d399` `#199e70`), 3 nền tối (`#0a0e1a` `#0e1117` `#0d1117`) | ~15 token ở MỘT file, test chặn hex mới |
+| 1 | Một bảng màu | **60 mã hex** khác nhau trong 29 file UI; 4 sắc xanh "tăng" (`#10b981` `#22c55e` `#34d399` `#199e70`), 3 nền tối (`#0a0e1a` `#0e1117` `#0d1117`) | ~20 token ở MỘT file, test chặn hex mới |
 | 2 | Màu giá theo bảng điện VN | Chỉ xanh/đỏ, không phân biệt trần/sàn/tham chiếu | xanh tăng · đỏ giảm · vàng tham chiếu · **tím trần · xanh lơ sàn** |
 | 3 | Chữ đọc được | Nhãn `#6b7280` trên nền = **3,98:1**, giờ cập nhật/chú thích `#4b5563` = **2,55:1** (chuẩn WCAG AA chữ nhỏ là 4,5:1) | mọi chữ ≥ 4,5:1 |
 | 4 | Màn hình đầu trả lời "hôm nay thế nào, data tươi chưa" | Thứ đầu tiên thấy ở sidebar là `✅ Tests fast: … passed`; đầu MỌI tab là 3 nút pipeline | thanh trạng thái thị trường + độ tươi data trên mọi trang |
@@ -93,13 +94,16 @@ phản đo trên nền `bg`.
 | `text` | `#e5e7eb` | chữ chính | 15,6 |
 | `text_muted` | `#9ca3af` | nhãn | 7,6 |
 | `text_faint` | `#8b95a5` | chú thích, giờ cập nhật (**thay** `#6b7280`/`#4b5563`) | 6,4 |
-| `accent` | `#3b82f6` | nút chính, link, trang đang chọn | 5,2 |
+| `accent` | `#3b82f6` | gạch chân trang đang chọn, đường biểu đồ chỉ số | 5,2 |
+| `accent_fill` | `#2563eb` | NỀN nút chính — chữ trắng 5,2:1 (trắng trên `#3b82f6` chỉ 3,7, trượt chuẩn; phát hiện khi làm P0) | — |
 | `up` | `#10b981` | tăng (sắc đang dùng nhiều nhất — 67 chỗ) | 7,6 |
 | `down` | `#ef4444` | giảm (77 chỗ) | 5,1 |
 | `ref` | `#fbbf24` | tham chiếu / đứng giá | 11,5 |
 | `ceil` | `#d946ef` | trần | 5,6 |
 | `floor` | `#22d3ee` | sàn | 10,7 |
 | `warn` | `#f59e0b` | cảnh báo | 9,0 |
+| `up_soft` / `down_soft` | `#34d399` / `#f87171` | chữ trên nền nhạt (chip %, chip RSI) | 10,0 / 7,0 |
+| `series_1..3` | `#60a5fa` · `#f59e0b` · `#a78bfa` | EMA·MACD · đường tín hiệu · RSI | 7,6 · 9,0 · 7,1 |
 
 Trạng thái (ok/warn/error/off) dùng lại `up`/`warn`/`down`/`text_faint` — **một** sắc xanh trong cả app.
 Biểu đồ: `chartCategoricalColors` 8 màu cho ngành, `chartDivergingColors` đỏ→xám→xanh cho heatmap — kiểm
@@ -144,6 +148,8 @@ Gom 9 tab → 5 nhóm (menu thả xuống trên thanh trên cùng):
 | **Tin & Báo cáo** | Tin theo mã · Báo cáo tuần · Báo cáo | 3 sub-tab của Tin tức |
 | **Danh mục** | Danh mục · Phân bổ | Portfolio + sub-tab Phân bổ |
 | **Hệ thống** | Sức khỏe | Sức khỏe + nút pipeline + chi tiết badge + chẩn đoán |
+
+Trang mặc định (`st.Page(..., default=True)`): **Tổng quan** (§9 câu 1).
 
 Được thêm nhờ có URL: bấm một dòng ở Bộ lọc (`st.dataframe(on_select=…)`) ⇒ `st.switch_page` sang Phân
 tích mã đúng mã đó (`query_params={"ma": …}`) — hôm nay phải gõ lại mã ở sidebar.
@@ -194,13 +200,13 @@ Mỗi pha = 1 PR (P3 = mỗi trang 1 PR). Mỗi PR: `run.py test --fast` xanh + 
 
 | Pha | Làm gì | Ai · máy | Xong khi |
 |---|---|---|---|
-| **P0** Bản mẫu | Mockup HTML 2 trang (Tổng quan, Phân tích mã) bằng token §4a, dữ liệu mẫu; kiểm bảng màu mù màu | Claude làm ở cloud · user duyệt ○ máy nào cũng được | User duyệt hướng (hoặc sửa) |
-| | Chụp 9 trang HIỆN TẠI làm mốc so: script Playwright `scripts/ui_snapshots.py` (cloud không có kho ⇒ phải chạy trên máy thật) | Claude viết · user chạy ○ máy nào cũng được | 9 ảnh trong `ui_snapshots/before/` (gốc repo, gitignore — KHÔNG để trong kho) |
-| **P1** Nền | `theme.py` + `config.toml [theme]` + font tự host + Plotly template + `lwc_palette()` + thay hex ở `table_style`/`market_table_format`/`sparkline`/CSS chung; nâng `requirements` `streamlit>=1.56`; lưới hex | Claude | Bố cục y cũ, chỉ màu/chữ đổi; lưới hex xanh; `--fast` xanh |
+| **P0** Bản mẫu ✅ 30/10 | Canvas 3 artboard: Tổng quan · Phân tích mã FPT (4 panel, warmup RSI/MACD để trống như bất biến chart) · Bảng màu & chữ — token §4a, số thật SSI phiên 30/10 | Claude (cloud) · **user duyệt** ○ máy nào cũng được | User duyệt hướng (hoặc sửa) |
+| | (Đầu P1) Chụp 9 trang HIỆN TẠI làm mốc so: script Playwright `scripts/ui_snapshots.py` (cloud không có kho ⇒ phải chạy trên máy thật) | Claude viết · user chạy ○ máy nào cũng được | 9 ảnh trong `ui_snapshots/before/` (gốc repo, gitignore — KHÔNG để trong kho) |
+| **P1** Nền | `theme.py` + `config.toml [theme]` + font tự host + Plotly template + `lwc_palette()` + thay hex ở `table_style`/`market_table_format`/`sparkline`/CSS chung; nâng `requirements` `streamlit>=1.56`; bỏ toggle ☀️ Light mode hỏng + `THEMES` (§9 câu 3a); lưới hex | Claude | Bố cục y cũ, chỉ màu/chữ đổi; lưới hex xanh; `--fast` xanh |
 | | Kiểm bản Streamlit: `python -c "import streamlit; print(streamlit.__version__)"` ≥ 1.56 | user ⇄ CẢ HAI (venv theo máy) | Cả hai máy ≥ 1.56 |
 | **P2** Khung | `st.navigation` top + 5 nhóm + URL · thanh trạng thái · sidebar gọn · nút pipeline + chẩn đoán → Hệ thống | Claude | Smoke render từng trang xanh; `test_live_mode_crosstab` xanh; test marker khoá nút ở chỗ mới |
 | **P3** Từng trang | Thứ tự: Tổng quan → Bộ lọc → Phân tích mã → Danh mục → Dòng tiền → còn lại. Thay HTML inline bằng `ui.*`, chuẩn tiêu đề, màu giá VN | Claude · user soi mắt mỗi PR ○ | Allowlist hex của trang về 0; ảnh sau khớp mockup |
-| **P4** Sáng/tối | Theo §9 câu 3: `[theme.light]`+`[theme.dark]` và nút chuyển sẵn của Streamlit, bỏ `THEMES` + toggle cũ — hoặc bỏ hẳn | Claude | Hai chế độ cùng đúng trên 9 ảnh |
+| **P4** Sáng/tối | `[theme.light]`+`[theme.dark]` + nút chuyển sẵn của Streamlit (§9 câu 3a; toggle cũ đã bỏ ở P1) | Claude | Hai chế độ cùng đúng trên 9 ảnh |
 | **P5** Hoàn thiện | Trạng thái rỗng / đang tải / lỗi đồng bộ cả app; màn laptop (cột co, bảng cuộn ngang); `FULL` test trước PR về `main` | Claude · user soi trên 💻 LAPTOP | `run.py test` FULL xanh; user duyệt |
 
 ## 8. Rủi ro & bất biến phải giữ
@@ -217,15 +223,13 @@ Mỗi pha = 1 PR (P3 = mỗi trang 1 PR). Mỗi PR: `run.py test --fast` xanh + 
   gốc repo (gitignore), không đi Dropbox.
 - **Hành vi nút pipeline** — chỉ dời chỗ; test marker khoá phải đi theo.
 
-## 9. Câu hỏi cần user chốt trước P0
+## 9. Đã chốt — user trả lời 30/10
 
-1. **Trang mở đầu:** *Tổng quan thị trường* (đề xuất — câu hỏi đầu ngày là "thị trường ra sao") hay giữ
-   *Screener* như hiện nay?
-2. **Màu bảng điện VN** (tím trần, xanh lơ sàn, vàng tham chiếu) — đồng ý? Hay chỉ xanh/đỏ như cũ?
-3. **Light mode:** (a) bỏ toggle hỏng ngay ở P1, làm thật ở P4 *(đề xuất)* · (b) bỏ hẳn, chỉ nền tối ·
-   (c) làm thật ngay P1 (P1 to gấp đôi).
-4. **Gom nhóm §5a** — đưa Vĩ mô sang nhóm Thị trường, Phân bổ sang Danh mục (ra khỏi Tin tức)?
-5. **Bản mẫu P0:** mockup HTML (Claude làm ngay ở cloud, xem trên trình duyệt/điện thoại) là đủ để duyệt,
-   hay muốn xem thẳng trên Streamlit với dữ liệu thật (phải chạy trên máy user)?
-6. **Badge kỹ thuật:** gộp tests/doctor/model thành 1 chấm + popover *(đề xuất)*, hay vẫn muốn thấy cả 3
-   ở sidebar mỗi ngày?
+| # | Câu | Chốt |
+|---|---|---|
+| 1 | Trang mở đầu | **Tổng quan thị trường** (thay Screener) |
+| 2 | Màu giá | **Bảng điện VN**: xanh tăng · đỏ giảm · vàng tham chiếu · tím trần · xanh lơ sàn |
+| 3 | Light mode | **(a)** bỏ toggle hỏng ở P1, làm thật ở P4 |
+| 4 | Gom nhóm §5a | **Đồng ý** — Vĩ mô sang Thị trường, Phân bổ sang Danh mục |
+| 5 | Kiểu bản mẫu | **Mockup trên cloud** là đủ để duyệt |
+| 6 | Badge kỹ thuật | **Gộp** tests/doctor/model thành 1 chấm + popover; đỏ vẫn đỏ |
