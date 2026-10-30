@@ -41,6 +41,8 @@ Nhánh `claude/adoring-bardeen-vpuq5b`. Không đổi số liệu/logic — ch�
   3. **Phân tích mã** (FPT…): chart 4 panel kéo/zoom đồng bộ như cũ; tiêu đề `MÃ — tên` + `sàn · ngành`; giá tô theo tham chiếu.
   4. **Tổng quan** trong phiên + Live bật: heatmap VN30 tăng xanh / giảm đỏ / đứng giá vàng.
   5. Menu **⋮ → Light**: mọi trang sáng, chữ giá đọc rõ; **⋮ → Dark** quay lại (~1 giây tự vẽ lại).
+     Trong phiên + Live bật: khối tự làm mới (giá Live ở Phân tích, heatmap, Live Scan) cũng phải SÁNG —
+     lỗi này đã sửa 31/10 (fragment chạy luồng riêng từng vẽ màu tối), máy thật là chỗ duy nhất có dữ liệu Live.
   6. Trang **Hệ thống**: 3 nút 📥/🧩/🚀 + **Chế độ chẩn đoán** (bật mới thấy stack trace / JSON thô).
 - ○ (tuỳ) Chụp mốc: `pip install playwright` → `python -m playwright install chromium` →
   `python scripts/ui_snapshots.py --label may-that` (ảnh ở `ui_snapshots/`, gitignore). Thêm `--scheme light` cho chế độ sáng.
