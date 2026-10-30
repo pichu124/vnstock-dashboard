@@ -1,8 +1,8 @@
 # Thiết kế lại GIAO DIỆN dashboard cho chuyên nghiệp — KẾ HOẠCH
 
-> **Trạng thái 31/10/2026: user DUYỆT bản mẫu P0 · P1 (màu + chữ) `94d5510` · P2 (điều hướng + thanh trạng
-> thái + trang Hệ thống) CODE XONG — cùng nhánh `claude/adoring-bardeen-vpuq5b`, chờ user merge + restart
-> (§7). User dặn 31/10 "làm tiếp các phần còn lại" ⇒ đang làm P3.**
+> **Trạng thái 31/10/2026: P0 → P5 CODE XONG** trên nhánh `claude/adoring-bardeen-vpuq5b` — chờ user merge +
+> restart + soi mắt (§7 cột "Ai · máy"; việc cụ thể ở `docs/VIEC-DANG-LAM.md`). Mọi file UI về 0 mã hex
+> (582 → 0), hai chế độ sáng/tối, 13 trang có URL. Full test cloud xanh ở mỗi mốc.
 > Bản mẫu (canvas riêng tư của user, 3 artboard, số thật SSI phiên 30/10): https://claude.ai/artifact/ERUSopdPGkjDQsS9KGWgxD
 > Khảo sát code ở `f5029d7`. Mỗi pha một PR, merge riêng được, **không đổi một con
 > số nào** — chỉ đổi cách trình bày.
@@ -221,9 +221,9 @@ Mỗi pha = 1 PR (P3 = mỗi trang 1 PR). Mỗi PR: `run.py test --fast` xanh + 
 | | Kiểm bản Streamlit: `python -c "import streamlit; print(streamlit.__version__)"` ≥ 1.56 | user ⇄ CẢ HAI (venv theo máy) | Cả hai máy ≥ 1.56 |
 | **P2** Khung ✅ 31/10 | `st.navigation(position="top")` 5 nhóm · 13 trang có URL (Tổng quan là trang mặc định = URL gốc `/` — Streamlit bỏ `url_path` của trang mặc định; `/bo-loc`, `/phan-tich`, `/he-thong`…) — sổ ở `dashboard/pages.py` · thanh trạng thái mọi trang (`dashboard/status_strip.py`: VN-Index từ KHO, phiên HOSE, dữ liệu screener/cũ, Live, chấm Hệ thống = gộp 3 badge, popover chi tiết, nút Làm mới) · sidebar còn Live + điều khiển trang · trang Hệ thống (trạng thái · 3 nút pipeline giữ khoá marker · công tắc chẩn đoán · sức khoẻ cũ) · thiếu screener KHÔNG chặn cả app nữa · 6 khối Debug/Stack trace/JSON thô chỉ hiện khi bật chẩn đoán · `dashboard/ui.py` (page_header, section, status_dot, show_error, diag_on) · ẩn nút Deploy (`toolbarMode=minimal`) | Claude | Cloud: 13 trang 0 exception, font Plex nạp ở trang con; FULL xanh. `test_live_mode_crosstab` giữ nguyên |
 | | Merge + restart; thử: mở `localhost:8501` vào thẳng Tổng quan; F5 ở `/phan-tich` vẫn ở Phân tích; chấm Hệ thống đỏ khi test đỏ | user ⇄ CẢ HAI (merge) · ○ (thử) | |
-| **P3** Từng trang | Thứ tự: Tổng quan → Bộ lọc → Phân tích mã → Danh mục → Dòng tiền → còn lại. Thay HTML inline bằng `ui.*`, chuẩn tiêu đề, màu giá VN | Claude · user soi mắt mỗi PR ○ | Allowlist hex của trang về 0; ảnh sau khớp mockup |
+| **P3** Từng trang ✅ 31/10 | 5 implementer song song (worktree riêng), lead gộp: Tổng quan (`market_tab` + panel brief, 128→0 hex; heatmap VN30 + %D theo bảng điện; traceback chiến lược sau chẩn đoán) · Phân tích mã (`analysis_tab` + hàm vẽ phụ ở script chính, 123→0; giá tô theo tham chiếu; tiêu đề `MÃ — tên` + `sàn · ngành`) · Dòng tiền (86→0) · Danh mục + Phân bổ (44→0) · Bộ lọc/Tin/Phái sinh/Hàng hoá/Vĩ mô/Báo cáo/Hệ thống (35→0). Tiêu đề: `ui.page_header` + `ui.section`, bỏ emoji, Việt hoá; lỗi = một câu, chi tiết sau `diag_on()`. `HEX_BUDGET` rỗng | Claude · user soi mắt ○ | Cloud: 13 trang 0 exception cả sáng lẫn tối; FULL xanh |
 | **P4** Sáng/tối | `theme.DARK`/`LIGHT` + `TOKENS` ĐỘNG theo luồng (`set_mode` đầu mỗi lượt từ `st.context.theme.type`) · `[theme.dark]`+`[theme.light]` trong config (Streamlit theo chế độ sáng/tối của hệ điều hành; đo 31/10: nạp lần đầu đã báo đúng chế độ) · 3 module tô bảng đọc token LÚC VẼ (hằng cấp module đứng yên ở màu tối) · `toolbarMode="viewer"` (giữ mục người xem) | Claude | Hai chế độ cùng đúng trên ảnh chụp mọi trang; test tương phản cả hai bảng |
-| **P5** Hoàn thiện | Trạng thái rỗng / đang tải / lỗi đồng bộ cả app; màn laptop (cột co, bảng cuộn ngang); `FULL` test trước PR về `main` | Claude · user soi trên 💻 LAPTOP | `run.py test` FULL xanh; user duyệt |
+| **P5** Hoàn thiện ✅ 31/10 | `ui.empty_state` (Tổng quan, trang chào Phân tích) thay cảnh báo vàng như lỗi · bỏ nút 🔄 trùng ở Tổng quan · badge độ tươi theo token + tiếng Việt · khối regime theo token · thanh trạng thái cùng hàng ở màn 1366px · bỏ dispatcher tab con cũ của Tin tức (code chết) · `tests/test_streamlit_api_compat.py` (tham số `st.*` phải có ở bản ghim — vết `wrap=False`) · sửa theo 3 vòng review độc lập | Claude · user soi trên 💻 LAPTOP | Ảnh `ui_snapshots/final-{dark,light,laptop}/` (cloud, kho demo) |
 
 ## 8. Rủi ro & bất biến phải giữ
 

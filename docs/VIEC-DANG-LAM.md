@@ -26,25 +26,25 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
-## 🎨 Thiết kế lại giao diện — P1 · P2 · P4 CODE XONG 31/10 · P3 (từng trang) đang gộp · P5 (`docs/THIET-KE-GIAO-DIEN.md`)
+## 🎨 Thiết kế lại giao diện — P0→P5 CODE XONG 31/10 · CHỜ USER MERGE + SOI MẮT (`docs/THIET-KE-GIAO-DIEN.md`)
 
-Nhánh `claude/adoring-bardeen-vpuq5b`. User đã duyệt bản mẫu P0 + 6 câu §9. Một máy đã đo Streamlit 1.56.0.
+Nhánh `claude/adoring-bardeen-vpuq5b`. Không đổi số liệu/logic — chỉ cách trình bày. Một máy đã đo Streamlit 1.56.0.
 
 - ⇄ **CẢ HAI** — lấy code + **RESTART** dashboard (theme/font chỉ đọc lúc khởi động):
   `git fetch origin claude/adoring-bardeen-vpuq5b` rồi `git merge origin/claude/adoring-bardeen-vpuq5b`
-  → đóng cửa sổ dashboard cũ → `python run.py dashboard`. Đúng thì: nút/slider XANH DƯƠNG (hết đỏ), chữ IBM Plex,
-  ô 1D% = 0.0% tô VÀNG, công tắc "☀️ Light mode" biến mất (P4 làm lại bản thật).
-- ⇄ **CẢ HAI** — máy còn lại chưa đo Streamlit: `python -c "import streamlit; print(streamlit.__version__)"` (≥ 1.56,
-  chạy TRONG venv).
-- ○ **P2 — điều hướng mới:** menu trên cùng 5 nhóm (Thị trường · Cổ phiếu · Tin & Báo cáo · Danh mục · Hệ thống);
-  mở app vào thẳng **Tổng quan**; 3 nút 📥/🧩/🚀 + 3 badge cũ nay ở trang **Hệ thống** (chấm "Hệ thống" góc phải mọi
-  trang bấm ra chi tiết); khối Debug/stack trace chỉ hiện khi bật **Chế độ chẩn đoán** ở trang Hệ thống.
-- ○ **P4 — sáng/tối:** app theo chế độ sáng/tối của Windows; đổi tay ở menu **⋮ góc phải → System / Light / Dark**
-  (đổi xong ~1 giây app tự vẽ lại màu bảng/chart). Soi ở chế độ Sáng: chữ giá đọc rõ (xanh/đỏ đậm, tham chiếu
-  màu hổ phách thay vàng).
-- ○ **Soi mắt trang Phân tích mã** (cloud không có kho giá thật): chart 4 panel vẫn kéo/zoom đồng bộ, màu nến như cũ.
-- ○ (tuỳ) Chụp mốc để so các pha sau: `pip install playwright` → `python -m playwright install chromium` →
-  `python scripts/ui_snapshots.py --label p1` (ảnh ở `ui_snapshots/p1/`, gitignore).
+  → đóng cửa sổ dashboard cũ → `python run.py dashboard`.
+- ⇄ **CẢ HAI** — máy còn lại chưa đo Streamlit: `python -c "import streamlit; print(streamlit.__version__)"` chạy
+  TRONG venv (requirements ghim `>=1.56.0,<1.57`; dưới 1.56 thì `pip install -r requirements.txt`).
+- ○ **Soi mắt** (cloud không có kho thật — số thật chỉ thấy ở máy bạn):
+  1. Mở `localhost:8501` ⇒ vào thẳng **Tổng quan**; menu trên cùng 5 nhóm; F5 ở `/phan-tich` vẫn ở Phân tích.
+  2. Thanh trạng thái mỗi trang: VN-Index (từ kho) · phiên · dữ liệu · Live · chấm **Hệ thống** (bấm ra 3 badge cũ).
+  3. **Phân tích mã** (FPT…): chart 4 panel kéo/zoom đồng bộ như cũ; tiêu đề `MÃ — tên` + `sàn · ngành`; giá tô theo tham chiếu.
+  4. **Tổng quan** trong phiên + Live bật: heatmap VN30 tăng xanh / giảm đỏ / đứng giá vàng.
+  5. Menu **⋮ → Light**: mọi trang sáng, chữ giá đọc rõ; **⋮ → Dark** quay lại (~1 giây tự vẽ lại).
+  6. Trang **Hệ thống**: 3 nút 📥/🧩/🚀 + **Chế độ chẩn đoán** (bật mới thấy stack trace / JSON thô).
+- ○ (tuỳ) Chụp mốc: `pip install playwright` → `python -m playwright install chromium` →
+  `python scripts/ui_snapshots.py --label may-that` (ảnh ở `ui_snapshots/`, gitignore). Thêm `--scheme light` cho chế độ sáng.
+- Muốn mở PR về `main` thì bảo Claude (Claude chạy FULL test trước PR theo CLAUDE.md).
 
 ## PR #31 — sửa ~60 lỗi dashboard + kit đội agent (18/10, nhánh `trial/agent-team`) — ĐÃ MERGE `4e8ba80`
 
