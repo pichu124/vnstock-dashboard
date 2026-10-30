@@ -12,7 +12,6 @@ import streamlit as st
 from dashboard.theme import PLOTLY_BG, TOKENS as _T, rgba
 from dashboard.ui import diag_on, page_header
 from datetime import datetime, date, timedelta, timezone
-import importlib
 import inspect
 import re
 from urllib.parse import urljoin, urlparse
@@ -201,35 +200,9 @@ def tab_open(tab) -> bool:
     return getattr(tab, "open", None) is not False
 
 
-_SUBTABS = (  # (nhãn, module, hàm) — module None = tin theo mã ngay trong file này
-    ("📰 Tin theo mã", None, None),
-    ("🌐 Vĩ mô", "dashboard.macro_tab", "render_macro_subtab"),
-    ("📄 Báo cáo tuần", "dashboard.rates_report_tab", "render_rates_report_subtab"),
-    ("📚 Báo cáo", "dashboard.reports_tab", "render_reports_subtab"),
-    ("🧭 Phân bổ", "dashboard.allocation_tab", "render_allocation_subtab"),
-)
-
-
-def render_news_tab() -> None:
-    """Main entry point called from vnstock_dashboard.py.
-
-    5 sub-tab: tin THEO MÃ (nội dung gốc của tab), 🌐 Vĩ mô (macro_tab —
-    thuần hiển thị), 📄 Báo cáo tuần (rates_report_tab — HTML lãi suất từ
-    cache), 📚 Báo cáo (reports_tab — ingest + digest, P5) và 🧭 Phân bổ
-    (allocation_tab — band B0-B4 + scorecard, P5).
-    """
-    tabs = lazy_tabs(st, [label for label, _, _ in _SUBTABS], key="_news_subtab")
-    for tab, (label, mod, fn) in zip(tabs, _SUBTABS):
-        if not tab_open(tab):
-            continue
-        with tab:
-            if mod is None:
-                _render_ticker_news()
-                continue
-            try:
-                getattr(importlib.import_module(mod), fn)()
-            except Exception as _e:                          # noqa
-                st.error(f"Không render được sub-tab {label.split(' ', 1)[1]}: {_e}")
+# Tab con cũ (Tin theo mã · Vĩ mô · Báo cáo tuần · Báo cáo · Phân bổ) đã thành TRANG riêng
+# trong `dashboard/pages.py` (P2 giao diện) — dispatcher `render_news_tab` bỏ ở P5 vì
+# không trang nào gọi. `lazy_tabs`/`tab_open` ở trên vẫn dùng (assets_tab).
 
 
 @st.cache_data(show_spinner=False, max_entries=4)

@@ -419,34 +419,32 @@ def test_specific_date_filter_uses_vn_calendar_day(monkeypatch):
     assert shown == ["Tin không tz"]
 
 
-# ─── Sub-tab lười + đệm cache_info ───────────────────────────────────────────
+# ─── Tab lười (dùng ở trang Hàng hoá & Tiền tệ) + đệm cache_info ─────────────
 
 @pytest.mark.parametrize("stateful,expect", [
-    (True, ["macro"]),                                          # streamlit có `on_change`: chỉ tab mở
-    (False, ["ticker", "macro", "rates", "reports", "alloc"]),  # bản cũ: chạy hết như trước
+    (True, ["b"]),               # streamlit có `on_change`: chỉ tab đang mở chạy
+    (False, ["a", "b", "c"]),    # bản cũ: chạy hết như trước
 ])
-def test_news_subtabs_run_only_open_tab_when_supported(monkeypatch, stateful, expect):
-    import sys
-    import types
+def test_lazy_tabs_run_only_open_tab_when_supported(monkeypatch, stateful, expect):
+    """Từ P2 tab con của Tin tức là trang riêng; `lazy_tabs` còn phục vụ assets_tab."""
     from tests.test_tab_render_smoke import _stateful_tabs
 
-    ran = []
-    for mod, fn, tag in (("dashboard.macro_tab", "render_macro_subtab", "macro"),
-                         ("dashboard.rates_report_tab", "render_rates_report_subtab", "rates"),
-                         ("dashboard.reports_tab", "render_reports_subtab", "reports"),
-                         ("dashboard.allocation_tab", "render_allocation_subtab", "alloc")):
-        m = types.ModuleType(mod)
-        setattr(m, fn, lambda tag=tag: ran.append(tag))
-        monkeypatch.setitem(sys.modules, mod, m)
     st, news_tab = _news_tab_with_fake_st(monkeypatch)
-    monkeypatch.setattr(news_tab, "_render_ticker_news", lambda: ran.append("ticker"))
     if stateful:
         st.tabs = _stateful_tabs(open_idx=1)
-
-    news_tab.render_news_tab()
-
+    ran = []
+    for tab, tag in zip(news_tab.lazy_tabs(st, ["A", "B", "C"], key="_k"), ("a", "b", "c")):
+        if news_tab.tab_open(tab):
+            ran.append(tag)
     assert ran == expect
-    assert not st.error.called
+
+
+def test_old_news_subtab_dispatcher_is_gone(monkeypatch):
+    """5 tab con cũ thành trang (dashboard/pages.py) — dispatcher cũ không được sống lại
+    song song (vẽ gấp đôi, hai nơi cho một nội dung)."""
+    _, news_tab = _news_tab_with_fake_st(monkeypatch)
+    assert not hasattr(news_tab, "render_news_tab") and not hasattr(news_tab, "_SUBTABS")
+    assert callable(news_tab.render_ticker_news)
 
 
 def test_cache_info_parsed_once_per_file_version(monkeypatch, tmp_path):

@@ -82,12 +82,13 @@ def test_allocation_page_headers_and_raw_source_log_only_in_diag(monkeypatch, di
     assert any("Log nguồn báo cáo" in e for e in expanders) is diag
 
 
-def test_news_tab_wires_subtabs():
-    src = (__import__("pathlib").Path(__file__).resolve().parent.parent
-           / "dashboard" / "news_tab.py").read_text(encoding="utf-8")
-    assert "📚 Báo cáo" in src and "🧭 Phân bổ" in src and "📄 Báo cáo tuần" in src
-    assert "render_reports_subtab" in src and "render_allocation_subtab" in src
-    assert "render_rates_report_subtab" in src
+def test_reports_allocation_rates_are_pages():
+    """Từ P2 giao diện: 3 tab con cũ của Tin tức là TRANG trong sổ st.navigation."""
+    from dashboard.pages import by_url
+    assert by_url("bao-cao").func == "render_reports_subtab"
+    assert by_url("bao-cao-tuan").func == "render_rates_report_subtab"
+    phan_bo = by_url("phan-bo")
+    assert phan_bo.func == "render_allocation_subtab" and phan_bo.section == "Danh mục"
 
 
 # ─── reports_tab: thông báo sống qua st.rerun, spinner, kiểm ngày ─────────────
