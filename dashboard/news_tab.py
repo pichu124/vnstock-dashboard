@@ -8,6 +8,8 @@ and made available to AI agents in brief & analysis contexts.
 from __future__ import annotations
 
 import streamlit as st
+
+from dashboard.ui import diag_on
 from datetime import datetime, date, timedelta, timezone
 import importlib
 import inspect
@@ -236,6 +238,12 @@ def _cache_info(stamp: tuple) -> dict:
     return _nn.cache_info()
 
 
+def render_ticker_news() -> None:
+    """Trang "Tin theo mã" (P2: 4 tab con cũ của Tin tức nay là trang riêng —
+    Vĩ mô/Phân bổ sang nhóm Thị trường/Danh mục, xem dashboard/pages.py)."""
+    _render_ticker_news()
+
+
 def _render_ticker_news() -> None:
     """Tin tức theo mã (vnstock_news) — nguyên trạng nội dung tab cũ."""
     try:
@@ -432,24 +440,25 @@ def _render_ticker_news() -> None:
         # Self-diagnose: dump first item's keys so we can identify the actual
         # date field name used by the provider. Without this the user has no
         # way to know which field to add to vnstock_news._DATE_FIELDS.
-        with st.expander("🔬 Debug: cấu trúc dữ liệu thô (giúp xác định field date)", expanded=True):
-            sample = news[0] if news else {}
-            st.caption(f"Tổng số keys: {len(sample)}")
-            # Highlight keys that LOOK date-related
-            date_like = {k: v for k, v in sample.items()
-                         if any(s in k.lower() for s in ("date", "time", "publish", "create"))}
-            if date_like:
-                st.caption("**Keys có vẻ là date** (substring date/time/publish/create):")
-                st.json(date_like)
-            else:
-                st.caption("⚠️ Không có key nào chứa substring date/time/publish/create.")
-            st.caption("**Toàn bộ keys:**")
-            st.json({k: (v[:80] + "…" if isinstance(v, str) and len(v) > 80 else v)
-                     for k, v in list(sample.items())[:30]})
-            st.caption(
-                "→ Copy tên field date thực và báo lại để thêm vào "
-                "`vnstock_news._DATE_FIELDS`."
-            )
+        if diag_on():  # JSON thô chỉ ở chế độ chẩn đoán (trang Hệ thống)
+            with st.expander("🔬 Debug: cấu trúc dữ liệu thô (giúp xác định field date)", expanded=True):
+                sample = news[0] if news else {}
+                st.caption(f"Tổng số keys: {len(sample)}")
+                # Highlight keys that LOOK date-related
+                date_like = {k: v for k, v in sample.items()
+                             if any(s in k.lower() for s in ("date", "time", "publish", "create"))}
+                if date_like:
+                    st.caption("**Keys có vẻ là date** (substring date/time/publish/create):")
+                    st.json(date_like)
+                else:
+                    st.caption("⚠️ Không có key nào chứa substring date/time/publish/create.")
+                st.caption("**Toàn bộ keys:**")
+                st.json({k: (v[:80] + "…" if isinstance(v, str) and len(v) > 80 else v)
+                         for k, v in list(sample.items())[:30]})
+                st.caption(
+                    "→ Copy tên field date thực và báo lại để thêm vào "
+                    "`vnstock_news._DATE_FIELDS`."
+                )
 
     # ── Filters ────────────────────────────────────────────────────────────
     st.markdown("---")
@@ -460,60 +469,61 @@ def _render_ticker_news() -> None:
     # vnstock's company.news() returns only ~1 latest article per ticker
     # so coverage of recent news depends entirely on which tickers happened
     # to have publications in the window.
-    with st.expander("📊 Phân bố tin trong cache (chẩn đoán)", expanded=False):
-        from collections import Counter
-        date_counter = Counter(
-            (n.get("_date_sort") or "Không rõ ngày")[:10] for n in news
-        )
-        ticker_counter = Counter(n.get("ticker", "?") for n in news)
-        n_tickers_with_news = len([t for t in ticker_counter if t and t != "?"])
-        avg_per_ticker = len(news) / max(n_tickers_with_news, 1)
+    if diag_on():  # thống kê cache + thử fetch API — chế độ chẩn đoán
+        with st.expander("📊 Phân bố tin trong cache (chẩn đoán)", expanded=False):
+            from collections import Counter
+            date_counter = Counter(
+                (n.get("_date_sort") or "Không rõ ngày")[:10] for n in news
+            )
+            ticker_counter = Counter(n.get("ticker", "?") for n in news)
+            n_tickers_with_news = len([t for t in ticker_counter if t and t != "?"])
+            avg_per_ticker = len(news) / max(n_tickers_with_news, 1)
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Tổng tin", len(news))
-        m2.metric("Số mã có tin", n_tickers_with_news)
-        m3.metric("TB tin/mã", f"{avg_per_ticker:.1f}")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Tổng tin", len(news))
+            m2.metric("Số mã có tin", n_tickers_with_news)
+            m3.metric("TB tin/mã", f"{avg_per_ticker:.1f}")
 
-        diag_col1, diag_col2 = st.columns(2)
-        with diag_col1:
-            st.caption("**Phân bố theo ngày** (sắp xếp mới nhất trên đầu)")
-            import pandas as _pd
-            df_d = _pd.DataFrame([
-                {"Ngày": d, "Số tin": c}
-                for d, c in sorted(date_counter.items(), reverse=True)
-            ])
-            st.dataframe(df_d, hide_index=True, height=240, use_container_width=True)
-        with diag_col2:
-            st.caption("**Top 30 mã nhiều tin nhất**")
-            df_t = _pd.DataFrame([
-                {"Mã": t, "Số tin": c}
-                for t, c in ticker_counter.most_common(30)
-            ])
-            st.dataframe(df_t, hide_index=True, height=240, use_container_width=True)
-        st.caption(
-            "💡 Nếu TB tin/mã thấp (~1) và phân bố ngày tản mác, là do "
-            "`vnstock.company.news()` chỉ trả ~1 tin gần nhất mỗi mã. "
-            "Mã chưa có tin trong khung thời gian sẽ trả về tin cũ. "
-            "Tăng **Screener top-N** để thêm nhiều mã active hơn vào universe."
-        )
+            diag_col1, diag_col2 = st.columns(2)
+            with diag_col1:
+                st.caption("**Phân bố theo ngày** (sắp xếp mới nhất trên đầu)")
+                import pandas as _pd
+                df_d = _pd.DataFrame([
+                    {"Ngày": d, "Số tin": c}
+                    for d, c in sorted(date_counter.items(), reverse=True)
+                ])
+                st.dataframe(df_d, hide_index=True, height=240, use_container_width=True)
+            with diag_col2:
+                st.caption("**Top 30 mã nhiều tin nhất**")
+                df_t = _pd.DataFrame([
+                    {"Mã": t, "Số tin": c}
+                    for t, c in ticker_counter.most_common(30)
+                ])
+                st.dataframe(df_t, hide_index=True, height=240, use_container_width=True)
+            st.caption(
+                "💡 Nếu TB tin/mã thấp (~1) và phân bố ngày tản mác, là do "
+                "`vnstock.company.news()` chỉ trả ~1 tin gần nhất mỗi mã. "
+                "Mã chưa có tin trong khung thời gian sẽ trả về tin cũ. "
+                "Tăng **Screener top-N** để thêm nhiều mã active hơn vào universe."
+            )
 
-        # Live API diagnostic: fetch one ticker and show what each code path
-        # returns. Helps determine whether vnstock_data.Company.news() is
-        # actually returning more articles than vnstock free.
-        st.markdown("---")
-        st.caption("**Test fetch live cho 1 mã** (kiểm tra API trả gì)")
-        diag_col_a, diag_col_b = st.columns([1, 5])
-        with diag_col_a:
-            diag_ticker = st.text_input("Mã", value="VCB", key="_news_diag_ticker",
-                                          max_chars=5)
-        with diag_col_b:
-            if st.button("🧪 Test fetch", key="_news_diag_run"):
-                if hasattr(_nn, "diagnose_news_fetch"):
-                    with st.spinner(f"Đang fetch {diag_ticker}…"):
-                        result = _nn.diagnose_news_fetch(diag_ticker.strip().upper())
-                    st.json(result)
-                else:
-                    st.warning("diagnose_news_fetch chưa có — pull bản mới nhất")
+            # Live API diagnostic: fetch one ticker and show what each code path
+            # returns. Helps determine whether vnstock_data.Company.news() is
+            # actually returning more articles than vnstock free.
+            st.markdown("---")
+            st.caption("**Test fetch live cho 1 mã** (kiểm tra API trả gì)")
+            diag_col_a, diag_col_b = st.columns([1, 5])
+            with diag_col_a:
+                diag_ticker = st.text_input("Mã", value="VCB", key="_news_diag_ticker",
+                                              max_chars=5)
+            with diag_col_b:
+                if st.button("🧪 Test fetch", key="_news_diag_run"):
+                    if hasattr(_nn, "diagnose_news_fetch"):
+                        with st.spinner(f"Đang fetch {diag_ticker}…"):
+                            result = _nn.diagnose_news_fetch(diag_ticker.strip().upper())
+                        st.json(result)
+                    else:
+                        st.warning("diagnose_news_fetch chưa có — pull bản mới nhất")
 
     flt_col1, flt_col2, flt_col3, flt_col4 = st.columns([2, 2, 2, 3])
 
@@ -699,16 +709,17 @@ def _render_ticker_news() -> None:
         st.caption(f"… còn {len(filtered) - page_size} tin nữa. Tăng **Số tin hiển thị** để xem thêm.")
 
     # ── AI context preview (collapsible) ──────────────────────────────────
-    with st.expander("🤖 Xem context đang inject vào AI agents", expanded=False):
-        tickers_for_ai = (
-            [selected_ticker] if selected_ticker != "Tất cả" else None
-        )
-        ctx = _nn.news_context_block(tickers=tickers_for_ai, max_items=15)
-        if ctx:
-            st.code(ctx, language="markdown")
-        elif not _nn.load_news_cache():
-            st.caption("Chưa có tin tức nào trong cache để inject.")
-        else:
-            _of = f" của {selected_ticker}" if tickers_for_ai else ""
-            st.caption(f"Không có tin{_of} để inject — brief chỉ lấy tin hôm nay, hôm nay "
-                       f"chưa có thì {_nn.NEWS_FALLBACK_DAYS} ngày gần đây.")
+    if diag_on():  # context AI là ruột pipeline — chế độ chẩn đoán
+        with st.expander("🤖 Xem context đang inject vào AI agents", expanded=False):
+            tickers_for_ai = (
+                [selected_ticker] if selected_ticker != "Tất cả" else None
+            )
+            ctx = _nn.news_context_block(tickers=tickers_for_ai, max_items=15)
+            if ctx:
+                st.code(ctx, language="markdown")
+            elif not _nn.load_news_cache():
+                st.caption("Chưa có tin tức nào trong cache để inject.")
+            else:
+                _of = f" của {selected_ticker}" if tickers_for_ai else ""
+                st.caption(f"Không có tin{_of} để inject — brief chỉ lấy tin hôm nay, hôm nay "
+                           f"chưa có thì {_nn.NEWS_FALLBACK_DAYS} ngày gần đây.")

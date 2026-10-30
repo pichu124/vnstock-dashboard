@@ -245,6 +245,9 @@ def test_ai_context_caption_tells_empty_cache_from_old_news(monkeypatch, on_disk
     st, news_tab = _news_tab_with_fake_st(monkeypatch)
     st.session_state["_news_data"] = [
         {"news_title": "Tin cũ", "ticker": "VCB", "_date_sort": "2026-10-01"}]
+    # Khối "context đang inject vào AI" là ruột pipeline ⇒ từ P2 giao diện chỉ hiện
+    # ở chế độ chẩn đoán (trang Hệ thống).
+    st.session_state["diag_mode"] = True
     st.selectbox = lambda label, options=(), key=None, **k: (
         "Tất cả" if key == "_news_recency_filter" else list(options)[0])
 

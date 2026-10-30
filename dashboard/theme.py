@@ -183,6 +183,13 @@ html, body, [class*="css"] {{ font-family: '{FONT_SANS}', sans-serif; }}
 .fscore-fill {{ height: 8px; border-radius: 4px; }}
 .tag {{ display: inline-block; padding: 2px 10px; border-radius: 20px;
   font-size: 11px; font-weight: 500; margin: 2px; }}
+/* P2 — thanh trạng thái + nhãn mục sidebar */
+.vn-strip {{ display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; font-size: 13px;
+  color: {t['text']}; }}
+.vn-strip-item {{ display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }}
+.vn-chip {{ padding: 1px 8px; border-radius: 10px; background: {t['border']}; color: {t['text']}; }}
+.vn-side-label {{ font-size: 12px; color: {t['text_muted']}; text-transform: uppercase;
+  letter-spacing: 0.06em; margin: 4px 0 6px; }}
 """
 
 

@@ -84,6 +84,7 @@ def render_money_flow_tab() -> None:
     except ImportError:
         print("[money_flow_tab] streamlit not available")
         return
+    from dashboard.ui import diag_on
 
     import json
     import numpy as np
@@ -234,18 +235,19 @@ def render_money_flow_tab() -> None:
     _total_buy = sum(v.get("buy", 0) for v in _nn_bs_by_ticker.values())
     _total_sell = sum(v.get("sell", 0) for v in _nn_bs_by_ticker.values())
     if _total_buy == 0 and _total_sell > 0:
-        with st.expander("⚠️ NN Mua = 0 — debug info (foreign_buy)"):
-            _buy_state = _NN_DIAG.get("buy_state", "unknown (fetch loop may not have run — cache hit)")
-            _sell_state = _NN_DIAG.get("sell_state", "unknown")
-            st.caption(f"**foreign_buy state:** {_buy_state}")
-            st.caption(f"**foreign_sell state:** {_sell_state}")
-            if "buy_cols" in _NN_DIAG:
-                st.caption(f"**Buy rows:** {_NN_DIAG['buy_rows']}")
-                st.caption(f"**Buy columns:** {_NN_DIAG['buy_cols']}")
-                st.caption(f"**Buy sample row:** {_NN_DIAG['buy_sample']}")
-            if "sell_cols" in _NN_DIAG:
-                st.caption(f"**Sell columns:** {_NN_DIAG['sell_cols']}")
-                st.caption(f"**Sell sample row:** {_NN_DIAG['sell_sample']}")
+        if diag_on():  # trạng thái fetch foreign_buy — chế độ chẩn đoán
+            with st.expander("⚠️ NN Mua = 0 — debug info (foreign_buy)"):
+                _buy_state = _NN_DIAG.get("buy_state", "unknown (fetch loop may not have run — cache hit)")
+                _sell_state = _NN_DIAG.get("sell_state", "unknown")
+                st.caption(f"**foreign_buy state:** {_buy_state}")
+                st.caption(f"**foreign_sell state:** {_sell_state}")
+                if "buy_cols" in _NN_DIAG:
+                    st.caption(f"**Buy rows:** {_NN_DIAG['buy_rows']}")
+                    st.caption(f"**Buy columns:** {_NN_DIAG['buy_cols']}")
+                    st.caption(f"**Buy sample row:** {_NN_DIAG['buy_sample']}")
+                if "sell_cols" in _NN_DIAG:
+                    st.caption(f"**Sell columns:** {_NN_DIAG['sell_cols']}")
+                    st.caption(f"**Sell sample row:** {_NN_DIAG['sell_sample']}")
 
     # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
     # days, 20D=20 trading days). Always use warehouse for consistency.

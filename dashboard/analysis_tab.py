@@ -32,6 +32,7 @@ def render_analysis_tab() -> None:
     except ImportError:
         print("[analysis_tab] streamlit not available")
         return
+    from dashboard.ui import diag_on
 
     import sys
     import json
@@ -846,8 +847,9 @@ def render_analysis_tab() -> None:
                 f"{type(_e).__name__}: {_e}"
             )
             import traceback as _tb
-            with st.expander("Stack trace"):
-                st.code(_tb.format_exc())
+            if diag_on():  # stack trace chỉ ở chế độ chẩn đoán (trang Hệ thống)
+                with st.expander("Stack trace"):
+                    st.code(_tb.format_exc())
 
     st.markdown("---")
 
@@ -949,11 +951,12 @@ def render_analysis_tab() -> None:
                 # Debug expander when key metrics are missing
                 _missing = [k for k in ("eps", "book_value") if fund.get(k) is None]
                 if _missing and not fund.get("error"):
-                    with st.expander(f"🔍 Debug: {', '.join(_missing)} = None"):
-                        _oc = fund.get("_overview_cols", [])
-                        _rc = fund.get("_ratio_cols", [])
-                        st.caption(f"Overview cols ({len(_oc)}): {_oc}")
-                        st.caption(f"Ratio cols ({len(_rc)}): {_rc}")
+                    if diag_on():  # cột thô của nguồn — chế độ chẩn đoán
+                        with st.expander(f"🔍 Debug: {', '.join(_missing)} = None"):
+                            _oc = fund.get("_overview_cols", [])
+                            _rc = fund.get("_ratio_cols", [])
+                            st.caption(f"Overview cols ({len(_oc)}): {_oc}")
+                            st.caption(f"Ratio cols ({len(_rc)}): {_rc}")
             else:
                 st.warning("⚠ load_fundamental() trả về rỗng")
 

@@ -1,7 +1,8 @@
 # Thiết kế lại GIAO DIỆN dashboard cho chuyên nghiệp — KẾ HOẠCH
 
-> **Trạng thái 31/10/2026: user DUYỆT bản mẫu P0 · P1 (màu + chữ) CODE XONG trên nhánh
-> `claude/adoring-bardeen-vpuq5b` — chờ user merge + restart dashboard (§7 hàng P1). Kế tiếp: P2.**
+> **Trạng thái 31/10/2026: user DUYỆT bản mẫu P0 · P1 (màu + chữ) `94d5510` · P2 (điều hướng + thanh trạng
+> thái + trang Hệ thống) CODE XONG — cùng nhánh `claude/adoring-bardeen-vpuq5b`, chờ user merge + restart
+> (§7). User dặn 31/10 "làm tiếp các phần còn lại" ⇒ đang làm P3.**
 > Bản mẫu (canvas riêng tư của user, 3 artboard, số thật SSI phiên 30/10): https://claude.ai/artifact/ERUSopdPGkjDQsS9KGWgxD
 > Khảo sát code ở `f5029d7`. Mỗi pha một PR, merge riêng được, **không đổi một con
 > số nào** — chỉ đổi cách trình bày.
@@ -213,7 +214,8 @@ Mỗi pha = 1 PR (P3 = mỗi trang 1 PR). Mỗi PR: `run.py test --fast` xanh + 
 | **P1** Nền ✅ 31/10 | `theme.py` + `config.toml [theme]` (ghim `base="dark"`, nhấn xanh dương thay đỏ mặc định của Streamlit) + IBM Plex tự host `static/fonts/` (7 file, 432 KB, OFL) + nền Plotly trong suốt + `PAL` cho chart LWC + token ở `table_style`/`market_table_format`/`sparkline`/CSS chung/badge sidebar/bảng screener; `streamlit>=1.56`; bỏ toggle ☀️ Light mode + `THEMES`; lưới hex; `scripts/ui_snapshots.py` | Claude | Cloud 31/10: 9 tab 0 exception, font Plex nạp từ static, chart 4 panel vẽ đủ (62 phiên FPT, 0 lỗi JS); FULL 5.153 passed. **Sửa luôn 1 lỗi thật:** máy để chế độ SÁNG ⇒ Streamlit dựng theme sáng dưới CSS tối, tiêu đề chìm (ảnh `ui_snapshots/before-light`) |
 | | Merge + **restart** dashboard (theme đọc lúc khởi động) | user ⇄ CẢ HAI | Mở app: nút/slider xanh dương, font Plex, 1D% = 0 tô vàng |
 | | Kiểm bản Streamlit: `python -c "import streamlit; print(streamlit.__version__)"` ≥ 1.56 | user ⇄ CẢ HAI (venv theo máy) | Cả hai máy ≥ 1.56 |
-| **P2** Khung | `st.navigation` top + 5 nhóm + URL · thanh trạng thái · sidebar gọn · nút pipeline + chẩn đoán → Hệ thống | Claude | Smoke render từng trang xanh; `test_live_mode_crosstab` xanh; test marker khoá nút ở chỗ mới |
+| **P2** Khung ✅ 31/10 | `st.navigation(position="top")` 5 nhóm · 13 trang có URL (`/tong-quan` mặc định, `/bo-loc`, `/phan-tich`, `/he-thong`…) — sổ ở `dashboard/pages.py` · thanh trạng thái mọi trang (`dashboard/status_strip.py`: VN-Index từ KHO, phiên HOSE, dữ liệu screener/cũ, Live, chấm Hệ thống = gộp 3 badge, popover chi tiết, nút Làm mới) · sidebar còn Live + điều khiển trang · trang Hệ thống (trạng thái · 3 nút pipeline giữ khoá marker · công tắc chẩn đoán · sức khoẻ cũ) · thiếu screener KHÔNG chặn cả app nữa · 6 khối Debug/Stack trace/JSON thô chỉ hiện khi bật chẩn đoán · `dashboard/ui.py` (page_header, section, status_dot, show_error, diag_on) · ẩn nút Deploy (`toolbarMode=minimal`) | Claude | Cloud: 13 trang 0 exception, font Plex nạp ở trang con; FULL xanh. `test_live_mode_crosstab` giữ nguyên |
+| | Merge + restart; thử: mở `localhost:8501` vào thẳng Tổng quan; F5 ở `/phan-tich` vẫn ở Phân tích; chấm Hệ thống đỏ khi test đỏ | user ⇄ CẢ HAI (merge) · ○ (thử) | |
 | **P3** Từng trang | Thứ tự: Tổng quan → Bộ lọc → Phân tích mã → Danh mục → Dòng tiền → còn lại. Thay HTML inline bằng `ui.*`, chuẩn tiêu đề, màu giá VN | Claude · user soi mắt mỗi PR ○ | Allowlist hex của trang về 0; ảnh sau khớp mockup |
 | **P4** Sáng/tối | `[theme.light]`+`[theme.dark]` + nút chuyển sẵn của Streamlit (§9 câu 3a; toggle cũ đã bỏ ở P1) | Claude | Hai chế độ cùng đúng trên 9 ảnh |
 | **P5** Hoàn thiện | Trạng thái rỗng / đang tải / lỗi đồng bộ cả app; màn laptop (cột co, bảng cuộn ngang); `FULL` test trước PR về `main` | Claude · user soi trên 💻 LAPTOP | `run.py test` FULL xanh; user duyệt |

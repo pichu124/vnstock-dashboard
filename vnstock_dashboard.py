@@ -3077,32 +3077,9 @@ _auto_refresh_checker()
 # ═══════════════════════════════════════════════════════
 
 data = load_results()
-
-# Header
-col_title, col_refresh = st.columns([6, 1])
-with col_title:
-    st.markdown("## 📈 VnStock Dashboard")
-with col_refresh:
-    if st.button(
-        "🔄 Refresh",
-        key="top_refresh",
-        width='stretch',
-        help=(
-            "**Vẽ lại dashboard** (nhanh, ~1 giây).\n\n"
-            "Xoá cache RAM rồi đọc lại file `vnstock_data.json` hiện có — "
-            "KHÔNG tính lại screener, KHÔNG tải giá mới.\n\n"
-            "**Dùng khi:** đổi filter/theme/watchlist, hoặc UI có vẻ stale.\n\n"
-            "Ẩn dụ: *lật lại trang báo cũ*."
-        ),
-    ):
-        st.cache_data.clear()
-        st.rerun()
-
-if data is None:
-    st.error("⚠️ Chưa có dữ liệu screener.\n\nChạy: `python vnstock_runner.py`")
-    st.stop()
-
-gen_time = data.get("generated_at", "—")
+# Thiếu screener KHÔNG chặn cả app nữa (P2): chỉ trang Bộ lọc cần nó — trang Hệ thống
+# phải mở được để bấm "📥 Cập nhật giá" khi kho trống.
+gen_time = (data or {}).get("generated_at", "—")
 
 
 def _screener_is_stale(generated_at: str, now: datetime) -> bool:
@@ -3119,13 +3096,10 @@ def _screener_is_stale(generated_at: str, now: datetime) -> bool:
 
 _screener_stale = _screener_is_stale(gen_time, datetime.now())
 
-_info_col, _update_col = st.columns([5, 3])
-with _info_col:
-    if _screener_stale:
-        st.markdown(f'<p class="updated-at" style="color:{_T["warn"]}">⚠️ Screener cũ: {gen_time} — Bấm "📥 Cập nhật giá" để làm mới</p>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
-with _update_col:
+def _render_pipeline_controls() -> None:
+    """3 nút pipeline 📥/🧩/🚀 + khoá theo marker "pipeline đang chạy" — trang Hệ thống (P2).
+
+    Trước P2 nằm đầu MỌI tab; nay một chỗ. Logic khoá giữ nguyên."""
     # Kho dùng chung qua Dropbox: chạy khi máy kia đang chạy = hai máy cùng ghi
     # `prices/` ⇒ conflicted copy (CLAUDE.md, hệ quả #3).
     _pl_running, _pl_why = _is_pipeline_running(
@@ -3275,136 +3249,25 @@ with _update_col:
                     "Khi xong, bấm **🔄 Refresh** để load dữ liệu mới."
                 )
 
-total_tickers = data.get("total_tickers", 0)
-classified    = data.get("classified_tickers", 0)
-presets_data  = data.get("presets", {})
+_d = data or {}
+total_tickers = _d.get("total_tickers", 0)
+classified    = _d.get("classified_tickers", 0)
+presets_data  = _d.get("presets", {})
 total_hits    = sum(v.get("count", 0) for v in presets_data.values())
 top_preset    = max(presets_data.items(), key=lambda x: x[1].get("count", 0), default=("—", {}))
-industry_summary = data.get("industry_summary", {})
+industry_summary = _d.get("industry_summary", {})
 
-# ── Theme toggle ──────────────────────────────────────────────────────────────
+# ── Sidebar chung (render MỌI lượt, mọi trang) ────────────────────────────────
+# 3 badge tests/doctor/model cũ ở đây đã gộp thành chấm "Hệ thống" trên thanh trạng
+# thái + trang Hệ thống (P2, dashboard/status_strip.py).
 with st.sidebar:
-    # ── Test status badge ──────────────────────────────────────────────
-    try:
-        _ts_path = Path("data_warehouse/_meta/test_status.json")
-        if _ts_path.exists():
-            _ts = json.loads(_ts_path.read_text(encoding="utf-8"))
-            _ts_ran = _ts.get("ran_at", "")
-            _ts_passed = _ts.get("passed", 0)
-            _ts_failed = _ts.get("failed", 0)
-            _ts_errors = _ts.get("errors", 0)
-            _ts_mode   = _ts.get("mode", "?")
-            _ts_total_bad = _ts_failed + _ts_errors
-            # Age
-            try:
-                _age_d = (datetime.now() - datetime.fromisoformat(_ts_ran)).days
-                _age_str = f"{_age_d}d trước" if _age_d > 0 else "hôm nay"
-            except Exception:
-                _age_str = "?"
-            _ts_color = _status_color("ok" if _ts_total_bad == 0 else "error")
-            _ts_icon  = "✅" if _ts_total_bad == 0 else "❌"
-            st.markdown(
-                f'<div style="padding:6px 10px;border-radius:6px;'
-                f'border:1px solid {_ts_color};background:rgba(30,41,59,0.4);'
-                f'font-size:11px;color:{_ts_color};margin-bottom:8px;'
-                f'font-family:\'IBM Plex Sans\',sans-serif">'
-                f'{_ts_icon} <b>Tests {_ts_mode}</b>: {_ts_passed} passed'
-                + (f", <b>{_ts_total_bad} fail</b>" if _ts_total_bad else "")
-                + f'<br><span style="color:{_T["text_muted"]}">Chạy {_age_str} · {_ts.get("elapsed_s","?")}s</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                f'<div style="padding:6px 10px;border-radius:6px;'
-                f'border:1px solid {_T["text_off"]};background:rgba(30,41,59,0.4);'
-                f'font-size:11px;color:{_T["text_muted"]};margin-bottom:8px;'
-                'font-family:\'IBM Plex Sans\',sans-serif">'
-                '⏸ Tests chưa chạy.<br>'
-                '<code>python run.py test --fast</code>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
-    except Exception:
-        st.caption("⚠ không đọc được test_status.json")
-
-    # ── Doctor badge (sức khỏe nguồn dữ liệu — run.py doctor) ──────────
-    try:
-        _dr_path = Path("data_warehouse/_meta/doctor_status.json")
-        if _dr_path.exists():
-            _dr = json.loads(_dr_path.read_text(encoding="utf-8"))
-            _dr_counts = _dr.get("counts", {})
-            _dr_worst = _dr.get("worst", "ok")
-            try:
-                _dr_age_d = (datetime.now()
-                             - datetime.fromisoformat(_dr.get("ran_at", ""))).days
-                _dr_age = f"{_dr_age_d}d trước" if _dr_age_d > 0 else "hôm nay"
-            except Exception:
-                _dr_age = "?"
-            _dr_color = _status_color(_dr_worst)
-            _dr_parts = " · ".join(
-                f"{_dr_counts.get(_s, 0)}{_i}"
-                for _s, _i in (("ok", "✅"), ("warn", "⚠️"), ("off", "⬜"), ("error", "❌"))
-                if _dr_counts.get(_s, 0))
-            st.markdown(
-                f'<div style="padding:6px 10px;border-radius:6px;'
-                f'border:1px solid {_dr_color};background:rgba(30,41,59,0.4);'
-                f'font-size:11px;color:{_dr_color};margin-bottom:8px;'
-                f'font-family:\'IBM Plex Sans\',sans-serif">'
-                f'🩺 <b>Nguồn dữ liệu</b>: {_dr_parts or "?"}'
-                f'<br><span style="color:{_T["text_muted"]}">Khám {_dr_age} · {_dr.get("machine", "?")}'
-                f' · {_dr.get("mode", "?")}'
-                f' · <code>run.py doctor</code></span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-    except Exception:
-        st.caption("⚠ không đọc được doctor_status.json")
-
-    # ── Model watch badge (ladder LLM — run.py models, chạy T7 hàng tuần) ──
-    try:
-        _mw_path = Path("data_warehouse/_meta/model_status.json")
-        if _mw_path.exists():
-            _mw = json.loads(_mw_path.read_text(encoding="utf-8"))
-            _mw_level = _mw.get("level", "green")
-            try:
-                _mw_age_d = (datetime.now()
-                             - datetime.fromisoformat(_mw.get("ran_at", ""))).days
-                _mw_age = f"{_mw_age_d}d trước" if _mw_age_d > 0 else "hôm nay"
-            except Exception:
-                _mw_age = "?"
-            _mw_color = _status_color(_mw_level)
-            _mw_probe = _mw.get("probe") or {}
-            _mw_gone = len((_mw.get("catalog") or {}).get("gone_in_use", []))
-            _mw_ripe = sum(1 for _p in (_mw.get("proposals") or []) if _p.get("ripe"))
-            _mw_slow = len((_mw.get("latency") or {}).get("slow", []))
-            _mw_line = (f'{_mw_probe.get("ok", 0)}✅'
-                        + (f' · {_mw_probe.get("fail", 0)}❌' if _mw_probe.get("fail") else "")
-                        + (f' · {_mw_gone}🗑 đang dùng bị gỡ' if _mw_gone else "")
-                        + (f' · {_mw_slow}🐌 chậm bất thường' if _mw_slow else "")
-                        + (f' · {_mw_ripe}💡 đề xuất' if _mw_ripe else ""))
-            st.markdown(
-                f'<div style="padding:6px 10px;border-radius:6px;'
-                f'border:1px solid {_mw_color};background:rgba(30,41,59,0.4);'
-                f'font-size:11px;color:{_mw_color};margin-bottom:8px;'
-                f'font-family:\'IBM Plex Sans\',sans-serif">'
-                f'🧠 <b>Ladder model</b>: {_mw_line or "?"}'
-                f'<br><span style="color:{_T["text_muted"]}">Soi {_mw_age}'
-                f' · <code>run.py models</code></span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-    except Exception:
-        st.caption("⚠ không đọc được model_status.json")
-
     # ── 🔴 Live Mode — công tắc ĐỘNG CƠ WSS, đặt ở sidebar CHUNG ─────────────
     # Phải nằm đây (render mọi lượt, mọi tab) chứ không trong tab Phân tích:
     # widget nằm trong tab là bị Streamlit dọn session_state khi user rời tab
     # (bug 17/08 — heatmap Thị trường không bao giờ hiện), và tên na ná các
     # toggle "Live Scan" của Screener/Dòng Tiền làm user bật nhầm công tắc.
     # Key widget vẫn TÁCH khỏi key cờ: tab khác đọc st.session_state["live_mode"].
-    st.divider()
-    st.markdown("### 🔴 Live Mode")
+    st.markdown('<div class="vn-side-label">Live</div>', unsafe_allow_html=True)
     if WSS_AVAILABLE:
         _live_on = st.toggle(
             "Real-time WSS",
@@ -3483,139 +3346,160 @@ with st.sidebar:
 # (Streamlit creates a fresh __main__ on each hot-reload).
 sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
 
-# ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
-_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền",
-                "📑 Phái sinh NN", "💱 Hàng hoá & Tiền tệ", "💼 Portfolio", "⚕️ Sức khỏe"]
-_active_tab = st.pills("Điều hướng", _TAB_OPTIONS, default="📊 Screener", key="nav_tab",
-                       label_visibility="collapsed")
-# Bấm lại pill đang chọn ⇒ pills trả None ⇒ không tab nào render: giữ tab trước.
-if _active_tab is None:
-    _active_tab = st.session_state.get("_nav_tab_last", "📊 Screener")
-st.session_state["_nav_tab_last"] = _active_tab
+# ── ĐIỀU HƯỚNG: st.navigation 5 nhóm (P2, docs/THIET-KE-GIAO-DIEN.md §5a) ─────────
+# Sổ trang ở dashboard/pages.py (thuần). Mỗi trang = một callable; Streamlit chỉ chạy
+# trang đang mở (như st.pills cũ) nhưng nay có URL riêng (/phan-tich…), F5 giữ trang,
+# Back được. Sidebar chung ở trên vẫn render mọi lượt ⇒ cờ Live Mode/Live Scan sống.
+from dashboard import ui as _ui  # noqa: E402
+from dashboard.pages import (  # noqa: E402
+    DEFAULT_URL as _DEFAULT_URL, MAIN as _PAGES_MAIN, sections as _page_sections,
+)
+from dashboard.status_strip import (  # noqa: E402
+    index_change as _index_change, session_phase as _session_phase,
+    system_items as _system_items, worst_level as _worst_level,
+)
 
-# ══════════════════════════════════════════════════════
-# TAB 1: SCREENER
-# ══════════════════════════════════════════════════════
-if _active_tab == "📊 Screener":
+
+def _page_screener() -> None:
+    """Bộ lọc — cần dữ liệu screener + tham số dựng ở script chính."""
+    if data is None:
+        _ui.show_error("Chưa có dữ liệu screener.")
+        st.caption('Vào trang **Hệ thống** bấm "📥 Cập nhật giá", hoặc chạy `python vnstock_runner.py`.')
+        return
+    from dashboard.screener_tab import render_screener_tab
+    render_screener_tab(
+        presets_data=presets_data,
+        industry_summary=industry_summary,
+        gen_time=gen_time,
+        total_tickers=total_tickers,
+        classified=classified,
+        total_hits=total_hits,
+        top_preset=top_preset,
+        stale_excluded=data.get("stale_excluded"),
+    )
+
+
+def _status_row_html(item: dict) -> str:
+    """Một dòng trạng thái (chấm + tên + nội dung + dòng phụ) cho popover / trang Hệ thống."""
+    return (f'<div style="display:flex;gap:10px;align-items:flex-start;margin:4px 0 10px">'
+            f'<span style="margin-top:7px">{_ui.status_dot(item["level"])}</span>'
+            f'<div><div style="color:{_T["text"]}"><b>{item["name"]}</b> — {item["text"]}</div>'
+            f'<div style="font-size:12px;color:{_T["text_faint"]}">{item["sub"]}</div></div></div>')
+
+
+def _page_system() -> None:
+    """Hệ thống: trạng thái · cập nhật dữ liệu (3 nút pipeline) · chẩn đoán · sức khoẻ nguồn."""
+    _ui.page_header("Hệ thống", "Trạng thái · cập nhật dữ liệu · chế độ chẩn đoán")
+    _ui.section("Trạng thái")
+    st.markdown("".join(_status_row_html(it) for it in _system_items()), unsafe_allow_html=True)
+
+    _ui.section("Cập nhật dữ liệu")
+    st.caption(f"Screener chạy lúc {gen_time}"
+               + (" — đã CŨ so với phiên hiện tại." if _screener_stale else "."))
+    _render_pipeline_controls()
+
+    _ui.section("Chẩn đoán")
+    _diag = st.toggle(
+        "Chế độ chẩn đoán", value=_ui.diag_on(), key="diag_mode_toggle",
+        help="Hiện stack trace, JSON thô và các khối Debug ở mọi trang. Tắt khi dùng hằng ngày.")
+    # Key widget TÁCH khỏi cờ (như Live Mode): rời trang là Streamlit dọn widget-state.
+    st.session_state[_ui.DIAG_FLAG] = _diag
+    st.divider()
+    from vnstock_health import render_health_tab
+    render_health_tab()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _vnindex_tail() -> tuple:
+    """(2 giá đóng cửa cuối, ngày phiên cuối 'YYYY-MM-DD') của VNINDEX từ KHO — không gọi mạng."""
     try:
-        from dashboard.screener_tab import render_screener_tab
-        render_screener_tab(
-            presets_data=presets_data,
-            industry_summary=industry_summary,
-            gen_time=gen_time,
-            total_tickers=total_tickers,
-            classified=classified,
-            total_hits=total_hits,
-            top_preset=top_preset,
-            stale_excluded=data.get("stale_excluded"),
-        )
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Screener tab: {_e}")
-        st.caption("Kiểm tra `dashboard/screener_tab.py` và các preset JSON.")
+        from vnstock_brief import _load_vnindex_df
+        df = _load_vnindex_df(augment=False)
+    except Exception:
+        log.exception("Thanh trạng thái: không đọc được VNINDEX từ kho")
+        return (), ""
+    if df is None or df.empty or "close" not in df.columns:
+        return (), ""
+    if "time" in df.columns:
+        df = df.sort_values("time")
+    tail = df.tail(2)
+    last = str(tail["time"].iloc[-1])[:10] if "time" in tail.columns else ""
+    return tuple(float(x) for x in tail["close"]), last
 
 
-# ══════════════════════════════════════════════════════
-# TAB 2: PHÂN TÍCH
-# ══════════════════════════════════════════════════════
-if _active_tab == "🔬 Phân tích":
-    try:
-        from dashboard.analysis_tab import render_analysis_tab
-        render_analysis_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Phân tích tab: {_e}")
-        st.caption("Kiểm tra `dashboard/analysis_tab.py` và các cache trong `data_warehouse/`.")
+def _render_status_strip(system_page) -> None:
+    """Một dòng trên MỌI trang (§5b): VN-Index · phiên · dữ liệu · Live · Hệ thống · làm mới."""
+    mono = "font-family:'IBM Plex Mono',monospace"
+    parts = []
+    closes, last_day = _vnindex_tail()
+    chg = _index_change(closes)
+    if chg:
+        c, d, pct = chg
+        col = _T["up"] if d > 0 else (_T["down"] if d < 0 else _T["ref"])
+        arrow = "▲" if d > 0 else ("▼" if d < 0 else "■")
+        day = f' <span style="color:{_T["text_faint"]}">{last_day[8:10]}/{last_day[5:7]}</span>' if last_day else ""
+        parts.append(f'<span style="color:{_T["text_muted"]}">VN-Index</span> '
+                     f'<b style="{mono};color:{_T["text_strong"]};font-weight:500">{c:,.2f}</b> '
+                     f'<span style="{mono};color:{col}">{arrow} {pct:+.2f}%</span>{day}')
+    _, phase = _session_phase(datetime.now())
+    parts.append(f'<span style="color:{_T["text_muted"]}">Phiên</span> <span class="vn-chip">{phase}</span>')
+    if _screener_stale:
+        parts.append(f'<span style="color:{_T["warn"]}">⚠ Screener cũ ({str(gen_time)[:16]}) — '
+                     f'vào Hệ thống bấm "📥 Cập nhật giá"</span>')
+    else:
+        parts.append(f'<span style="color:{_T["text_muted"]}">Dữ liệu</span> '
+                     f'<span style="{mono}">{str(gen_time)[:16].replace("T", " ")}</span>')
+    _live = bool(st.session_state.get("live_mode"))
+    parts.append(f'{_ui.status_dot("ok" if _live else "off")} '
+                 f'<span style="color:{_T["text_muted"]}">Live {"bật" if _live else "tắt"}</span>')
+
+    c_info, c_act = st.columns([5, 2], vertical_alignment="center", gap="small")
+    c_info.markdown('<div class="vn-strip">' + "".join(f'<span class="vn-strip-item">{p}</span>' for p in parts)
+                    + "</div>", unsafe_allow_html=True)
+    items = _system_items()
+    lvl = _worst_level(i["level"] for i in items)
+    color = {"ok": "green", "warn": "orange", "error": "red", "off": "gray"}[lvl]
+    with c_act.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center"):
+        with st.popover(f":{color}[●] Hệ thống",
+                        help={"ok": "Tests, nguồn dữ liệu, ladder model đều ổn",
+                              "warn": "Có mục cần xem", "error": "Có mục ĐỎ — xem trước khi merge/deploy",
+                              "off": "Chưa có số (chưa chạy test/doctor/models)"}[lvl]):
+            st.markdown("".join(_status_row_html(it) for it in items), unsafe_allow_html=True)
+            st.page_link(system_page, label="Mở trang Hệ thống", icon=":material/arrow_forward:")
+        if st.button("Làm mới", icon=":material/refresh:", key="top_refresh",
+                     help="**Vẽ lại dashboard** (~1 giây): xoá cache RAM rồi đọc lại file hiện có — "
+                          "KHÔNG tính lại screener, KHÔNG tải giá mới."):
+            st.cache_data.clear()
+            st.rerun()
 
 
-
-# ══════════════════════════════════════════════════════
-# TAB 3: THỊ TRƯỜNG
-# ══════════════════════════════════════════════════════
-if _active_tab == "🌏 Thị trường":
-    try:
-        from dashboard.market_tab import render_market_tab
-        render_market_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Thị trường tab: {_e}")
-        st.caption("Kiểm tra `dashboard/market_tab.py` và cache `data_warehouse/_meta/`.")
-
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB: DÒNG TIỀN (Money Flow)
-# ══════════════════════════════════════════════════════════════════════════════
-if _active_tab == "💰 Dòng Tiền":
-    try:
-        from dashboard.money_flow_tab import render_money_flow_tab
-        render_money_flow_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Dòng Tiền tab: {_e}")
-        st.caption("Kiểm tra `dashboard/money_flow_tab.py` và các cache trong `data_warehouse/_meta/`.")
+def _page_runner(spec):
+    """Bọc một trang: lỗi ⇒ log đủ traceback + MỘT câu cho người dùng (chi tiết ở chẩn đoán)."""
+    def _run() -> None:
+        try:
+            if spec.module == _PAGES_MAIN:
+                fn = globals()[spec.func]
+            else:
+                import importlib
+                fn = getattr(importlib.import_module(spec.module), spec.func)
+            fn()
+        except Exception as _e:
+            log.exception("Không render được trang %s", spec.title)
+            _ui.show_error(f"Không mở được trang {spec.title}.", _e)
+    _run.__name__ = "page_" + spec.url_path.replace("-", "_")
+    return _run
 
 
+_PAGE_OBJS: dict = {}
+_NAV_SPEC: dict = {}
+for _sec, _specs in _page_sections().items():
+    _NAV_SPEC[_sec] = []
+    for _spec in _specs:
+        _PAGE_OBJS[_spec.url_path] = st.Page(
+            _page_runner(_spec), title=_spec.title, icon=_spec.icon,
+            url_path=_spec.url_path, default=(_spec.url_path == _DEFAULT_URL))
+        _NAV_SPEC[_sec].append(_PAGE_OBJS[_spec.url_path])
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB: Portfolio
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB: PHÁI SINH NN (vị thế ròng khối ngoại HĐTL VN30 — chỉ đọc kho data_warehouse/futures, U88)
-# ══════════════════════════════════════════════════════════════════════════════
-if _active_tab == "📑 Phái sinh NN":
-    try:
-        from dashboard.futures_foreign_tab import render_futures_foreign_tab
-        render_futures_foreign_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được tab Phái sinh NN: {_e}")
-        st.caption("Kiểm tra `dashboard/futures_foreign_tab.py`, `vnstock_futures_foreign_view.py` "
-                   "và kho `data_warehouse/futures/`.")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB: HÀNG HOÁ & TIỀN TỆ (vàng · dầu · USD — chỉ đọc kho data_warehouse/assets, U83)
-# ══════════════════════════════════════════════════════════════════════════════
-if _active_tab == "💱 Hàng hoá & Tiền tệ":
-    try:
-        from dashboard.assets_tab import render_assets_tab
-        render_assets_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được tab Hàng hoá & Tiền tệ: {_e}")
-        st.caption("Kiểm tra `dashboard/assets_tab.py`, `vnstock_assets_view.py` và kho `data_warehouse/assets/`.")
-
-if _active_tab == "🗞️ Tin tức":
-    try:
-        from dashboard.news_tab import render_news_tab
-        render_news_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Tin tức tab: {_e}")
-        st.caption("Kiểm tra `dashboard/news_tab.py` và `vnstock_news.py`.")
-
-if _active_tab == "💼 Portfolio":
-    try:
-        from dashboard.portfolio_tab import render_portfolio_tab
-        render_portfolio_tab(Path("data_warehouse"))
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Portfolio tab: {_e}")
-        st.caption("Kiểm tra `dashboard/portfolio_tab.py` và `data_warehouse/_meta/portfolio.json`.")
-
-
-# ══════════════════════════════════════════════════════
-# TAB 6: SYSTEM HEALTH (Feature 3C)
-# ══════════════════════════════════════════════════════
-if _active_tab == "⚕️ Sức khỏe":
-    try:
-        from vnstock_health import render_health_tab
-        render_health_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Health tab: {_e}")
-        st.caption("Kiểm tra `vnstock_health.py` và các file metadata trong `data_warehouse/_meta/`.")
+_nav = st.navigation(_NAV_SPEC, position="top")
+_render_status_strip(_PAGE_OBJS["he-thong"])
+_nav.run()

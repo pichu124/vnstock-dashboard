@@ -224,10 +224,10 @@ def test_assets_tab_empty_store_tells_how_to_fill(fake_st):
 
 
 def test_tab_is_wired_into_navigation():
-    src = open("vnstock_dashboard.py", encoding="utf-8").read()
-    assert '"💱 Hàng hoá & Tiền tệ"' in src.split("_TAB_OPTIONS = ")[1].split("]")[0]
-    assert 'if _active_tab == "💱 Hàng hoá & Tiền tệ":' in src and "render_assets_tab()" in src
-    assert "🪙" not in src.split("_TAB_OPTIONS = ")[1].split("]")[0]     # ô vuông trên Windows 10 (10/10)
+    from dashboard.pages import by_url  # nav = st.navigation từ P2 giao diện
+    spec = by_url("hang-hoa-tien-te")
+    assert spec is not None and spec.func == "render_assets_tab" and spec.section == "Thị trường"
+    assert "🪙" not in spec.title and spec.icon.startswith(":material/")  # ô vuông Win10 (10/10)
 
 
 def test_no_dollar_sign_in_tab_text():

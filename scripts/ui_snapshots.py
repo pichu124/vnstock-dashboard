@@ -25,6 +25,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 DASHBOARD = REPO / "vnstock_dashboard.py"
+sys.path.insert(0, str(REPO))
 # Lưới cuối nếu không đọc được danh sách tab từ code.
 _FALLBACK_TABS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền",
                   "📑 Phái sinh NN", "💱 Hàng hoá & Tiền tệ", "💼 Portfolio", "⚕️ Sức khỏe"]
@@ -110,6 +111,16 @@ def _shoot_full(page, path: Path, width: int, height: int, settle_s: float) -> N
         page.set_viewport_size({"width": width, "height": height})
 
 
+def page_targets() -> list[tuple[str, str]]:
+    """[(tên file, đường dẫn URL)]. Từ P2: mỗi trang có URL riêng (dashboard/pages.py) ⇒ mở
+    thẳng URL. Code cũ (st.pills) thì trả [] để bấm nút như trước."""
+    try:
+        from dashboard.pages import DEFAULT_URL, PAGES
+    except ImportError:
+        return []
+    return [(p.url_path, "" if p.url_path == DEFAULT_URL else p.url_path) for p in PAGES]
+
+
 def snapshot(url: str, out: Path, settle_s: float, width: int, height: int,
              scheme: str = "dark") -> list[Path]:
     try:
@@ -123,6 +134,17 @@ def snapshot(url: str, out: Path, settle_s: float, width: int, height: int,
         browser = p.chromium.launch()
         # Chế độ sáng/tối của HỆ ĐIỀU HÀNH quyết định theme Streamlit khi config chưa ghim.
         page = browser.new_page(viewport={"width": width, "height": height}, color_scheme=scheme)
+        targets = page_targets()
+        for i, (name, path) in enumerate(targets, 1):
+            page.goto(f"{url.rstrip('/')}/{path}")
+            _wait_idle(page, settle_s)
+            shot = out / f"{i:02d}-{name}.png"
+            _shoot_full(page, shot, width, height, settle_s)
+            saved.append(shot)
+            print(f"  ✓ {shot.relative_to(REPO)}")
+        if targets:
+            browser.close()
+            return saved
         page.goto(url)
         _wait_idle(page, settle_s)
         for i, label in enumerate(labels, 1):

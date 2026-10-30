@@ -396,9 +396,10 @@ def test_tab_empty_store_tells_how_to_fill(fake_st):
 
 
 def test_tab_is_wired_into_navigation_and_has_no_math_dollar():
-    src = open("vnstock_dashboard.py", encoding="utf-8").read()
-    assert '"📑 Phái sinh NN"' in src.split("_TAB_OPTIONS = ")[1].split("]")[0]
-    assert 'if _active_tab == "📑 Phái sinh NN":' in src and "render_futures_foreign_tab()" in src
+    from dashboard.pages import by_url  # nav = st.navigation từ P2 giao diện
+    spec = by_url("phai-sinh-nn")
+    assert spec is not None and spec.func == "render_futures_foreign_tab" and spec.section == "Thị trường"
+    assert "🪙" not in spec.title and spec.icon.startswith(":material/")  # ô vuông Win10 (10/10)
     assert "$" not in open("dashboard/futures_foreign_tab.py", encoding="utf-8").read()
 
 

@@ -5,6 +5,10 @@
 # (IBM Plex, self-hosted — see [[theme.fontFaces]] below).
 enableStaticServing = true
 
+[client]
+# Ẩn nút Deploy + menu dev ở góc phải (P2 giao diện) — app chạy local, không deploy.
+toolbarMode = "minimal"
+
 # Theme — giá trị CHÉP từ dashboard/theme.py TOKENS (tests/test_theme_tokens.py
 # canh hai bên khớp). Ghim nền TỐI: thiếu dòng `base`, máy để chế độ sáng thì
 # Streamlit dựng theme sáng dưới CSS nền tối ⇒ chữ tiêu đề chìm (đo 30/10).

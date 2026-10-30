@@ -26,7 +26,7 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
-## 🎨 Thiết kế lại giao diện — P1 (màu + chữ) CODE XONG 31/10 · đang làm tiếp P2→P5 (`docs/THIET-KE-GIAO-DIEN.md`)
+## 🎨 Thiết kế lại giao diện — P1 + P2 CODE XONG 31/10 · đang làm tiếp P3→P5 (`docs/THIET-KE-GIAO-DIEN.md`)
 
 Nhánh `claude/adoring-bardeen-vpuq5b`. User đã duyệt bản mẫu P0 + 6 câu §9. Một máy đã đo Streamlit 1.56.0.
 
@@ -36,7 +36,10 @@ Nhánh `claude/adoring-bardeen-vpuq5b`. User đã duyệt bản mẫu P0 + 6 câ
   ô 1D% = 0.0% tô VÀNG, công tắc "☀️ Light mode" biến mất (P4 làm lại bản thật).
 - ⇄ **CẢ HAI** — máy còn lại chưa đo Streamlit: `python -c "import streamlit; print(streamlit.__version__)"` (≥ 1.56,
   chạy TRONG venv).
-- ○ **Soi mắt tab 🔬 Phân tích** (cloud không có kho giá thật): chart 4 panel vẫn kéo/zoom đồng bộ, màu nến như cũ.
+- ○ **P2 — điều hướng mới:** menu trên cùng 5 nhóm (Thị trường · Cổ phiếu · Tin & Báo cáo · Danh mục · Hệ thống);
+  mở app vào thẳng **Tổng quan**; 3 nút 📥/🧩/🚀 + 3 badge cũ nay ở trang **Hệ thống** (chấm "Hệ thống" góc phải mọi
+  trang bấm ra chi tiết); khối Debug/stack trace chỉ hiện khi bật **Chế độ chẩn đoán** ở trang Hệ thống.
+- ○ **Soi mắt trang Phân tích mã** (cloud không có kho giá thật): chart 4 panel vẫn kéo/zoom đồng bộ, màu nến như cũ.
 - ○ (tuỳ) Chụp mốc để so các pha sau: `pip install playwright` → `python -m playwright install chromium` →
   `python scripts/ui_snapshots.py --label p1` (ảnh ở `ui_snapshots/p1/`, gitignore).
 
