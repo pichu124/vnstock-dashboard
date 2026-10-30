@@ -212,7 +212,6 @@ HEX_BUDGET = {
     "dashboard/money_flow_score.py": 7,
     "dashboard/money_flow_tab.py": 79,
     "dashboard/news_tab.py": 14,
-    "dashboard/portfolio_tab.py": 44,
     "dashboard/screener_tab.py": 10,
 }
 

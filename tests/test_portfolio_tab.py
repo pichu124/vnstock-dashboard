@@ -618,3 +618,66 @@ def test_wrong_shape_portfolio_blocks_writes(tmp_path: Path, monkeypatch, payloa
 
     assert path.read_bytes() == before
     assert str(path) in st.error.call_args.args[0]
+
+
+# ── Giao diện P3: tiêu đề 3 cấp + màu lãi/lỗ theo token ─────────────────────
+
+def test_page_uses_one_header_and_token_pnl_colors(tmp_path: Path, monkeypatch):
+    """Trang Danh mục: tiêu đề trang + tiêu đề mục đi qua `dashboard.ui` (hết `###`/`####`
+    kèm emoji, hết "Portfolio" tiếng Anh ở sidebar); màu lãi/lỗ mỗi dòng theo DẤU
+    (`pct_color`): lãi `up`, lỗ `down`, hoà vốn xám `text_muted` — không tô xanh như lãi."""
+    import re
+    from dashboard.theme import TOKENS
+    from tests.test_tab_render_smoke import _fake_streamlit
+    from dashboard.portfolio_tab import _save_portfolio, render_portfolio_tab
+    _save_portfolio(tmp_path, [
+        {"ticker": t, "quantity": 100, "buy_price": 10_000, "buy_date": "2026-01-02"}
+        for t in ("LAI", "LO", "HOA")])
+    (tmp_path / "_live").mkdir()
+    for t, price in (("LAI", 12_000), ("LO", 9_000), ("HOA", 10_000)):
+        (tmp_path / "_live" / f"quote_{t}.json").write_text(
+            json.dumps({"price": price, "time": "2026-10-16T14:45:00"}))
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+
+    render_portfolio_tab(tmp_path)
+
+    texts = [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+    assert [t for t in texts if t.lstrip().startswith("#")] == []
+    for title in ("Danh mục", "Giá trị danh mục (NAV)", "Phân bổ theo ngành"):
+        assert any(f">{title}</div>" in t for t in texts), title
+    html = " ".join(texts)
+    assert "Portfolio" not in html and "💼" not in html
+    rows = {re.findall(r"<td[^>]*>(.*?)</td>", r)[0]: r
+            for r in re.findall(r"<tr[^>]*>(.*?)</tr>", html) if "<td" in r}
+    assert set(rows) == {"LAI", "LO", "HOA"}
+    for ticker, token, pnl in (("LAI", "up", "+200,000"), ("LO", "down", "-100,000"),
+                               ("HOA", "text_muted", "+0")):
+        assert f"color:{TOKENS[token]};font-weight:600'>{pnl}</td>" in rows[ticker], ticker
+    cards = dict(re.findall(r'<div class="label">([^<]*)</div>'
+                            r'<div class="value" style="color:([^"]+)"', html))
+    assert cards == {"Lãi/Lỗ": TOKENS["up"], "% Lãi/Lỗ": TOKENS["up"]}
+
+
+@pytest.mark.parametrize("diag", [False, True])
+def test_sector_failure_is_one_sentence_details_only_in_diag(tmp_path: Path, monkeypatch,
+                                                             diag: bool):
+    """Khối Phân bổ theo ngành lỗi ⇒ một câu tiếng Việt; chữ của exception chỉ hiện khi
+    bật chế độ chẩn đoán (trang Hệ thống)."""
+    import types
+    from tests.test_tab_render_smoke import _fake_streamlit
+    from dashboard.portfolio_tab import _save_portfolio, render_portfolio_tab
+    _save_portfolio(tmp_path, [_LOT_A])
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard",
+                        types.ModuleType("vnstock_dashboard"))     # thiếu hàm ⇒ ImportError
+    st = _fake_streamlit()
+    st.session_state = {"diag_mode": diag}
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+
+    render_portfolio_tab(tmp_path)
+
+    captions = [str(c.args[0]) for c in st.caption.call_args_list]
+    sector = [c for c in captions if c.startswith("Chưa dựng được phân bổ theo ngành.")]
+    assert len(sector) == 1, captions
+    assert (sector[0] != "Chưa dựng được phân bổ theo ngành.") is diag
+    assert sector[0].startswith("Chưa dựng được phân bổ theo ngành. Chi tiết: ") is diag
