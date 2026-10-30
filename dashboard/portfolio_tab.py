@@ -1,5 +1,5 @@
 """
-Portfolio tab — 💼 position tracker with live-price P&L.
+Trang Danh mục (`/danh-muc`) — position tracker with live-price P&L.
 
 Rendered from ``vnstock_dashboard.py`` via the dispatch pattern
 documented in ``docs/REFACTOR_PLAN.md``. All Streamlit imports happen
@@ -43,7 +43,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dashboard.theme import PLOTLY_BG as _PLOTLY_BG, TOKENS as _T
+from dashboard import ui
+from dashboard.theme import PLOTLY_BG as _PLOTLY_BG, TOKENS as _T, pct_color
 from vnstock_parquet_io import write_json_atomic
 
 
@@ -258,7 +259,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
         return
 
     warehouse = Path(warehouse)
-    st.markdown("### 💼 Danh mục đầu tư")
+    ui.page_header("Danh mục", "Vị thế · lãi/lỗ theo giá mới nhất · NAV · phân bổ theo ngành")
 
     # Cache theo rerun (review 21/07): resolver đọc TOÀN BỘ lịch sử parquet
     # của mã (gộp mọi file qua _close_series) cho TỪNG vị thế — không cache
@@ -277,7 +278,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
         return
 
     with st.sidebar:
-        st.markdown("### 💼 Portfolio")
+        st.markdown('<div class="vn-side-label">Danh mục</div>', unsafe_allow_html=True)
 
         with st.expander("➕ Thêm vị thế", expanded=not bool(positions)):
             _pf_ticker = st.text_input("Mã", placeholder="VCB",
@@ -306,7 +307,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                 _save_and_rerun(st, warehouse, [])
 
     if not positions:
-        st.info("Chưa có vị thế nào. Thêm ở sidebar → Portfolio → ➕ Thêm vị thế")
+        st.info("Chưa có vị thế nào. Thêm ở sidebar → Danh mục → ➕ Thêm vị thế")
         return
 
     total_invested = 0.0
@@ -354,7 +355,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
     total_pnl = total_current - total_invested
     total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0
 
-    _pnl_color = "#10b981" if total_pnl >= 0 else "#ef4444"
+    _pnl_color = _T["up"] if total_pnl >= 0 else _T["down"]
     _pnl_sign = "+" if total_pnl >= 0 else ""
 
     c1, c2, c3, c4 = st.columns(4)
@@ -390,25 +391,24 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    _th = ("background:#111827;color:#6b7280;font-size:10px;font-weight:500;"
+    _th = (f"background:{_T['surface']};color:{_T['text_faint']};font-size:10px;font-weight:500;"
            "text-transform:uppercase;letter-spacing:0.05em;padding:6px 10px;"
-           "border-bottom:2px solid #1f2937;text-align:right;"
+           f"border-bottom:2px solid {_T['border']};text-align:right;"
            "font-family:'IBM Plex Sans',sans-serif;")
-    _td = ("padding:5px 10px;border-bottom:1px solid #1a2234;"
+    _td = (f"padding:5px 10px;border-bottom:1px solid {_T['surface_2']};"
            "font-size:12px;font-family:'IBM Plex Mono',monospace;text-align:right;")
 
     _rows_html = ""
     _any_band_warn = False
     for r in sorted(rows, key=lambda x: (x["has_price"], x["pnl"]), reverse=True):
-        _pc = ("#6b7280" if not r["has_price"]
-               else "#10b981" if r["pnl"] >= 0 else "#ef4444")
+        _pc = pct_color(r["pnl"] if r["has_price"] else None)     # giá hiện tại so giá vốn
         _ps = "+" if r["pnl"] >= 0 else ""
-        _bg = "#0d1117"
+        _bg = _T["bg"]
         _cur_cell = "—"
         if r["current_price"] > 0:
             _meta = ""
             if r.get("price_date"):
-                _meta = (" <span style='font-size:9px;color:#6b7280'>"
+                _meta = (f" <span style='font-size:9px;color:{_T['text_faint']}'>"
                          f"{r['price_date'][5:]}·{r.get('price_src', '')}"
                          "</span>")
             _cur_cell = f"{r['current_price']:,.0f}{_meta}"
@@ -422,20 +422,21 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
             if r["has_price"] else ("—", "—", "—"))
         _rows_html += (
             f"<tr style='background:{_bg}'>"
-            f"<td style='{_td}text-align:left;color:#60a5fa;font-weight:600'>{r['ticker']}</td>"
-            f"<td style='{_td}color:#9ca3af'>{r['qty']:,}</td>"
-            f"<td style='{_td}color:#9ca3af'>{r['buy_price']:,.0f}</td>"
-            f"<td style='{_td}color:#e5e7eb'>{_cur_cell}</td>"
-            f"<td style='{_td}color:#9ca3af'>{r['invested']:,.0f}</td>"
-            f"<td style='{_td}color:#e5e7eb'>{_val_cell}</td>"
+            f"<td style='{_td}text-align:left;color:{_T['link']};font-weight:600'>"
+            f"{r['ticker']}</td>"
+            f"<td style='{_td}color:{_T['text_muted']}'>{r['qty']:,}</td>"
+            f"<td style='{_td}color:{_T['text_muted']}'>{r['buy_price']:,.0f}</td>"
+            f"<td style='{_td}color:{_T['text']}'>{_cur_cell}</td>"
+            f"<td style='{_td}color:{_T['text_muted']}'>{r['invested']:,.0f}</td>"
+            f"<td style='{_td}color:{_T['text']}'>{_val_cell}</td>"
             f"<td style='{_td}color:{_pc};font-weight:600'>{_pnl_cell}</td>"
             f"<td style='{_td}color:{_pc};font-weight:600'>{_pct_cell}</td>"
-            f"<td style='{_td}color:#9ca3af;font-size:10px'>{r['buy_date']}</td>"
+            f"<td style='{_td}color:{_T['text_muted']};font-size:10px'>{r['buy_date']}</td>"
             f"</tr>"
         )
 
     _tbl = (
-        f"<div style='overflow-x:auto;border:1px solid #1f2937;border-radius:8px'>"
+        f"<div style='overflow-x:auto;border:1px solid {_T['border']};border-radius:8px'>"
         f"<table style='width:100%;border-collapse:collapse'>"
         f"<thead><tr>"
         f"<th style='{_th}text-align:left'>Mã</th>"
@@ -461,7 +462,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
 
     # ── Net-worth curve — NAV danh mục vs VNINDEX (món DojoAgents 20/07) ──
     st.markdown("---")
-    st.markdown("#### 📈 Giá trị danh mục theo thời gian (NAV)")
+    ui.section("Giá trị danh mục (NAV)")
     try:
         from vnstock_networth import load_networth
         _nw_load = (_cache(ttl=300, show_spinner=False)(load_networth)
@@ -477,12 +478,12 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                 _fig_nw.add_trace(_go_nw.Scatter(
                     x=_nw["dates"], y=_nw["nav_rebased"],
                     name="Danh mục (NAV)",
-                    line=dict(color="#60a5fa", width=2)))
+                    line=dict(color=_T["link"], width=2)))
                 if _nw.get("index_rebased"):
                     _fig_nw.add_trace(_go_nw.Scatter(
                         x=_nw["dates"], y=_nw["index_rebased"],
                         name="VNINDEX",
-                        line=dict(color="#94a3b8", width=1.5, dash="dash")))
+                        line=dict(color=_T["text_muted"], width=1.5, dash="dash")))
                 _xaxis_nw = _nav_xaxis(len(_nw["dates"]))
                 _fig_nw.update_layout(
                     height=320,
@@ -517,11 +518,11 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                                  + ", ".join(_nw["excluded"]) + ".")
             st.caption(" ".join(_notes_nw))
     except Exception as _e_nw:
-        st.caption(f"NAV curve không khả dụng: {_e_nw}")
+        st.caption("Chưa dựng được đường NAV." + (f" Chi tiết: {_e_nw}" if ui.diag_on() else ""))
 
     # ── F7: Sector Exposure ────────────────────────────────────────────────
     st.markdown("---")
-    st.markdown("#### 🏗 Phân bổ theo ngành")
+    ui.section("Phân bổ theo ngành")
     try:
         import plotly.graph_objects as go
         from vnstock_dashboard import _load_industry_map, _get_sector, SECTOR_ICONS
@@ -561,26 +562,24 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                 _names  = [f"{SECTOR_ICONS.get(s,'•')} {s}" for s, _ in _sectors_sorted]
                 _port   = [pct for _, pct in _sectors_sorted]
                 _bench  = [_VN30_BENCH.get(s, 0.0) for s, _ in _sectors_sorted]
-                _delta  = [p - b for p, b in zip(_port, _bench)]
-                _bar_colors = ["#22c55e" if d >= 0 else "#ef4444" for d in _delta]
 
                 fig_bar = go.Figure()
                 fig_bar.add_trace(go.Bar(
                     y=_names, x=_port,
                     orientation="h",
                     name="Danh mục",
-                    marker_color="#60a5fa",
+                    marker_color=_T["link"],
                     opacity=0.85,
                 ))
                 fig_bar.add_trace(go.Bar(
                     y=_names, x=_bench,
                     orientation="h",
-                    name="VN30 benchmark",
-                    marker_color="#475569",
+                    name="VN30",
+                    marker_color=_T["text_off"],
                     opacity=0.5,
                 ))
                 fig_bar.update_layout(
-                    title="Danh mục vs VN30 Benchmark (%)",
+                    title="Danh mục so với VN30 (%)",
                     barmode="overlay",
                     xaxis=dict(title="%", ticksuffix="%"),
                     height=max(280, len(_names) * 38),
@@ -601,12 +600,7 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                     hole=0.45,
                     textinfo="percent",
                     hovertemplate="%{label}: %{value:.1f}%<extra></extra>",
-                    marker=dict(colors=[
-                        "#3b82f6","#22c55e","#f59e0b","#ef4444","#8b5cf6",
-                        "#06b6d4","#ec4899","#84cc16","#f97316","#14b8a6",
-                        "#a78bfa","#fb7185","#fbbf24","#34d399","#94a3b8",
-                    ]),
-                ))
+                ))                     # màu lát = chartCategoricalColors của theme (config.toml)
                 fig_pie.update_layout(
                     title="Tỷ trọng danh mục",
                     height=max(280, len(_names) * 38),
@@ -639,12 +633,12 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                 try:
                     _v = float(str(val).replace(",", ""))
                 except (TypeError, ValueError):
-                    return "color: #94a3b8"
+                    return f"color: {_T['text_muted']}"
                 if _v > 2:
-                    return "color: #22c55e"
+                    return f"color: {_T['up']}"
                 elif _v < -2:
-                    return "color: #ef4444"
-                return "color: #94a3b8"
+                    return f"color: {_T['down']}"
+                return f"color: {_T['text_muted']}"
 
             # pandas ≥ 2.1 đổi Styler.applymap → Styler.map; pandas 3 BỎ HẲN
             # applymap — ưu tiên .map, fallback .applymap cho pandas cũ.
@@ -669,7 +663,8 @@ def render_portfolio_tab(warehouse: Path | str = DEFAULT_WAREHOUSE) -> None:
                 st.caption(f"Không tra được ngành: {', '.join(set(_unmapped))} — xếp vào 'Khác'.")
 
     except Exception as _e7:
-        st.caption(f"Sector exposure không khả dụng: {_e7}")
+        st.caption("Chưa dựng được phân bổ theo ngành."
+                   + (f" Chi tiết: {_e7}" if ui.diag_on() else ""))
 
     st.markdown("<br>", unsafe_allow_html=True)
     # Option là CHỈ SỐ dòng; nhãn vẫn phải DUY NHẤT vì Streamlit serialize bằng nhãn.

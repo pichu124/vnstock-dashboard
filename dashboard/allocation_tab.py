@@ -1,4 +1,4 @@
-"""dashboard/allocation_tab.py — sub-tab "🧭 Phân bổ" bên trong tab Tin tức (P5).
+"""dashboard/allocation_tab.py — trang "Phân bổ" (`/phan-bo`, nhóm Danh mục; P5).
 
 UI mỏng trên cache vnstock_allocation (P1/P3) + vnstock_gold + scorecard (P6):
   * Band hiện hành + bảng % + lý do từng input (nguồn + as_of) + hysteresis/
@@ -7,17 +7,20 @@ UI mỏng trên cache vnstock_allocation (P1/P3) + vnstock_gold + scorecard (P6)
     chỗ DUY NHẤT gọi LLM (brief_type='allocation', cadence THÁNG, CHỈ
     dashboard — không đẩy Telegram, tham số duyệt #4).
   * Vàng: display-only, luôn kèm nhãn premium SJC. Scorecard: bảng kỳ tháng +
-    log nguồn (xếp hạng để dành khi đủ mẫu).
+    log nguồn (dict thô — chỉ hiện ở chế độ chẩn đoán; xếp hạng để dành khi đủ mẫu).
 
 Streamlit lazy-import trong render (mirror money_flow_tab).
 """
 from __future__ import annotations
+
+from dashboard import ui
 
 _BAND_ORDER = ("B0", "B1", "B2", "B3", "B4")
 
 
 def render_allocation_subtab() -> None:
     import streamlit as st
+    ui.page_header("Phân bổ", "Band B0–B4 · lý do từng tín hiệu · scorecard")
     try:
         import vnstock_allocation as alloc
     except ImportError:
@@ -116,11 +119,11 @@ def _render_reasons(st, state: dict) -> None:
     inputs = state.get("inputs") or []
     if not inputs:
         return
-    st.markdown("##### 📊 Vì sao ở band này")
+    ui.section("Vì sao ở band này")
     st.dataframe(pd.DataFrame([{
         "Tín hiệu": r.get("label"), "Giá trị": r.get("value"),
         "Điểm": f"{r.get('score', 0):+.2f}", "Trọng số": r.get("weight"),
-        "Nguồn": r.get("source"), "as_of": r.get("as_of"),
+        "Nguồn": r.get("source"), "Ngày dữ liệu": r.get("as_of"),
     } for r in inputs]), hide_index=True, use_container_width=True)
 
 
@@ -128,7 +131,7 @@ def _render_history(st, state: dict) -> None:
     hist = state.get("history") or []
     if len(hist) < 2:
         return
-    st.markdown("##### 📈 Lịch sử band")
+    ui.section("Lịch sử band")
     import pandas as pd
     ser = pd.Series(
         {pd.to_datetime(h["date"]): _BAND_ORDER.index(h["band"])
@@ -172,7 +175,7 @@ def _render_scorecard(st) -> None:
     data = sc.load_scorecard()
     if not data:
         return
-    st.markdown("##### 🗂 Scorecard hồi tố")
+    ui.section("Scorecard hồi tố")
     import pandas as pd
     periods = data.get("periods") or []
     if periods:
@@ -190,7 +193,7 @@ def _render_scorecard(st) -> None:
     else:
         st.caption("Chưa đủ kỳ tháng hoàn tất (cần history ≥ 2 tháng).")
     srcs = data.get("sources") or []
-    if srcs:
+    if srcs and ui.diag_on():                # dict thô (id, has_mismatch…) — chỉ cho chẩn đoán
         with st.expander(f"Log nguồn báo cáo ({len(srcs)} dòng — xếp hạng để "
                          "dành khi đủ mẫu)"):
             st.dataframe(pd.DataFrame(srcs), hide_index=True,
@@ -198,7 +201,7 @@ def _render_scorecard(st) -> None:
 
 
 def _render_brief(st) -> None:
-    st.markdown("##### 📝 Brief phân bổ (khung tháng — chỉ dashboard)")
+    ui.section("Brief phân bổ", "Khung tháng — chỉ hiện trên dashboard")
     try:
         import vnstock_brief as vb
         import vnstock_memory as mem

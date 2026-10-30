@@ -322,9 +322,10 @@ class TestAllocationBriefButtonBranch:
     hiện hộp đỏ "Không render được sub tab Phân bổ" SAU khi đã vẽ đủ brief.
     """
 
-    def _st_pressed(self):
+    def _st_pressed(self, monkeypatch):
         st = _fake_streamlit()
         st.button = lambda label, *a, key=None, **k: key == "_al_brief"
+        monkeypatch.setitem(sys.modules, "streamlit", st)   # `ui.section` tự import streamlit
         return st
 
     def test_brief_button_survives_metadata_keys(self, monkeypatch):
@@ -342,7 +343,7 @@ class TestAllocationBriefButtonBranch:
         monkeypatch.setattr(vb, "generate_brief", lambda *a, **k: dict(realistic))
         monkeypatch.setattr(mem, "recent_briefs", lambda *a, **k: [])
 
-        st = self._st_pressed()
+        st = self._st_pressed(monkeypatch)
         _render_brief(st)          # trước fix: ValueError ngay dòng for
 
         rendered = " | ".join(str(c.args[0]) if c.args else ""
@@ -362,7 +363,7 @@ class TestAllocationBriefButtonBranch:
         })
         monkeypatch.setattr(mem, "recent_briefs", lambda *a, **k: [])
 
-        st = self._st_pressed()
+        st = self._st_pressed(monkeypatch)
         _render_brief(st)
         assert st.error.called                # báo lỗi tử tế, không crash
 

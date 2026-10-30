@@ -276,7 +276,6 @@ HEX_BUDGET = {
     "dashboard/macro_tab.py": 1,
     "dashboard/market_tab.py": 113,
     "dashboard/news_tab.py": 14,
-    "dashboard/portfolio_tab.py": 44,
     "dashboard/screener_tab.py": 10,
 }
 
