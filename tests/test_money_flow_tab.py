@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import inspect
 
+from tests.conftest import needs
+
 
 def test_module_imports_without_streamlit():
     """Module must be importable even when Streamlit is not available —
@@ -272,11 +274,11 @@ def test_page_uses_page_header_and_sections(monkeypatch, tmp_path):
 
 
 def test_rendered_colors_are_theme_tokens(monkeypatch, tmp_path):
-    """Mọi màu HTML của trang (thẻ KPI, bảng ngành, chi tiết mã, live, thanh điểm) và
-    của chart Plotly đều là token — không còn #d1d5db/#4b5563/#0d1117/#6ee7b7…"""
+    """Mọi màu HTML của trang (thẻ KPI, bảng ngành, chi tiết mã, live, thanh điểm) đều là
+    token — không còn #d1d5db/#4b5563/#0d1117/#6ee7b7…"""
     import re
 
-    from dashboard.theme import PLOTLY_BG, TOKENS as T
+    from dashboard.theme import TOKENS as T
 
     st, _ = _render_full_page(monkeypatch, tmp_path)
     html = "\n".join(_markdowns(st))
@@ -287,6 +289,13 @@ def test_rendered_colors_are_theme_tokens(monkeypatch, tmp_path):
     stray = set(re.findall(_HEX, html)) - set(T.values())
     assert not stray, f"hex ngoài token: {sorted(stray)}"
 
+
+@needs("plotly")  # chart NN ròng theo ngành chỉ vẽ khi có plotly (thiếu thì rơi về bảng)
+def test_sector_flow_chart_colors_are_theme_tokens(monkeypatch, tmp_path):
+    """Chart Plotly NN ròng theo ngành: cột tăng/giảm, nền, chữ, lưới đều là token."""
+    from dashboard.theme import PLOTLY_BG, TOKENS as T
+
+    st, _ = _render_full_page(monkeypatch, tmp_path)
     fig = st.plotly_chart.call_args.args[0]
     # Ngân hàng +50 · Thép 0 · Công nghệ −20 (xếp giảm dần)
     assert list(fig.data[0].marker.color) == [T["up"], T["up"], T["down"]]
