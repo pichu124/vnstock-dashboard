@@ -13,6 +13,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from dashboard.theme import TOKENS as _T, rgba as _rgba
+
 
 def _format_age(seconds: float) -> str:
     if seconds < 60:
@@ -33,12 +35,12 @@ def file_age_seconds(path: Path | str) -> float | None:
 
 
 def freshness_color(age_seconds: float, stale_seconds: float) -> str:
-    """Return CSS color hex. Green if fresh, amber if approaching stale, red if stale."""
+    """Màu token (P5 giao diện): xanh còn tươi, hổ phách sắp cũ (≥70%), đỏ đã cũ."""
     if age_seconds >= stale_seconds:
-        return "#ef4444"
+        return _T["down"]
     if age_seconds >= stale_seconds * 0.7:
-        return "#f59e0b"
-    return "#10b981"
+        return _T["warn"]
+    return _T["up"]
 
 
 def freshness_html(
@@ -51,14 +53,14 @@ def freshness_html(
     if age is None:
         return (
             f'<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
-            f'background:#374151;color:#9ca3af;font-size:11px;'
+            f'background:{_T["border"]};color:{_T["text_muted"]};font-size:11px;'
             f'font-family:\'IBM Plex Sans\',sans-serif">'
-            f'{label}: <b>chưa có data</b></span>'
+            f'{label}: <b>chưa có dữ liệu</b></span>'
         )
     color = freshness_color(age, stale_seconds)
     return (
         f'<span style="display:inline-block;padding:2px 8px;border-radius:4px;'
-        f'background:rgba(30,41,59,0.6);border:1px solid {color};'
+        f'background:{_rgba(color, 0.1)};border:1px solid {color};'
         f'color:{color};font-size:11px;'
         f'font-family:\'IBM Plex Sans\',sans-serif">'
         f'{label}: <b>{_format_age(age)}</b> trước</span>'

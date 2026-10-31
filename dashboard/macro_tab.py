@@ -14,11 +14,14 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from dashboard import ui
+from dashboard.theme import TOKENS, rgba
+
 _SENT_ICON = {"positive": "🟢", "negative": "🔴", "neutral": "⚪"}
-_LINE_COLOR = "#4c78a8"          # 1 series duy nhất — xanh dịu, ổn cả 2 theme
 
 
 def render_macro_subtab() -> None:
+    ui.page_header("Vĩ mô", "Chỉ số vĩ mô · tin vĩ mô & thị trường · phân tích từ brief")
     try:
         import vnstock_macro as mac
     except ImportError:
@@ -34,7 +37,7 @@ def render_macro_subtab() -> None:
 # ── 1) Bảng chỉ số hiện tại ──────────────────────────────────────────────────
 
 def _render_indicators(mac) -> None:
-    st.markdown("##### 📊 Chỉ số vĩ mô hiện tại")
+    ui.section("Chỉ số vĩ mô hiện tại")
     macro = mac.load_macro()
     if not macro:
         st.info("Cache vĩ mô rỗng — chạy `python vnstock_macro.py --refresh` "
@@ -102,7 +105,7 @@ def _render_history_chart(mac) -> None:
                  if len(v.get("history") or {}) >= 2}
     if not plottable:
         return                        # mới seed / 1 mốc — chưa có gì để vẽ
-    st.markdown("##### 📈 Lịch sử chỉ số")
+    ui.section("Lịch sử chỉ số")
     key = st.selectbox(
         "Chỉ số", options=list(plottable),
         format_func=lambda k: plottable[k].get("label", k),
@@ -119,12 +122,12 @@ def _render_history_chart(mac) -> None:
         fig = go.Figure(go.Scatter(
             x=ser.index, y=ser.values,
             mode="lines" if len(ser) > 40 else "lines+markers",   # dày → bỏ marker
-            line={"color": _LINE_COLOR, "width": 2}, marker={"size": 6},
+            line={"color": TOKENS["accent"], "width": 2}, marker={"size": 6},
             hovertemplate="%{x|%d/%m/%Y}: %{y:,.2f}<extra></extra>"))
         fig.update_layout(
             height=280, margin={"l": 10, "r": 10, "t": 10, "b": 10},
             showlegend=False, xaxis={"showgrid": False},
-            yaxis={"gridcolor": "rgba(128,128,128,0.15)"})
+            yaxis={"gridcolor": rgba(TOKENS["text_muted"], 0.15)})
         st.plotly_chart(fig, use_container_width=True)
     except ImportError:
         st.line_chart(ser)
@@ -135,7 +138,7 @@ def _render_history_chart(mac) -> None:
 # ── 3) Tin vĩ mô/thị trường theo ngày ────────────────────────────────────────
 
 def _render_macro_news() -> None:
-    st.markdown("##### 🗞️ Tin vĩ mô & thị trường theo ngày")
+    ui.section("Tin vĩ mô & thị trường theo ngày")
     try:
         from vnstock_news_feeds import _load_cache as _load_news
         items = _load_news()
@@ -159,7 +162,7 @@ def _render_macro_news() -> None:
                 src = it.get("source_feed", "")
                 head = f"[{title}]({link})" if link else title
                 st.markdown(f"{icon} {head}  \n"
-                            f"<span style='color:gray;font-size:0.85em'>{src}"
+                            f"<span style='color:{TOKENS['text_faint']};font-size:0.85em'>{src}"
                             f"{' · ' + it['_impact'] if it.get('_impact') else ''}"
                             f"</span>", unsafe_allow_html=True)
 
@@ -167,14 +170,15 @@ def _render_macro_news() -> None:
 # ── 4) Đọc lại phân tích vĩ mô từ brief đã lưu ───────────────────────────────
 
 def _render_brief_archive() -> None:
-    st.markdown("##### 📚 Phân tích vĩ mô từ brief (lưu trữ)")
+    ui.section("Phân tích vĩ mô từ brief (lưu trữ)")
     try:
         from vnstock_brief import brief_section
         from vnstock_memory import recent_briefs
         briefs = [b for b in recent_briefs(limit=60)
                   if b.get("output") and len(b["output"]) > 100]
     except Exception as e:                                   # noqa
-        st.info(f"Chưa đọc được brief memory: {e}")
+        st.info("Chưa đọc được brief đã lưu."
+                + (f" {type(e).__name__}: {e}" if ui.diag_on() else ""))
         return
     if not briefs:
         st.info("Chưa có brief nào trong memory.")

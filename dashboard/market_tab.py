@@ -34,6 +34,14 @@ Còn inline: ``_live_market_fragment`` — fragment Streamlit
 
 from __future__ import annotations
 
+from dashboard.theme import (
+    PLOTLY_BG as _PLOTLY_BG, TOKENS as _T, pct_color as _pct_color, rgba as _rgba,
+)
+
+# regime → token màu (tăng mạnh · tăng · đi ngang = vàng tham chiếu · giảm · giảm mạnh)
+_REGIME_TOKEN = {"bull": "up", "bullish": "up_soft", "sideways": "ref",
+                 "bearish": "down_soft", "bear": "down"}
+
 # Tổng bề rộng các ô heatmap VN30 tính theo bề ngang khung (%): 300 ≈ 3 hàng
 # cho 30 mã. Tăng = ô to hơn/nhiều hàng hơn, giảm = dẹt lại. Xem khối
 # "Chiều rộng ô ≈ VỐN HOÁ" trong `_live_market_fragment` để biết vì sao là
@@ -86,6 +94,8 @@ def render_market_tab() -> None:
             load_index_overview, load_live_quote, load_market_overview,
             load_price_history,
         )
+
+    from dashboard import ui as _ui
 
     # ── Sparkline helpers ──────────────────────────────────────────────────
     from dashboard.sparkline import sparkline_svg as _sparkline_svg
@@ -166,21 +176,17 @@ def render_market_tab() -> None:
                 "exdiv_map": load_recent_exdiv(days_back=7),
                 "session_hist": load_session_stats_history()}
 
-    col_title_m, col_ref_m = st.columns([6,1])
-    with col_title_m:
-        st.markdown("### 🌏 Tổng quan thị trường theo ngành")
-    with col_ref_m:
-        if st.button("🔄", key="market_refresh", help="Refresh"):
-            st.cache_data.clear()
-            st.rerun()
+    # Nút 🔄 riêng của trang đã bỏ (P5): trùng nút "Làm mới" trên thanh trạng thái (cùng
+    # xoá cache_data + chạy lại).
+    _ui.page_header("Tổng quan thị trường", "Chỉ số · độ rộng · ngành · brief AI")
 
     # Data staleness badges — cảnh báo khi cache cũ
     try:
         from vnstock_freshness import render_freshness_row
         render_freshness_row([
-            ("📊 Market overview", Path("data_warehouse/_meta/market_overview.json"), 24 * 3600),
-            ("💸 NN flow",         Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
-            ("⏱ Session stats",    Path("data_warehouse/_meta/market_session_stats.json"), 1 * 3600),
+            ("Tổng quan ngành", Path("data_warehouse/_meta/market_overview.json"), 24 * 3600),
+            ("NN ròng",         Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
+            ("Thống kê phiên",  Path("data_warehouse/_meta/market_session_stats.json"), 1 * 3600),
         ])
         # mtime < 24h chưa đủ: overview chốt TRƯỚC 15:05 của phiên là giữa phiên.
         _fr = _overview_freshness()
@@ -228,18 +234,18 @@ def render_market_tab() -> None:
                 if _iq and float(_iq.get("price", 0)) > 0:
                     _ip = float(_iq["price"])
                     _ichg = float(_iq.get("chg_pct", 0))
-                    _ic = "#10b981" if _ichg >= 0 else "#ef4444"
+                    _ic = _pct_color(_ichg, flat="ref")
                     _isign = "+" if _ichg >= 0 else ""
                     _idx_row += (
                         f"<div style='flex:1;text-align:center;padding:8px;'>"
-                        f"<div style='color:#6b7280;font-size:10px;text-transform:uppercase'>{_ix}</div>"
-                        f"<div style='color:#e5e7eb;font-size:18px;font-weight:700'>{_ip:,.2f}</div>"
+                        f"<div style='color:{_T['text_faint']};font-size:10px;text-transform:uppercase'>{_ix}</div>"
+                        f"<div style='color:{_T['text']};font-size:18px;font-weight:700'>{_ip:,.2f}</div>"
                         f"<div style='color:{_ic};font-size:13px;font-weight:600'>{_isign}{_ichg:.2f}%</div>"
                         f"</div>"
                     )
             if _idx_row:
                 st.markdown(
-                    f"<div style='display:flex;gap:8px;margin-bottom:12px;background:#111827;"
+                    f"<div style='display:flex;gap:8px;margin-bottom:12px;background:{_T['surface']};"
                     f"border-radius:8px;padding:4px'>{_idx_row}</div>",
                     unsafe_allow_html=True,
                 )
@@ -279,12 +285,7 @@ def render_market_tab() -> None:
 
             # VN30 Heatmap
             _lbl_extra = " · rộng ô ≈ vốn hoá" if _w_known else ""
-            st.markdown(
-                "<div style='color:#6b7280;font-size:11px;margin-bottom:6px;"
-                "text-transform:uppercase;letter-spacing:0.08em'>"
-                f"🔴 VN30 Heatmap — Real-time{_lbl_extra}</div>",
-                unsafe_allow_html=True,
-            )
+            _ui.section(f"VN30 Heatmap — thời gian thực{_lbl_extra}")
             _cells = ""
             _up = _down = _flat = 0
             for _q in sorted(_vn30_quotes, key=lambda x: float(x.get("chg_pct", 0)), reverse=True):
@@ -303,15 +304,14 @@ def render_market_tab() -> None:
                 # Color intensity by change magnitude
                 _abs_chg = min(abs(_chg), 5)
                 _intensity = int(_abs_chg / 5 * 180) + 40
+                # Bảng điện: xanh tăng · đỏ giảm · vàng đứng giá tham chiếu.
                 if _chg > 0:
-                    _bg = f"rgba(16,185,129,{_intensity/255:.2f})"
-                    _tc = "#e5e7eb"
+                    _bg = _rgba(_T["up"], round(_intensity / 255, 2))
                 elif _chg < 0:
-                    _bg = f"rgba(239,68,68,{_intensity/255:.2f})"
-                    _tc = "#e5e7eb"
+                    _bg = _rgba(_T["down"], round(_intensity / 255, 2))
                 else:
-                    _bg = "rgba(75,85,99,0.3)"
-                    _tc = "#9ca3af"
+                    _bg = _rgba(_T["ref"], 0.3)
+                _tc = _T["text"]
 
                 _sign = "+" if _chg >= 0 else ""
                 _pct = (_w_of.get(_tk, _w_mid) / _w_total) * _HEATMAP_WIDTH_SPAN
@@ -337,10 +337,10 @@ def render_market_tab() -> None:
             # Mini breadth from live data
             _total = len(_vn30_quotes)
             st.markdown(
-                f"<div style='color:#6b7280;font-size:11px;margin-bottom:12px'>"
-                f"VN30: <span style='color:#10b981'>↑{_up}</span> "
-                f"<span style='color:#9ca3af'>={_flat}</span> "
-                f"<span style='color:#ef4444'>↓{_down}</span> "
+                f"<div style='color:{_T['text_faint']};font-size:11px;margin-bottom:12px'>"
+                f"VN30: <span style='color:{_T['up']}'>↑{_up}</span> "
+                f"<span style='color:{_T['ref']}'>={_flat}</span> "
+                f"<span style='color:{_T['down']}'>↓{_down}</span> "
                 f"({_total} mã)"
                 f"</div>",
                 unsafe_allow_html=True,
@@ -355,7 +355,7 @@ def render_market_tab() -> None:
         # đang chạy bản cũ.
         st.caption(
             "🔌 Live Mode tắt — bật **Real-time WSS** ở sidebar bên trái "
-            "(mục 🔴 Live Mode) để xem chỉ số + heatmap VN30 real-time tại đây."
+            "(mục **Live**) để xem chỉ số + heatmap VN30 real-time tại đây."
         )
 
     # ── Chỉ số thị trường ────────────────────────────────────────────────────
@@ -365,7 +365,7 @@ def render_market_tab() -> None:
 
     if not idx_df.empty:
         _idx_rows = idx_df.head(20)
-        st.markdown(f"#### 📈 Diễn biến chỉ số thị trường ({len(_idx_rows)} phiên)")
+        _ui.section(f"Diễn biến chỉ số thị trường ({len(_idx_rows)} phiên)")
         _indices = ["VNINDEX", "VN30", "HNXINDEX", "HNX30"]
         _idx_avail = [i for i in _indices if i in idx_df.columns]
 
@@ -377,28 +377,29 @@ def render_market_tab() -> None:
         _gtgd_max = max(_all_gtgd) if _all_gtgd else 1
 
         # Build HTML table
-        _th = ("background:#111827;color:#6b7280;font-size:10px;font-weight:500;"
+        _th = (f"background:{_T['surface']};color:{_T['text_faint']};font-size:10px;font-weight:500;"
                "text-transform:uppercase;letter-spacing:0.05em;padding:6px 8px;"
-               "border-bottom:2px solid #1f2937;white-space:nowrap;text-align:center;"
+               f"border-bottom:2px solid {_T['border']};white-space:nowrap;text-align:center;"
                "font-family:'IBM Plex Sans',sans-serif;")
-        _td = "padding:5px 8px;border-bottom:1px solid #1a2234;white-space:nowrap;font-size:11px;font-family:'IBM Plex Mono',monospace;"
+        _td = (f"padding:5px 8px;border-bottom:1px solid {_T['surface_2']};white-space:nowrap;"
+               "font-size:11px;font-family:'IBM Plex Mono',monospace;")
 
         # Headers: Date | VNINDEX close %D GTGD | VN30 close %D GTGD | ...
         header_html = f'<th style="{_th}">Ngày</th>'
         for idx_name in _idx_avail:
-            header_html += f'<th colspan="3" style="{_th};border-left:2px solid #1f2937">{idx_name}</th>'
+            header_html += f'<th colspan="3" style="{_th};border-left:2px solid {_T["border"]}">{idx_name}</th>'
 
         sub_header = f'<th style="{_th}"></th>'
         for _ in _idx_avail:
-            sub_header += f'<th style="{_th};border-left:2px solid #1f2937;font-size:9px">Close</th>'
+            sub_header += f'<th style="{_th};border-left:2px solid {_T["border"]};font-size:9px">Close</th>'
             sub_header += f'<th style="{_th};font-size:9px">%D</th>'
             sub_header += f'<th style="{_th};font-size:9px">GTGD (tỷ)</th>'
 
         rows_idx = []
         for i, (_, row) in enumerate(_idx_rows.iterrows()):
-            bg = "#0d1117" if i % 2 == 0 else "#111827"
+            bg = _T["bg"] if i % 2 == 0 else _T["surface"]
             date_str = pd.Timestamp(row["time"]).strftime("%Y-%m-%d")
-            cells = f'<td style="{_td}color:#9ca3af">{date_str}</td>'
+            cells = f'<td style="{_td}color:{_T["text_muted"]}">{date_str}</td>'
 
             for idx_name in _idx_avail:
                 close_val = row.get(idx_name)
@@ -407,35 +408,36 @@ def render_market_tab() -> None:
 
                 # Close
                 close_str = f"{close_val:,.2f}" if pd.notna(close_val) else "—"
-                cells += f'<td style="{_td}color:#e5e7eb;text-align:right;border-left:2px solid #1f2937">{close_str}</td>'
+                cells += (f'<td style="{_td}color:{_T["text"]};text-align:right;'
+                          f'border-left:2px solid {_T["border"]}">{close_str}</td>')
 
                 # %D with color
                 if pd.notna(chg_val):
-                    chg_color = "#10b981" if chg_val > 0 else ("#ef4444" if chg_val < 0 else "#9ca3af")
+                    chg_color = _pct_color(chg_val, flat="ref")   # %D = 1 phiên so tham chiếu
                     chg_str = f"+{chg_val:.1f}%" if chg_val > 0 else f"{chg_val:.1f}%"
                     cells += f'<td style="{_td}color:{chg_color};text-align:right">{chg_str}</td>'
                 else:
-                    cells += f'<td style="{_td}color:#4b5563;text-align:right">—</td>'
+                    cells += f'<td style="{_td}color:{_T["text_faint"]};text-align:right">—</td>'
 
                 # GTGD data bar
                 if pd.notna(gtgd_val):
                     bar_pct = min(100, int(abs(gtgd_val) / _gtgd_max * 100))
-                    bar_color = "#10b981" if pd.notna(chg_val) and chg_val >= 0 else "#ef4444"
+                    bar_color = _T["up"] if pd.notna(chg_val) and chg_val >= 0 else _T["down"]
                     gtgd_str = f"{gtgd_val:,.0f}"
                     cells += (
                         f'<td style="{_td}padding:3px 6px;min-width:100px">'
                         f'<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">'
-                        f'<span style="color:#6b7280;font-size:10px">{gtgd_str}</span>'
-                        f'<div style="width:50px;height:12px;background:#1a2234;border-radius:2px;overflow:hidden">'
+                        f'<span style="color:{_T["text_faint"]};font-size:10px">{gtgd_str}</span>'
+                        f'<div style="width:50px;height:12px;background:{_T["surface_2"]};border-radius:2px;overflow:hidden">'
                         f'<div style="width:{bar_pct}%;height:100%;background:{bar_color};border-radius:2px"></div>'
                         f'</div></div></td>'
                     )
                 else:
-                    cells += f'<td style="{_td}color:#4b5563;text-align:right">—</td>'
+                    cells += f'<td style="{_td}color:{_T["text_faint"]};text-align:right">—</td>'
 
             rows_idx.append(f'<tr style="background:{bg}">{cells}</tr>')
 
-        idx_tbl = f"""<div style="overflow-x:auto;border-radius:8px;border:1px solid #1f2937;background:#0d1117;max-height:500px;overflow-y:auto">
+        idx_tbl = f"""<div style="overflow-x:auto;border-radius:8px;border:1px solid {_T['border']};background:{_T['bg']};max-height:500px;overflow-y:auto">
     <table style="width:100%;border-collapse:collapse">
     <thead><tr>{header_html}</tr><tr>{sub_header}</tr></thead>
     <tbody>{"".join(rows_idx)}</tbody>
@@ -449,11 +451,11 @@ def render_market_tab() -> None:
     breadth = st.session_state.get("_mkt_breadth", {})
 
     if breadth:
-        st.markdown("#### 📊 Breadth Indicators — Sức khỏe thị trường")
+        _ui.section("Độ rộng thị trường")
         b1, b2, b3, b4, b5 = st.columns(5)
 
         pct_ma200 = breadth["above_ma200_pct"]
-        ma200_color = "#10b981" if pct_ma200 > 50 else ("#f59e0b" if pct_ma200 > 30 else "#ef4444")
+        ma200_color = _T["up"] if pct_ma200 > 50 else (_T["warn"] if pct_ma200 > 30 else _T["down"])
         with b1:
             st.markdown(
                 f'<div class="metric-card">'
@@ -466,7 +468,7 @@ def render_market_tab() -> None:
             st.markdown(
                 f'<div class="metric-card">'
                 f'<div class="label">RSI &lt; 30 (Quá bán)</div>'
-                f'<div class="value" style="color:#10b981">{breadth["rsi_oversold_pct"]:.1f}%</div>'
+                f'<div class="value" style="color:{_T["up"]}">{breadth["rsi_oversold_pct"]:.1f}%</div>'
                 f'<div class="sub">{breadth["rsi_oversold"]} mã oversold</div>'
                 f'</div>', unsafe_allow_html=True)
 
@@ -474,12 +476,12 @@ def render_market_tab() -> None:
             st.markdown(
                 f'<div class="metric-card">'
                 f'<div class="label">RSI &gt; 70 (Quá mua)</div>'
-                f'<div class="value" style="color:#ef4444">{breadth["rsi_overbought_pct"]:.1f}%</div>'
+                f'<div class="value" style="color:{_T["down"]}">{breadth["rsi_overbought_pct"]:.1f}%</div>'
                 f'<div class="sub">{breadth["rsi_overbought"]} mã overbought</div>'
                 f'</div>', unsafe_allow_html=True)
 
         ad = breadth["ad_ratio"]
-        ad_color = "#10b981" if ad > 1 else ("#ef4444" if ad < 1 else "#9ca3af")
+        ad_color = _T["up"] if ad > 1 else (_T["down"] if ad < 1 else _T["text_muted"])
         with b4:
             st.markdown(
                 f'<div class="metric-card">'
@@ -489,7 +491,7 @@ def render_market_tab() -> None:
                 f'</div>', unsafe_allow_html=True)
 
         nnh = breadth["net_new_highs"]
-        nnh_color = "#10b981" if nnh > 0 else ("#ef4444" if nnh < 0 else "#9ca3af")
+        nnh_color = _pct_color(nnh)
         with b5:
             st.markdown(
                 f'<div class="metric-card">'
@@ -531,12 +533,15 @@ def render_market_tab() -> None:
             _rc1, _rc2, _rc3 = st.columns([2, 3, 3])
 
             with _rc1:
+                # Màu theo token LÚC VẼ (P5 giao diện): REGIME_META của vnstock_regime là hex
+                # cố định cho nền tối — trên nền sáng thành mảng xanh/nâu đậm lạc tông.
+                _rcol = _T[_REGIME_TOKEN.get(_r.get("regime"), "text_muted")]
                 st.markdown(
-                    f'<div style="background:{_r["bg"]};border:1px solid {_r["color"]}33;'
+                    f'<div style="background:{_rgba(_rcol, 0.14)};border:1px solid {_rgba(_rcol, 0.4)};'
                     f'border-radius:8px;padding:12px 16px;text-align:center">'
-                    f'<div style="font-size:22px;font-weight:700;color:{_r["color"]}">'
+                    f'<div style="font-size:22px;font-weight:700;color:{_rcol}">'
                     f'{_r["label"]}</div>'
-                    f'<div style="color:#9ca3af;font-size:12px;margin-top:4px">'
+                    f'<div style="color:{_T["text_muted"]};font-size:12px;margin-top:4px">'
                     f'Score: {_r["score"]:+d}/{_r["n_signals"]} · '
                     f'Conviction: {_r["confidence"]*100:.0f}%</div>'
                     f'</div>',
@@ -550,7 +555,7 @@ def render_market_tab() -> None:
                     icon = _dir_icon.get(sig["direction"], "⚪")
                     st.markdown(
                         f'{icon} **{sig["name"]}**: {sig["value"]}'
-                        f'<span style="color:#6b7280;font-size:11px"> — {sig["detail"]}</span>',
+                        f'<span style="color:{_T["text_faint"]};font-size:11px"> — {sig["detail"]}</span>',
                         unsafe_allow_html=True,
                     )
 
@@ -561,13 +566,13 @@ def render_market_tab() -> None:
                     for p in _presets:
                         label = _reg.PRESET_DISPLAY.get(p, p)
                         st.markdown(
-                            f'<span style="background:#1e3a5f;color:#60a5fa;'
+                            f'<span style="background:{_rgba(_T["accent"], 0.18)};color:{_T["link"]};'
                             f'padding:3px 10px;border-radius:12px;font-size:13px;'
                             f'display:inline-block;margin:2px">{label}</span>',
                             unsafe_allow_html=True,
                         )
                     st.caption(
-                        "💡 Vào tab **Screener** → chọn preset trên để lọc "
+                        "💡 Vào trang **Bộ lọc** → chọn preset trên để lọc "
                         "cổ phiếu phù hợp với regime hiện tại."
                     )
                 else:
@@ -579,7 +584,8 @@ def render_market_tab() -> None:
 
     # ── Market Overview theo ngành (dữ liệu đã load ở trên) ─────────────────
     if mkt_df.empty:
-        st.warning("Không có dữ liệu.")
+        _ui.empty_state("Chưa có số liệu ngành.",
+                        "Trang Hệ thống → \"🧩 Cập nhật còn lại\" (hoặc pipeline tối) tạo market_overview.")
     else:
         # ── Metric cards ───────────────────────────────────────────────────────
         c1, c2, c3, c4 = st.columns(4)
@@ -683,10 +689,11 @@ def render_market_tab() -> None:
         avail_cols = [c for c in display_cols if c in mkt_df.columns]
 
         # Build shared styles
-        th_style = ("background:#111827;color:#6b7280;font-size:10px;font-weight:500;"
+        th_style = (f"background:{_T['surface']};color:{_T['text_faint']};font-size:10px;font-weight:500;"
                     "text-transform:uppercase;letter-spacing:0.05em;padding:8px 10px;"
-                    "border-bottom:2px solid #1f2937;white-space:nowrap;font-family:'IBM Plex Sans',sans-serif;")
-        td_base   = "padding:7px 10px;border-bottom:1px solid #1a2234;white-space:nowrap;font-size:12px;font-family:'IBM Plex Mono',monospace;"
+                    f"border-bottom:2px solid {_T['border']};white-space:nowrap;font-family:'IBM Plex Sans',sans-serif;")
+        td_base   = (f"padding:7px 10px;border-bottom:1px solid {_T['surface_2']};white-space:nowrap;"
+                     "font-size:12px;font-family:'IBM Plex Mono',monospace;")
 
         if _show_sector_table:
             # ── Sparkline alpha history (30d) per sector ──────────────────────
@@ -746,7 +753,7 @@ def render_market_tab() -> None:
                 mkt_df = mkt_df.sort_values(_sort_by, ascending=_sort_asc, na_position="last").reset_index(drop=True)
             rows_html = []
             for i, (_, row) in enumerate(mkt_df.iterrows()):
-                bg = "#0d1117" if i%2==0 else "#111827"
+                bg = _T["bg"] if i%2==0 else _T["surface"]
                 cells = []
                 # Sparkline cell (before other columns)
                 if _has_sparklines:
@@ -761,9 +768,9 @@ def render_market_tab() -> None:
                     display = fmt(val, col)
                     color   = color_val(val, col)
                     if col == "Ngành":
-                        cells.append(f'<td style="{td_base}color:#a78bfa;font-weight:600;font-family:IBM Plex Sans,sans-serif">{display}</td>')
+                        cells.append(f'<td style="{td_base}color:{_T["category"]};font-weight:600;font-family:IBM Plex Sans,sans-serif">{display}</td>')
                     elif col == "Số mã":
-                        cells.append(f'<td style="{td_base}color:#6b7280;text-align:center">{display}</td>')
+                        cells.append(f'<td style="{td_base}color:{_T["text_faint"]};text-align:center">{display}</td>')
                     elif col in _amp_cols and val is not None and not (isinstance(val, float) and np.isnan(val)):
                         t = (float(val) - _amp_min) / _amp_range
                         t = max(0, min(1, t))
@@ -772,8 +779,8 @@ def render_market_tab() -> None:
                         cells.append(
                             f'<td style="{td_base}padding:4px 6px;min-width:90px">'
                             f'<div style="display:flex;align-items:center;gap:5px;justify-content:flex-end">'
-                            f'<span style="color:#9ca3af;font-size:11px">{display}</span>'
-                            f'<div style="width:60px;height:14px;background:#1a2234;border-radius:2px;overflow:hidden">'
+                            f'<span style="color:{_T["text_muted"]};font-size:11px">{display}</span>'
+                            f'<div style="width:60px;height:14px;background:{_T["surface_2"]};border-radius:2px;overflow:hidden">'
                             f'<div style="width:{bar_w}%;height:100%;background:{bar_color};border-radius:2px"></div>'
                             f'</div></div></td>')
                     elif col in _free_vol_cols and val is not None and not (isinstance(val, float) and np.isnan(val)):
@@ -788,7 +795,7 @@ def render_market_tab() -> None:
                              if _has_sparklines else "")
             headers = _spark_header + "".join(f'<th style="{th_style}">{c}</th>' for c in avail_cols)
             tbl_height = min(700, 52 + len(mkt_df)*36)
-            html_tbl = f"""<div style="overflow-x:auto;border-radius:8px;border:1px solid #1f2937;background:#0d1117;max-height:{tbl_height}px;overflow-y:auto">
+            html_tbl = f"""<div style="overflow-x:auto;border-radius:8px;border:1px solid {_T['border']};background:{_T['bg']};max-height:{tbl_height}px;overflow-y:auto">
     <table style="width:100%;border-collapse:collapse">
     <thead><tr>{headers}</tr></thead>
     <tbody>{"".join(rows_html)}</tbody>
@@ -802,7 +809,8 @@ def render_market_tab() -> None:
                                mime="text/csv", key="mkt_export_csv")
 
             if not has_foreign:
-                st.caption("⚠️ Dữ liệu dòng ngoại (NN) chưa có — cần vnstock API `Trading.foreign_trade()`. "
+                _nn_src = " — cần vnstock API `Trading.foreign_trade()`" if _ui.diag_on() else ""
+                st.caption(f"⚠️ Dữ liệu dòng ngoại (NN) chưa có{_nn_src}. "
                            "Vốn hoá là ước tính từ giá × cổ phiếu lưu hành. Freefloat từ dữ liệu cổ đông lớn (KBS).")
 
         # ── Drill-down: chi tiết công ty theo ngành ───────────────────────────
@@ -814,7 +822,7 @@ def render_market_tab() -> None:
                 from vnstock_sectors import rows_for_sector
                 sector_df = rows_for_sector(tick_data, _selected_nganh).copy()
                 if not sector_df.empty:
-                    st.markdown(f"#### 🏢 Chi tiết ngành: {_selected_nganh} ({len(sector_df)} mã)")
+                    _ui.section(f"Chi tiết ngành: {_selected_nganh} ({len(sector_df)} mã)")
 
                     # ── Quant analysis cho riêng ngành ──────────────────
                     _sec_scores = None  # populated inside try; used below for sort+export
@@ -1012,65 +1020,65 @@ def render_market_tab() -> None:
 
                     dd_rows = []
                     for i, (_, row) in enumerate(sector_df.iterrows()):
-                        bg = "#0d1117" if i % 2 == 0 else "#111827"
+                        bg = _T["bg"] if i % 2 == 0 else _T["surface"]
                         cells = []
                         for col in _dd_avail:
                             val = row.get(col)
                             # Format
                             if val is None or (isinstance(val, float) and np.isnan(val)):
                                 display = "—"
-                                color = "#4b5563"
+                                color = _T["text_faint"]
                             elif col == "Mã":
                                 display = str(val)
-                                color = "#60a5fa"
+                                color = _T["link"]
                             elif col == "Composite":
                                 v = float(val)
                                 display = f"{v:+.2f}"
                                 # Green for positive, red for negative, intensity by magnitude
                                 if v > 1.0:
-                                    color = "#10b981"; bg_comp = "#064e3b"
+                                    color = _T["up"]; bg_comp = _rgba(_T["up"], 0.3)
                                 elif v > 0.3:
-                                    color = "#34d399"; bg_comp = "#065f46"
+                                    color = _T["up_soft"]; bg_comp = _rgba(_T["up"], 0.24)
                                 elif v > 0:
-                                    color = "#6ee7b7"; bg_comp = "#065f46"
+                                    color = _T["up_soft"]; bg_comp = _rgba(_T["up"], 0.18)
                                 elif v > -0.3:
-                                    color = "#fca5a5"; bg_comp = "#7f1d1d"
+                                    color = _T["down_soft"]; bg_comp = _rgba(_T["down"], 0.18)
                                 elif v > -1.0:
-                                    color = "#f87171"; bg_comp = "#7f1d1d"
+                                    color = _T["down_soft"]; bg_comp = _rgba(_T["down"], 0.24)
                                 else:
-                                    color = "#ef4444"; bg_comp = "#991b1b"
+                                    color = _T["down"]; bg_comp = _rgba(_T["down"], 0.3)
                             elif col in ("Giá 1T %","Giá 1M %","Giá 3M %"):
                                 v = float(val)
                                 display = f"+{v:.1f}%" if v > 0 else f"{v:.1f}%"
-                                color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
+                                color = _pct_color(v)   # nhiều phiên: 0 = xám, không phải vàng
                             elif col in _nn_cols:
                                 v = float(val)
                                 display = f"+{v:,.1f}" if v > 0 else f"{v:,.1f}"
-                                color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
+                                color = _pct_color(v)
                             elif col in _net_bs_cols:
                                 v = float(val)
                                 display = f"+{v:,.1f}M" if v > 0 else f"{v:,.1f}M"
-                                color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
+                                color = _pct_color(v)
                             elif col in ("Vốn hoá (tỷ)","Freefloat (tỷ)","GTGD TB (tỷ)"):
                                 display = f"{float(val):,.0f}"
-                                color = "#e5e7eb"
+                                color = _T["text"]
                             elif col in ("Vol Avg 5","Vol Avg 10","Vol Avg 20"):
                                 display = f"{float(val):,.1f}M"
-                                color = "#e5e7eb"
+                                color = _T["text"]
                             elif col == "Vol 5/20 %":
                                 v = float(val)
                                 display = f"{v:.0f}%"
-                                color = "#10b981" if v > 110 else ("#ef4444" if v < 90 else "#e5e7eb")
+                                color = _T["up"] if v > 110 else (_T["down"] if v < 90 else _T["text"])
                             elif col in _avg_vol_cols:
                                 v = float(val)
                                 display = f"+{v:.1f}%" if v > 0 else f"{v:.1f}%"
-                                color = "#10b981" if v > 0 else ("#ef4444" if v < 0 else "#9ca3af")
+                                color = _pct_color(v)
                             elif col in _free_vol_cols:
                                 display = f"{float(val):.2f}%"
-                                color = "#e5e7eb"
+                                color = _T["text"]
                             else:
                                 display = f"{float(val):.1f}%"
-                                color = "#e5e7eb"
+                                color = _T["text"]
 
                             # Render cell
                             if col == "Mã":
@@ -1085,8 +1093,8 @@ def render_market_tab() -> None:
                                 cells.append(
                                     f'<td style="{td_base}padding:4px 6px;min-width:90px">'
                                     f'<div style="display:flex;align-items:center;gap:5px;justify-content:flex-end">'
-                                    f'<span style="color:#9ca3af;font-size:11px">{display}</span>'
-                                    f'<div style="width:60px;height:14px;background:#1a2234;border-radius:2px;overflow:hidden">'
+                                    f'<span style="color:{_T["text_muted"]};font-size:11px">{display}</span>'
+                                    f'<div style="width:60px;height:14px;background:{_T["surface_2"]};border-radius:2px;overflow:hidden">'
                                     f'<div style="width:{bar_w}%;height:100%;background:{bar_c};border-radius:2px"></div>'
                                     f'</div></div></td>')
                             elif col in _free_vol_cols and val is not None and not (isinstance(val, float) and np.isnan(val)):
@@ -1099,7 +1107,7 @@ def render_market_tab() -> None:
 
                     dd_headers = "".join(f'<th style="{th_style}">{c}</th>' for c in _dd_avail)
                     dd_height = min(600, 52 + len(sector_df) * 36)
-                    dd_html = f"""<div style="overflow-x:auto;border-radius:8px;border:1px solid #374151;background:#0d1117;max-height:{dd_height}px;overflow-y:auto">
+                    dd_html = f"""<div style="overflow-x:auto;border-radius:8px;border:1px solid {_T['border']};background:{_T['bg']};max-height:{dd_height}px;overflow-y:auto">
     <table style="width:100%;border-collapse:collapse">
     <thead><tr>{dd_headers}</tr></thead>
     <tbody>{"".join(dd_rows)}</tbody>
@@ -1114,8 +1122,7 @@ def render_market_tab() -> None:
                     st.info(f"Không có dữ liệu ticker cho ngành {_selected_nganh}")
 
         # ── Nhận định thị trường ──────────────────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("#### 🧭 Nhận định tổng quan thị trường")
+        _ui.section("Nhận định tổng quan thị trường")
 
         # Nhận định thị trường → dashboard/market_commentary.py.
         # `idx_df` và bảng mã trong session_state trước bắt qua closure,
@@ -1137,8 +1144,7 @@ def render_market_tab() -> None:
         tick_data = st.session_state.get("_mkt_ticker_data")
         _tick_has_1m = tick_data is not None and not tick_data.empty and "Giá 1M %" in tick_data.columns
         if _tick_has_1m:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("#### 🗺️ Heatmap ngành — Vốn hoá & Biến động 1 tháng")
+            _ui.section("Heatmap ngành — vốn hoá & biến động 1 tháng")
             try:
                 import plotly.express as px
 
@@ -1150,19 +1156,19 @@ def render_market_tab() -> None:
                     fig_tm = px.treemap(
                         tm_df, path=["Ngành", "Mã"],
                         values="Vốn hoá (tỷ)", color="Giá 1M %",
-                        color_continuous_scale=["#ef4444","#1f2937","#10b981"],
+                        color_continuous_scale=[_T["down"], _T["border"], _T["up"]],
                         color_continuous_midpoint=0,
                         range_color=[-15, 15],
                         hover_data={"Vốn hoá (tỷ)": ":,.0f", "Giá 1M %": ":+.1f"},
                     )
                     fig_tm.update_layout(
                         height=600,
-                        paper_bgcolor="#0a0e1a",
-                        font=dict(color="#e5e7eb", size=11),
+                        **_PLOTLY_BG,
+                        font=dict(color=_T["text"], size=11),
                         margin=dict(l=5, r=5, t=30, b=5),
                         coloraxis_colorbar=dict(
                             title="1M %", ticksuffix="%",
-                            bgcolor="#111827", bordercolor="#1f2937",
+                            bgcolor=_T["surface"], bordercolor=_T["border"],
                         ),
                     )
                     fig_tm.update_traces(
@@ -1176,13 +1182,12 @@ def render_market_tab() -> None:
 
         # ── Chart xu hướng ────────────────────────────────────────────────────
         if "Giá 1M %" in mkt_df.columns:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("#### 📈 Biến động giá theo ngành (1 tháng vs 3 tháng)")
+            _ui.section("Biến động giá theo ngành (1 tháng vs 3 tháng)")
             try:
                 import plotly.graph_objects as go
                 chart_df = mkt_df[mkt_df["Giá 1M %"].notna()].copy()
                 chart_df = chart_df.sort_values("Giá 1M %", ascending=True)
-                colors1m = ["#10b981" if v > 0 else "#ef4444" for v in chart_df["Giá 1M %"]]
+                colors1m = [_T["up"] if v > 0 else _T["down"] for v in chart_df["Giá 1M %"]]
 
                 fig = go.Figure()
                 fig.add_trace(go.Bar(
@@ -1194,20 +1199,20 @@ def render_market_tab() -> None:
                     fig.add_trace(go.Scatter(
                         y=chart_df["Ngành"], x=chart_df["Giá 3M %"],
                         name="3 Tháng", mode="markers",
-                        marker=dict(color="#fbbf24", size=8, symbol="diamond"),
+                        marker=dict(color=_T["ref"], size=8, symbol="diamond"),
                     ))
                 fig.update_layout(
                     height=max(350, len(chart_df)*22),
-                    paper_bgcolor="#0a0e1a", plot_bgcolor="#0d1117",
-                    font=dict(color="#9ca3af", size=11),
-                    xaxis=dict(gridcolor="#1f2937", zeroline=True,
-                               zerolinecolor="#374151", zerolinewidth=2,
+                    **_PLOTLY_BG,
+                    font=dict(color=_T["text_muted"], size=11),
+                    xaxis=dict(gridcolor=_T["border"], zeroline=True,
+                               zerolinecolor=_T["text_off"], zerolinewidth=2,
                                ticksuffix="%",
                                range=_symmetric_xrange(chart_df["Giá 1M %"],
                                                        chart_df.get("Giá 3M %", ()))),
-                    yaxis=dict(gridcolor="#1f2937"),
+                    yaxis=dict(gridcolor=_T["border"]),
                     margin=dict(l=0, r=80, t=20, b=20),
-                    legend=dict(bgcolor="#111827", bordercolor="#1f2937", borderwidth=1),
+                    legend=dict(bgcolor=_T["surface"], bordercolor=_T["border"], borderwidth=1),
                 )
                 st.plotly_chart(fig, use_container_width=True)
             except ImportError:

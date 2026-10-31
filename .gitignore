@@ -35,3 +35,6 @@ artifacts/
 
 # Bộ agent team (Agents-Team-coding)
 !.claude/agent-team-kit.txt
+
+# Ảnh chụp so trước/sau thiết kế lại giao diện (scripts/ui_snapshots.py)
+ui_snapshots/

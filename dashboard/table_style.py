@@ -11,19 +11,15 @@ từ `__str__` của object lạ.
 """
 from __future__ import annotations
 
-GRAY_EMPTY = "#4b5563"      # ô trống / "—"
-GRAY_UNPARSEABLE = "#6b7280"  # có giá trị nhưng không parse nổi
-GRAY_NEUTRAL = "#9ca3af"
-DEFAULT_COLOR = "#d1d5db"
+from dashboard.theme import TOKENS as _T
 
+# Màu lấy từ token LÚC VẼ (P1 màu, P4 sáng/tối): hằng cấp module sẽ đứng yên ở màu tối.
+# Ô trống/không parse nổi từng là #4b5563/#6b7280 (2,6:1 và 4,0:1) ⇒ nay `text_faint`.
 _PCT_COLUMNS = ("1D%", "5D%", "20D%", "BB%", "52W%")
-_MACD_COLORS = {
-    "BUY": "#10b981", "BULL": "#34d399",
-    "SELL": "#ef4444", "BEAR": "#f87171",
-}
-
-_GREEN, _RED = "#10b981", "#ef4444"
-_GREEN_SOFT, _RED_SOFT = "#6ee7b7", "#fca5a5"
+# Đổi 1 PHIÊN = so tham chiếu ⇒ 0% tô VÀNG như bảng điện; đổi nhiều phiên thì 0 chỉ
+# là "không đổi" — để xám.
+_SESSION_PCT = "1D%"
+_MACD_TOKENS = {"BUY": "up", "BULL": "up_soft", "SELL": "down", "BEAR": "down_soft"}
 
 
 def _as_pct(val) -> float:
@@ -34,37 +30,44 @@ def _as_pct(val) -> float:
 def cell_color(col, val) -> str:
     """Màu chữ cho một ô của bảng screener."""
     if not val or val == "—":
-        return GRAY_EMPTY
+        return _T["text_faint"]
     if col in _PCT_COLUMNS:
         try:
             v = _as_pct(val)
-            return _GREEN if v > 0 else (_RED if v < 0 else GRAY_NEUTRAL)
+            if v == 0:
+                # Chuỗi đã làm tròn 1 chữ số: "+0.0%"/"-0.0%" là có đổi (mã giá cao lên/xuống
+                # 1 bước giá ≈ 0,04%) — giữ CHIỀU theo dấu; chỉ "0.0%" mới là đứng giá.
+                sign = str(val).strip()[:1]
+                if sign in "+-":
+                    return _T["up"] if sign == "+" else _T["down"]
+                return _T["ref"] if col == _SESSION_PCT else _T["text_muted"]
+            return _T["up"] if v > 0 else _T["down"]
         except (ValueError, TypeError):
-            return GRAY_UNPARSEABLE
+            return _T["text_faint"]
     if col == "RSI":
         try:
             v = float(val)
         except (ValueError, TypeError):
-            return GRAY_UNPARSEABLE
+            return _T["text_faint"]
         if v < 30:
-            return _GREEN
+            return _T["up"]
         if v > 70:
-            return _RED
+            return _T["down"]
         if v < 40:
-            return _GREEN_SOFT
+            return _T["up_soft"]
         if v > 60:
-            return _RED_SOFT
-        return "#e5e7eb"
+            return _T["down_soft"]
+        return _T["text"]
     if col == "MACD":
-        return _MACD_COLORS.get(str(val).upper(), GRAY_NEUTRAL)
+        return _T[_MACD_TOKENS.get(str(val).upper(), "text_muted")]
     if col == "Trend":
         up = str(val).upper()
-        return _GREEN if up == "UP" else (_RED if up in ("DOWN", "DN") else GRAY_NEUTRAL)
+        return _T["up"] if up == "UP" else (_T["down"] if up in ("DOWN", "DN") else _T["text_muted"])
     if col == "Ticker":
-        return "#60a5fa"
+        return _T["link"]
     if col == "Ngành":
-        return "#a78bfa"
-    return DEFAULT_COLOR
+        return _T["category"]
+    return _T["text"]
 
 
 def cell_weight(col, val) -> str:

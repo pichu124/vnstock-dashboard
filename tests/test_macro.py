@@ -922,3 +922,35 @@ def test_brief_archive_newest_brief_selectable(monkeypatch):
     assert len(seen_options[0]) == 2, seen_options
     assert any(s.startswith("MỚI") for s in shown)
     assert not any(s.startswith("CŨ") for s in shown)
+
+
+def test_macro_page_has_page_title_and_section_headings(monkeypatch):
+    """Trang Vĩ mô (P2 tách khỏi Tin tức): tiêu đề trang + tiêu đề mục chuẩn, không "##### 📊 …"."""
+    import importlib
+    import sys
+    import types
+    from tests.test_tab_render_smoke import _fake_streamlit
+
+    st = _fake_streamlit()
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    mac = types.ModuleType("vnstock_macro")
+    mac.load_macro = lambda: []                      # cache rỗng ⇒ nhánh "chạy --refresh"
+    mac._load_cache = lambda: {}
+    feeds = types.ModuleType("vnstock_news_feeds")
+    feeds._load_cache = lambda: []
+    mem = types.ModuleType("vnstock_memory")
+    mem.recent_briefs = lambda *a, **k: []
+    brief = types.ModuleType("vnstock_brief")
+    brief.brief_section = lambda text, icon: ""
+    for name, mod in (("vnstock_macro", mac), ("vnstock_news_feeds", feeds),
+                      ("vnstock_memory", mem), ("vnstock_brief", brief)):
+        monkeypatch.setitem(sys.modules, name, mod)
+
+    importlib.reload(importlib.import_module("dashboard.macro_tab")).render_macro_subtab()
+
+    md = [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+    assert any(">Vĩ mô<" in s for s in md), md
+    for title in ("Chỉ số vĩ mô hiện tại", "Tin vĩ mô &amp; thị trường theo ngày",
+                  "Phân tích vĩ mô từ brief (lưu trữ)"):
+        assert any(f">{title}<" in s for s in md), (title, md)
+    assert not [s for s in md if s.lstrip().startswith("#")], md

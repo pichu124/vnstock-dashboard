@@ -107,6 +107,22 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Bảng màu theo chế độ sáng/tối của LƯỢT NÀY (P4 giao diện) — phải trước mọi chỗ vẽ.
+# Streamlit theo chế độ của hệ điều hành ([theme.dark]/[theme.light] trong config.toml);
+# `dashboard.theme.TOKENS` đọc theo luồng nên mỗi phiên một chế độ.
+from dashboard.theme import (  # noqa: E402
+    THEME_SYNC_KEY as _THEME_SYNC_KEY, THEME_WATCH_KEY as _THEME_WATCH_KEY,
+    current_mode as _theme_current_mode, set_mode as _set_theme_mode,
+    set_mode_resolver as _set_theme_mode_resolver, theme_watch_html as _theme_watch_html,
+)
+
+try:
+    _set_theme_mode(st.context.theme.type)   # "dark" / "light" / None (chưa biết ⇒ tối)
+except Exception:                             # chạy ngoài Streamlit (test, bare mode)
+    _set_theme_mode(None)
+# Lượt `@st.fragment(run_every=…)` chạy trên luồng KHÔNG qua dòng trên ⇒ bảng màu tự hỏi lại.
+_set_theme_mode_resolver(lambda: st.context.theme.type)
+
 RESULTS_PATH  = Path("data_warehouse/_meta/screener_results.json")
 PRICES_DIR    = Path("data_warehouse/prices")
 INDUSTRY_PATH = Path("data_warehouse/_meta/industry_classification.parquet")
@@ -619,6 +635,12 @@ from dashboard.money_flow_score import (  # noqa: E402
     score_label as _score_label,
 )
 from dashboard.table_style import cell_color, cell_weight  # noqa: E402
+# Màu + chữ: MỘT nguồn (P1 thiết kế lại giao diện). Đừng gõ hex mới ở file này —
+# lưới tests/test_theme_tokens.py đếm và chỉ cho GIẢM.
+from dashboard.theme import (  # noqa: E402
+    TOKENS as _T, app_css as _app_css, font_face_css as _font_face_css,
+    lwc_palette as _lwc_palette, rgba as _rgba, status_color as _status_color,
+)
 
 
 from vnstock_console_launch import build_ps_command as _build_ps_command  # noqa: E402
@@ -666,14 +688,6 @@ def launch_in_new_console(commands: list, log_filename: str = "subprocess.log") 
     return False, log_path
 
 
-# Theme — dark mode đã là default, light mode override CSS
-THEMES = {
-    "light": {
-        "bg": "#f8fafc", "card_bg": "#ffffff", "border": "#e2e8f0",
-        "text": "#1e293b", "text2": "#475569", "text3": "#94a3b8",
-    },
-}
-
 PRESET_ICONS = {
     "oversold":      "🟢",
     "overbought":    "🔴",
@@ -686,91 +700,10 @@ PRESET_ICONS = {
 }
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'IBM Plex Sans', sans-serif;
-}
-
-.stApp { background: #0a0e1a; }
-
-.metric-card {
-    background: #111827;
-    border: 1px solid #1f2937;
-    border-radius: 8px;
-    padding: 16px 20px;
-    text-align: center;
-}
-.metric-card .label {
-    font-size: 11px;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 6px;
-}
-.metric-card .value {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 26px;
-    font-weight: 500;
-    color: #f9fafb;
-}
-.metric-card .sub {
-    font-size: 11px;
-    color: #4b5563;
-    margin-top: 4px;
-}
-
-.preset-tag {
-    display: inline-block;
-    background: #1f2937;
-    color: #9ca3af;
-    font-size: 11px;
-    padding: 3px 10px;
-    border-radius: 20px;
-    margin: 2px;
-    cursor: pointer;
-}
-.preset-tag.active {
-    background: #065f46;
-    color: #6ee7b7;
-    border: 1px solid #059669;
-}
-
-.up   { color: #10b981 !important; }
-.down { color: #ef4444 !important; }
-.neutral { color: #9ca3af !important; }
-
-.updated-at {
-    font-size: 11px;
-    color: #4b5563;
-    font-family: 'IBM Plex Mono', monospace;
-}
-
-/* Dataframe styling */
-[data-testid="stDataFrame"] {
-    border: 1px solid #1f2937;
-    border-radius: 8px;
-}
-.card {
-    background: #111827; border: 1px solid #1f2937;
-    border-radius: 10px; padding: 16px 20px; margin-bottom: 12px;
-}
-.card-title {
-    font-size: 11px; color: #6b7280; text-transform: uppercase;
-    letter-spacing: 0.08em; margin-bottom: 8px;
-}
-.section-title {
-    font-size: 13px; font-weight: 500; color: #6b7280;
-    text-transform: uppercase; letter-spacing: 0.06em; margin: 20px 0 10px;
-}
-.fscore-bar { height: 8px; border-radius: 4px; background: #1f2937; margin: 6px 0; }
-.fscore-fill { height: 8px; border-radius: 4px; }
-.tag { display: inline-block; padding: 2px 10px; border-radius: 20px;
-    font-size: 11px; font-weight: 500; margin: 2px; }
-</style>
-""", unsafe_allow_html=True)
+# Khối CSS chung dựng từ token (dashboard/theme.py). Font IBM Plex tự host ở
+# static/fonts/, nạp qua [[theme.fontFaces]] của .streamlit/config.toml — không
+# còn @import Google Fonts (máy mất mạng là rơi về font hệ thống).
+st.markdown(f"<style>{_app_css()}</style>", unsafe_allow_html=True)
 
 
 # ── Load data ─────────────────────────────────────────────────────────────────
@@ -1282,58 +1215,58 @@ def render_volume_profile(profile: list, current_price: float = 0,
 
         # Row background: POC > current price > Value Area > default
         if is_poc:
-            row_bg = "background:rgba(251,191,36,0.25)"
+            row_bg = f"background:{_rgba(_T['ref'], 0.25)}"
         elif is_current:
-            row_bg = "background:rgba(251,191,36,0.10)"
+            row_bg = f"background:{_rgba(_T['ref'], 0.1)}"
         elif in_va:
-            row_bg = "background:rgba(59,130,246,0.08)"
+            row_bg = f"background:{_rgba(_T['accent'], 0.08)}"
         else:
             row_bg = ""
 
         # Price label
         label = ""
         if is_poc:
-            label = " <span style='color:#fbbf24;font-size:9px;font-weight:700'>POC</span>"
+            label = f" <span style='color:{_T['ref']};font-size:9px;font-weight:700'>POC</span>"
         elif i == vah_idx and vah_idx != poc_idx:
-            label = " <span style='color:#3b82f6;font-size:9px;font-weight:600'>VAH</span>"
+            label = f" <span style='color:{_T['accent']};font-size:9px;font-weight:600'>VAH</span>"
         elif i == val_idx and val_idx != poc_idx:
-            label = " <span style='color:#3b82f6;font-size:9px;font-weight:600'>VAL</span>"
+            label = f" <span style='color:{_T['accent']};font-size:9px;font-weight:600'>VAL</span>"
 
         buy_pct = (buy_v / total_v * 100) if total_v > 0 else 0
         sell_pct = (sell_v / total_v * 100) if total_v > 0 else 0
 
         # Delta bar — xanh nếu >0, đỏ nếu <0
         delta_width = abs(delta) / max_abs_delta * 50  # max 50% width
-        delta_color = "#10b981" if delta >= 0 else "#ef4444"
+        delta_color = _T["up"] if delta >= 0 else _T["down"]
         delta_sign = "+" if delta >= 0 else ""
         delta_str = f"{delta_sign}{int(delta):,}"
 
         # Cumulative delta color
-        cum_color = "#10b981" if cum_d >= 0 else "#ef4444"
+        cum_color = _T["up"] if cum_d >= 0 else _T["down"]
         cum_sign = "+" if cum_d >= 0 else ""
         cum_str = f"{cum_sign}{int(cum_d):,}"
 
         rows_html += (
             f"<tr style='{row_bg}'>"
             # Price + label
-            f"<td style='color:#f9fafb;text-align:right;padding:4px 8px;"
+            f"<td style='color:{_T['text_strong']};text-align:right;padding:4px 8px;"
             f"font-weight:{'700' if is_poc or is_current else '500'};white-space:nowrap'>"
             f"{price_str}{label}</td>"
             # Buy
-            f"<td style='color:#10b981;text-align:right;padding:4px 8px'>"
+            f"<td style='color:{_T['up']};text-align:right;padding:4px 8px'>"
             f"{int(buy_v):,}</td>"
             # Sell
-            f"<td style='color:#ef4444;text-align:right;padding:4px 8px'>"
+            f"<td style='color:{_T['down']};text-align:right;padding:4px 8px'>"
             f"{int(sell_v):,}</td>"
             # Total
-            f"<td style='color:#9ca3af;text-align:right;padding:4px 8px'>"
+            f"<td style='color:{_T['text_muted']};text-align:right;padding:4px 8px'>"
             f"{int(total_v):,}</td>"
             # Delta (buy - sell)
             f"<td style='color:{delta_color};text-align:right;padding:4px 8px;"
             f"font-size:11px'>"
             f"<div style='display:flex;align-items:center;justify-content:flex-end;gap:4px'>"
             f"<span>{delta_str}</span>"
-            f"<div style='width:50px;height:10px;background:#1f2937;border-radius:1px;"
+            f"<div style='width:50px;height:10px;background:{_T['border']};border-radius:1px;"
             f"position:relative;overflow:hidden'>"
             f"<div style='position:absolute;{'right' if delta < 0 else 'left'}:0;top:0;"
             f"height:100%;width:{delta_width:.1f}%;background:{delta_color};opacity:0.7'>"
@@ -1343,29 +1276,29 @@ def render_volume_profile(profile: list, current_price: float = 0,
             f"font-size:11px'>{cum_str}</td>"
             # Distribution bar
             f"<td style='padding:4px 8px;min-width:100px'>"
-            f"<div style='position:relative;height:14px;background:#1f2937;"
+            f"<div style='position:relative;height:14px;background:{_T['border']};"
             f"border-radius:2px;overflow:hidden'>"
             f"<div style='position:absolute;left:0;top:0;height:100%;"
-            f"width:{buy_pct * pct / 100:.1f}%;background:#10b981'></div>"
+            f"width:{buy_pct * pct / 100:.1f}%;background:{_T['up']}'></div>"
             f"<div style='position:absolute;left:{buy_pct * pct / 100:.1f}%;top:0;"
-            f"height:100%;width:{sell_pct * pct / 100:.1f}%;background:#ef4444'></div>"
+            f"height:100%;width:{sell_pct * pct / 100:.1f}%;background:{_T['down']}'></div>"
             f"</div></td>"
             f"</tr>"
         )
 
     # ── Summary line: POC / VAH / VAL ──
     summary_parts = [
-        f"<span style='color:#fbbf24'>■</span> POC {poc_price/scale:,.2f}",
+        f"<span style='color:{_T['ref']}'>■</span> POC {poc_price/scale:,.2f}",
     ]
     if vah_idx != val_idx:
         summary_parts.append(
-            f"<span style='color:#3b82f6'>■</span> "
+            f"<span style='color:{_T['accent']}'>■</span> "
             f"VA [{val_price/scale:,.2f} — {vah_price/scale:,.2f}]"
         )
 
     # Total cumulative delta
     total_cum = cum_deltas[0] if cum_deltas else 0
-    cum_total_color = "#10b981" if total_cum >= 0 else "#ef4444"
+    cum_total_color = _T["up"] if total_cum >= 0 else _T["down"]
     cum_total_sign = "+" if total_cum >= 0 else ""
     summary_parts.append(
         f"Σ Delta <span style='color:{cum_total_color}'>"
@@ -1374,15 +1307,15 @@ def render_volume_profile(profile: list, current_price: float = 0,
 
     html = (
         f"<div style='margin:14px 0'>"
-        f"<div style='color:#9ca3af;font-size:11px;margin-bottom:6px;"
+        f"<div style='color:{_T['text_muted']};font-size:11px;margin-bottom:6px;"
         f"text-transform:uppercase;letter-spacing:0.08em;font-weight:500'>"
         f"📊 Volume Profile — Top {min(len(profile), max_rows)} mức giá sôi động "
         f"(cả phiên)</div>"
         f"<table style='width:100%;font-family:IBM Plex Mono,monospace;"
         f"font-size:12px;border-collapse:collapse;"
-        f"border:1px solid #1f2937;border-radius:6px;overflow:hidden'>"
-        f"<thead><tr style='color:#6b7280;font-size:10px;"
-        f"text-transform:uppercase;letter-spacing:0.05em;background:#111827'>"
+        f"border:1px solid {_T['border']};border-radius:6px;overflow:hidden'>"
+        f"<thead><tr style='color:{_T['text_faint']};font-size:10px;"
+        f"text-transform:uppercase;letter-spacing:0.05em;background:{_T['surface']}'>"
         f"<th style='text-align:right;padding:6px 8px'>Giá</th>"
         f"<th style='text-align:right;padding:6px 8px'>Mua</th>"
         f"<th style='text-align:right;padding:6px 8px'>Bán</th>"
@@ -1392,14 +1325,14 @@ def render_volume_profile(profile: list, current_price: float = 0,
         f"<th style='text-align:left;padding:6px 8px'>Phân bổ</th>"
         f"</tr></thead>"
         f"<tbody>{rows_html}</tbody></table>"
-        f"<div style='color:#6b7280;font-size:10px;margin-top:4px'>"
+        f"<div style='color:{_T['text_faint']};font-size:10px;margin-top:4px'>"
         f"{' &nbsp;|&nbsp; '.join(summary_parts)}"
         f"</div>"
-        f"<div style='color:#6b7280;font-size:9px;margin-top:2px'>"
-        f"<span style='color:#fbbf24'>█</span> POC &nbsp; "
-        f"<span style='color:#3b82f6;opacity:0.5'>█</span> Value Area 70% &nbsp; "
-        f"<span style='color:#10b981'>■</span> Mua &nbsp; "
-        f"<span style='color:#ef4444'>■</span> Bán &nbsp; "
+        f"<div style='color:{_T['text_faint']};font-size:9px;margin-top:2px'>"
+        f"<span style='color:{_T['ref']}'>█</span> POC &nbsp; "
+        f"<span style='color:{_T['accent']};opacity:0.5'>█</span> Value Area 70% &nbsp; "
+        f"<span style='color:{_T['up']}'>■</span> Mua &nbsp; "
+        f"<span style='color:{_T['down']}'>■</span> Bán &nbsp; "
         f"Delta = Mua − Bán &nbsp; Σ = tích luỹ từ giá thấp"
         f"</div>"
         f"</div>"
@@ -1441,26 +1374,26 @@ def render_order_book(bids: list, asks: list, scale: float = 1.0,
         rank_label = f"{i+1}" if i < 3 else f"{i+1}"
         rows_html += (
             f"<tr>"
-            f"<td style='color:#6b7280;text-align:center;padding:4px 6px;"
+            f"<td style='color:{_T['text_faint']};text-align:center;padding:4px 6px;"
             f"font-size:10px'>{rank_label}</td>"
-            f"<td style='color:#9ca3af;text-align:right;padding:4px 10px'>{bv}</td>"
-            f"<td style='color:#10b981;text-align:right;padding:4px 10px;"
-            f"font-weight:600;background:rgba(16,185,129,0.08)'>{bp}</td>"
-            f"<td style='color:#ef4444;text-align:left;padding:4px 10px;"
-            f"font-weight:600;background:rgba(239,68,68,0.08)'>{ap}</td>"
-            f"<td style='color:#9ca3af;text-align:left;padding:4px 10px'>{av}</td>"
+            f"<td style='color:{_T['text_muted']};text-align:right;padding:4px 10px'>{bv}</td>"
+            f"<td style='color:{_T['up']};text-align:right;padding:4px 10px;"
+            f"font-weight:600;background:{_rgba(_T['up'], 0.08)}'>{bp}</td>"
+            f"<td style='color:{_T['down']};text-align:left;padding:4px 10px;"
+            f"font-weight:600;background:{_rgba(_T['down'], 0.08)}'>{ap}</td>"
+            f"<td style='color:{_T['text_muted']};text-align:left;padding:4px 10px'>{av}</td>"
             f"</tr>"
         )
 
     html = (
         f"<div style='margin:10px 0 16px 0'>"
-        f"<div style='color:#9ca3af;font-size:11px;margin-bottom:6px;"
+        f"<div style='color:{_T['text_muted']};font-size:11px;margin-bottom:6px;"
         f"text-transform:uppercase;letter-spacing:0.08em;font-weight:500'>{title}</div>"
         f"<table style='width:100%;font-family:IBM Plex Mono,monospace;"
         f"font-size:13px;border-collapse:collapse;"
-        f"border:1px solid #1f2937;border-radius:6px;overflow:hidden'>"
-        f"<thead><tr style='color:#6b7280;font-size:10px;"
-        f"text-transform:uppercase;letter-spacing:0.05em;background:#111827'>"
+        f"border:1px solid {_T['border']};border-radius:6px;overflow:hidden'>"
+        f"<thead><tr style='color:{_T['text_faint']};font-size:10px;"
+        f"text-transform:uppercase;letter-spacing:0.05em;background:{_T['surface']}'>"
         f"<th style='text-align:center;padding:6px;width:24px'>#</th>"
         f"<th style='text-align:right;padding:6px 10px'>KL Mua</th>"
         f"<th style='text-align:right;padding:6px 10px'>Giá Mua</th>"
@@ -2150,14 +2083,14 @@ def render_session_stats_table(window_name: str, stats_today: dict, history: dic
         result = []
         for v in vals:
             if v <= 0:
-                result.append("color:#6b7280")
+                result.append(f"color:{_T['text_faint']}")
             else:
                 n = (v - vmin) / (vmax - vmin)
                 if n < 0.5:
                     r, g, b = 220, int(80 + n * 2 * 160), 60
                 else:
                     r, g, b = int(220 - (n - 0.5) * 2 * 180), 200, 60
-                result.append(f"background-color:rgba({r},{g},{b},0.3);color:#e5e7eb")
+                result.append(f"background-color:rgba({r},{g},{b},0.3);color:{_T['text']}")
         return result
 
     fmt = {c: "{:,.1f}" for c in num_cols}
@@ -2248,6 +2181,7 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
     def ts(t):
         return int(pd.Timestamp(t).timestamp())
 
+    pal = _lwc_palette()   # màu chart: dashboard/theme.py (logical-range KHÔNG đi qua đây)
     candles, volumes = [], []
     ema9_d, ema21_d, ema50_d, ema200_d = [], [], [], []
     bb_up_d, bb_lo_d, bb_mid_d = [], [], []
@@ -2261,7 +2195,7 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
         if None in (o, h, l, c):
             continue
         candles.append({"time": t, "open": o, "high": h, "low": l, "close": c})
-        col = "rgba(16,185,129,0.6)" if c >= o else "rgba(239,68,68,0.6)"
+        col = pal["vol_up"] if c >= o else pal["vol_down"]
         volumes.append({"time": t, "value": v or 0, "color": col})
         if (x := safe(row.get("ema9")))       is not None: ema9_d.append({"time":t,"value":x})
         if (x := safe(row.get("ema21")))      is not None: ema21_d.append({"time":t,"value":x})
@@ -2289,7 +2223,7 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
         macd_s.append({"time":t,"value":x} if x is not None else {"time":t})
         x = safe(row.get("macd_hist"))
         if x is not None:
-            macd_h.append({"time":t,"value":x,"color":"rgba(16,185,129,0.8)" if x>=0 else "rgba(239,68,68,0.8)"})
+            macd_h.append({"time":t,"value":x,"color":pal["hist_up"] if x>=0 else pal["hist_down"]})
         else:
             macd_h.append({"time":t})
 
@@ -2321,11 +2255,11 @@ def render_chart(df: pd.DataFrame, ticker: str, height: int = 850,
     html = """<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8">
-<style>
+<style>""" + _font_face_css() + """
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:#0a0e1a; font-family:monospace; color:#9ca3af; }
+body { background:""" + pal["bg"] + """; font-family:'IBM Plex Mono',monospace; color:""" + pal["text"] + """; }
 #wrapper { display:flex; flex-direction:column; height:100vh; padding:6px; gap:4px; }
-.lbl { font-size:10px; color:#6b7280; text-transform:uppercase; padding:2px 4px; }
+.lbl { font-size:10px; color:""" + pal["label"] + """; text-transform:uppercase; padding:2px 4px; }
 .ohlcv { font-size:11px; padding:1px 4px; min-height:16px; }
 #mw { flex:5; display:flex; flex-direction:column; min-height:0; position:relative; }
 #vw { flex:1.5; display:flex; flex-direction:column; min-height:0; }
@@ -2369,20 +2303,21 @@ var ML=""" + _json.dumps(macd_l) + """;
 var MS=""" + _json.dumps(macd_s) + """;
 var MH=""" + _json.dumps(macd_h) + """;
 var LP=""" + str(last_price) + """;
+var PAL=""" + _json.dumps(pal) + """;
 
 var BASE={
-  layout:{background:{color:"#0d1117"},textColor:"#9ca3af",fontSize:11},
-  grid:{vertLines:{color:"#1a2234"},horzLines:{color:"#1a2234"}},
+  layout:{background:{color:PAL.bg},textColor:PAL.text,fontSize:11,fontFamily:"'IBM Plex Mono',monospace"},
+  grid:{vertLines:{color:PAL.grid},horzLines:{color:PAL.grid}},
   crosshair:{
     mode:LightweightCharts.CrosshairMode.Normal,
-    vertLine:{color:"#4b5563",width:1,style:1,labelBackgroundColor:"#1f2937"},
-    horzLine:{color:"#4b5563",width:1,style:1,labelBackgroundColor:"#1f2937"},
+    vertLine:{color:PAL.crosshair,width:1,style:1,labelBackgroundColor:PAL.crosshair_label},
+    horzLine:{color:PAL.crosshair,width:1,style:1,labelBackgroundColor:PAL.crosshair_label},
   },
   // Fixed minimumWidth on the right price scale so all panels reserve the
   // same gutter for axis labels — keeps candle/volume/RSI/MACD chart areas
   // perfectly column-aligned regardless of the value range each shows.
-  rightPriceScale:{borderColor:"#1f2937",minimumWidth:60},
-  timeScale:{borderColor:"#1f2937",timeVisible:true,secondsVisible:false,rightOffset:5,shiftVisibleRangeOnNewBar:false},
+  rightPriceScale:{borderColor:PAL.border,minimumWidth:60},
+  timeScale:{borderColor:PAL.border,timeVisible:true,secondsVisible:false,rightOffset:5,shiftVisibleRangeOnNewBar:false},
   handleScroll:{mouseWheel:true,pressedMouseMove:true},
   handleScale:{mouseWheel:true,pinch:true},
 };
@@ -2395,12 +2330,12 @@ function mk(id,extra){
 
 var main=mk("mc");
 var cs=main.addCandlestickSeries({
-  upColor:"#10b981",downColor:"#ef4444",
-  borderUpColor:"#10b981",borderDownColor:"#ef4444",
-  wickUpColor:"#059669",wickDownColor:"#dc2626",
+  upColor:PAL.up,downColor:PAL.down,
+  borderUpColor:PAL.up,borderDownColor:PAL.down,
+  wickUpColor:PAL.wick_up,wickDownColor:PAL.wick_down,
 });
 cs.setData(C);
-var _livePriceLine = cs.createPriceLine({price:LP,color:"#fbbf24",lineWidth:1,
+var _livePriceLine = cs.createPriceLine({price:LP,color:PAL.last,lineWidth:1,
   lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true,title:""});
 
 function line(chart,data,color,width,title,lvVisible){
@@ -2410,28 +2345,28 @@ function line(chart,data,color,width,title,lvVisible){
   s.setData(data);
   return s;
 }
-line(main,E9,"#60a5fa",1,"EMA9");
-line(main,E21,"#c084fc",1,"EMA21");
-line(main,E50,"#fbbf24",1.5,"EMA50");
-line(main,E200,"#f97316",2,"EMA200");
-line(main,BU,"rgba(139,92,246,0.5)",1,"BB+",false);
-line(main,BL,"rgba(139,92,246,0.5)",1,"BB-",false);
-line(main,BM,"rgba(139,92,246,0.25)",1,"",false);
-line(main,VW,"#e879f9",2,"VWAP");
-line(main,VU1,"rgba(232,121,249,0.3)",1,"",false);
-line(main,VL1,"rgba(232,121,249,0.3)",1,"",false);
-line(main,VU2,"rgba(232,121,249,0.15)",1,"",false);
-line(main,VL2,"rgba(232,121,249,0.15)",1,"",false);
+line(main,E9,PAL.ema9,1,"EMA9");
+line(main,E21,PAL.ema21,1,"EMA21");
+line(main,E50,PAL.ema50,1.5,"EMA50");
+line(main,E200,PAL.ema200,2,"EMA200");
+line(main,BU,PAL.bb,1,"BB+",false);
+line(main,BL,PAL.bb,1,"BB-",false);
+line(main,BM,PAL.bb_mid,1,"",false);
+line(main,VW,PAL.vwap,2,"VWAP");
+line(main,VU1,PAL.vwap_1,1,"",false);
+line(main,VL1,PAL.vwap_1,1,"",false);
+line(main,VU2,PAL.vwap_2,1,"",false);
+line(main,VL2,PAL.vwap_2,1,"",false);
 
 main.subscribeCrosshairMove(function(p){
   if(!p.time) return;
   var d=p.seriesData.get(cs);
   if(!d) return;
   document.getElementById("ohlcv").innerHTML=
-    "O <b style='color:#e5e7eb'>"+d.open.toFixed(2)+"</b>  "+
-    "H <b style='color:#10b981'>"+d.high.toFixed(2)+"</b>  "+
-    "L <b style='color:#ef4444'>"+d.low.toFixed(2)+"</b>  "+
-    "C <b style='color:#fbbf24'>"+d.close.toFixed(2)+"</b>";
+    "O <b style='color:"+PAL.o+"'>"+d.open.toFixed(2)+"</b>  "+
+    "H <b style='color:"+PAL.h+"'>"+d.high.toFixed(2)+"</b>  "+
+    "L <b style='color:"+PAL.l+"'>"+d.low.toFixed(2)+"</b>  "+
+    "C <b style='color:"+PAL.c+"'>"+d.close.toFixed(2)+"</b>";
 });
 
 var vol=mk("vc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0}}});
@@ -2441,10 +2376,10 @@ volSeries.setData(V);
 var SUB=[volSeries];
 
 var rsi=mk("rc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0.1}}});
-SUB.push(line(rsi,RSI,"#a78bfa",1.5,"RSI",true));
+SUB.push(line(rsi,RSI,PAL.rsi,1.5,"RSI",true));
 if(RSI.length){
-  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:70}}),"rgba(239,68,68,0.4)",1,"",false));
-  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:30}}),"rgba(16,185,129,0.4)",1,"",false));
+  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:70}}),PAL.rsi_hi,1,"",false));
+  SUB.push(line(rsi,RSI.map(function(d){return{time:d.time,value:30}}),PAL.rsi_lo,1,"",false));
 }
 
 var mac=mk("dc",{rightPriceScale:{scaleMargins:{top:0.1,bottom:0.1}}});
@@ -2453,8 +2388,8 @@ if(MH.length){
   mhSeries.setData(MH);
   SUB.push(mhSeries);
 }
-SUB.push(line(mac,ML,"#60a5fa",1.5,"MACD",true));
-SUB.push(line(mac,MS,"#f97316",1.5,"Signal",true));
+SUB.push(line(mac,ML,PAL.macd,1.5,"MACD",true));
+SUB.push(line(mac,MS,PAL.signal,1.5,"Signal",true));
 SUB=SUB.filter(Boolean);
 
 var charts=[main,vol,rsi,mac];
@@ -2532,8 +2467,8 @@ function drawVP(){
     bar.style.cssText="position:absolute;right:0;height:3px;display:flex;top:"+Math.round(y)+"px";
     var bw=Math.max(1,v.b);
     var sw=Math.max(1,v.s);
-    bar.innerHTML='<div style="width:'+bw+'px;height:100%;background:#10b981"></div>'+
-      '<div style="width:'+sw+'px;height:100%;background:#ef4444"></div>';
+    bar.innerHTML='<div style="width:'+bw+'px;height:100%;background:'+PAL.up+'"></div>'+
+      '<div style="width:'+sw+'px;height:100%;background:'+PAL.down+'"></div>';
     ov.appendChild(bar);
   });
 }
@@ -2617,11 +2552,11 @@ if (LIVE_URL) {
         }
         if (_livePriceLine) _livePriceLine.applyOptions({price: b.close});
         document.getElementById("ohlcv").innerHTML =
-          "O <b style='color:#e5e7eb'>"+b.open.toFixed(2)+"</b>  "+
-          "H <b style='color:#10b981'>"+b.high.toFixed(2)+"</b>  "+
-          "L <b style='color:#ef4444'>"+b.low.toFixed(2)+"</b>  "+
-          "C <b style='color:#fbbf24'>"+b.close.toFixed(2)+"</b>  "+
-          "<span style='color:#6b7280;font-size:10px'>· LIVE</span>";
+          "O <b style='color:"+PAL.o+"'>"+b.open.toFixed(2)+"</b>  "+
+          "H <b style='color:"+PAL.h+"'>"+b.high.toFixed(2)+"</b>  "+
+          "L <b style='color:"+PAL.l+"'>"+b.low.toFixed(2)+"</b>  "+
+          "C <b style='color:"+PAL.c+"'>"+b.close.toFixed(2)+"</b>  "+
+          "<span style='color:"+PAL.label+";font-size:10px'>· LIVE</span>";
       })
       .catch(function(e){ console.log("[live] fetch error", e); });
   }
@@ -2642,9 +2577,9 @@ if (LIVE_URL) {
 # ═════════════════════════════════════════════════════════════════════════════
 
 def sig_color(sig: str) -> str:
-    if sig == "BUY":     return "#10b981"
-    if sig == "SELL":    return "#ef4444"
-    return "#9ca3af"
+    if sig == "BUY":     return _T["up"]
+    if sig == "SELL":    return _T["down"]
+    return _T["text_muted"]
 
 
 def fmt_pct(v) -> str:
@@ -2655,11 +2590,12 @@ def fmt_pct(v) -> str:
 
 def render_signal_badge(label: str, sig: str):
     color = sig_color(sig)
-    bg = "#064e3b" if sig=="BUY" else ("#450a0a" if sig=="SELL" else "#1f2937")
+    bg = (_rgba(_T["up"], 0.18) if sig == "BUY"
+          else (_rgba(_T["down"], 0.18) if sig == "SELL" else _T["border"]))
     st.markdown(
         f'<div style="display:flex;justify-content:space-between;'
-        f'align-items:center;padding:6px 0;border-bottom:1px solid #1f2937">'
-        f'<span style="font-size:13px;color:#9ca3af">{label}</span>'
+        f'align-items:center;padding:6px 0;border-bottom:1px solid {_T["border"]}">'
+        f'<span style="font-size:13px;color:{_T["text_muted"]}">{label}</span>'
         f'<span style="background:{bg};color:{color};font-size:11px;'
         f'font-weight:600;padding:3px 10px;border-radius:20px">{sig}</span>'
         f'</div>',
@@ -2668,21 +2604,23 @@ def render_signal_badge(label: str, sig: str):
 
 
 def render_metric_row(items: list):
-    """items = [(label, value, sub), ...]"""
+    """items = [(label, value, sub[, color]), ...] — không có `color` thì tô theo dấu +/-."""
     cols = st.columns(len(items))
-    for col, (label, value, sub) in zip(cols, items):
+    for col, (label, value, sub, *forced) in zip(cols, items):
         with col:
-            color = "#f9fafb"
-            if isinstance(value, str) and value.startswith("+"):
-                color = "#10b981"
+            color = _T["text_strong"]
+            if forced:
+                color = forced[0]
+            elif isinstance(value, str) and value.startswith("+"):
+                color = _T["up"]
             elif isinstance(value, str) and value.startswith("-"):
-                color = "#ef4444"
+                color = _T["down"]
             st.markdown(
                 f'<div class="card">'
                 f'<div class="card-title">{label}</div>'
                 f'<div style="font-family:IBM Plex Mono,monospace;font-size:22px;'
                 f'font-weight:500;color:{color}">{value}</div>'
-                f'<div style="font-size:11px;color:#4b5563;margin-top:4px">{sub}</div>'
+                f'<div style="font-size:11px;color:{_T["text_faint"]};margin-top:4px">{sub}</div>'
                 f'</div>',
                 unsafe_allow_html=True
             )
@@ -2839,7 +2777,7 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
     # Build rows HTML
     rows_html_parts = []
     for i, rd in enumerate(rows_data):
-        bg = "#0d1117" if i%2==0 else "#111827"
+        bg = _T["bg"] if i % 2 == 0 else _T["surface"]
         cells = []
         for col in cols:
             val = rd.get(col,"—")
@@ -2847,7 +2785,7 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
             weight = cell_weight(col, val)
             fs = "12px" if col=="Ngành" else "13px"
             cells.append(
-                f'<td style="padding:7px 12px;border-bottom:1px solid #1a2234;'
+                f'<td style="padding:7px 12px;border-bottom:1px solid {_T["surface_2"]};'
                 f'white-space:nowrap;color:{color};font-weight:{weight};font-size:{fs};">'
                 f'{val}</td>'
             )
@@ -2867,20 +2805,21 @@ def render_table(df: pd.DataFrame, top_n: int = 50):
 <head>
 <meta charset="utf-8">
 <style>
+  {_font_face_css()}
   * {{ box-sizing:border-box; margin:0; padding:0; }}
-  body {{ background:#0a0e1a; font-family:'IBM Plex Mono',monospace; overflow-x:auto; }}
+  body {{ background:{_T["bg"]}; font-family:'IBM Plex Mono',monospace; overflow-x:auto; }}
   table {{ width:100%; border-collapse:collapse; }}
   thead th {{
-    background:#111827; color:#6b7280; font-size:11px; font-weight:500;
+    background:{_T["surface"]}; color:{_T["text_faint"]}; font-size:11px; font-weight:500;
     text-transform:uppercase; letter-spacing:0.06em;
-    padding:10px 12px; border-bottom:2px solid #1f2937;
+    padding:10px 12px; border-bottom:2px solid {_T["border"]};
     white-space:nowrap; cursor:pointer; user-select:none;
     font-family:'IBM Plex Sans',sans-serif;
   }}
-  thead th:hover {{ color:#e5e7eb; background:#1a2234; }}
+  thead th:hover {{ color:{_T["text"]}; background:{_T["surface_2"]}; }}
   thead th .arrow {{ margin-left:4px; opacity:0.3; font-size:10px; }}
-  thead th.active .arrow {{ opacity:1; color:#60a5fa; }}
-  tbody tr:hover td {{ background:#1e2a3a !important; }}
+  thead th.active .arrow {{ opacity:1; color:{_T["link"]}; }}
+  tbody tr:hover td {{ background:{_T["surface_2"]} !important; }}
 </style>
 </head>
 <body>
@@ -2958,7 +2897,7 @@ function doSort(col, th) {{
   ROWS.forEach(function(row, i) {{
     var tr = idxMap[row.__idx];
     if (!tr) return;
-    var bg = i%2===0?"#0d1117":"#111827";
+    var bg = i%2===0?"{_T["bg"]}":"{_T["surface"]}";
     tr.style.background = bg;
     tbody.appendChild(tr);
   }});
@@ -3156,32 +3095,9 @@ _auto_refresh_checker()
 # ═══════════════════════════════════════════════════════
 
 data = load_results()
-
-# Header
-col_title, col_refresh = st.columns([6, 1])
-with col_title:
-    st.markdown("## 📈 VnStock Dashboard")
-with col_refresh:
-    if st.button(
-        "🔄 Refresh",
-        key="top_refresh",
-        width='stretch',
-        help=(
-            "**Vẽ lại dashboard** (nhanh, ~1 giây).\n\n"
-            "Xoá cache RAM rồi đọc lại file `vnstock_data.json` hiện có — "
-            "KHÔNG tính lại screener, KHÔNG tải giá mới.\n\n"
-            "**Dùng khi:** đổi filter/theme/watchlist, hoặc UI có vẻ stale.\n\n"
-            "Ẩn dụ: *lật lại trang báo cũ*."
-        ),
-    ):
-        st.cache_data.clear()
-        st.rerun()
-
-if data is None:
-    st.error("⚠️ Chưa có dữ liệu screener.\n\nChạy: `python vnstock_runner.py`")
-    st.stop()
-
-gen_time = data.get("generated_at", "—")
+# Thiếu screener KHÔNG chặn cả app nữa (P2): chỉ trang Bộ lọc cần nó — trang Hệ thống
+# phải mở được để bấm "📥 Cập nhật giá" khi kho trống.
+gen_time = (data or {}).get("generated_at", "—")
 
 
 def _screener_is_stale(generated_at: str, now: datetime) -> bool:
@@ -3198,13 +3114,10 @@ def _screener_is_stale(generated_at: str, now: datetime) -> bool:
 
 _screener_stale = _screener_is_stale(gen_time, datetime.now())
 
-_info_col, _update_col = st.columns([5, 3])
-with _info_col:
-    if _screener_stale:
-        st.markdown(f'<p class="updated-at" style="color:#f59e0b">⚠️ Screener cũ: {gen_time} — Bấm "📥 Cập nhật giá" để làm mới</p>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<p class="updated-at">Cập nhật lúc: {gen_time}</p>', unsafe_allow_html=True)
-with _update_col:
+def _render_pipeline_controls() -> None:
+    """3 nút pipeline 📥/🧩/🚀 + khoá theo marker "pipeline đang chạy" — trang Hệ thống (P2).
+
+    Trước P2 nằm đầu MỌI tab; nay một chỗ. Logic khoá giữ nguyên."""
     # Kho dùng chung qua Dropbox: chạy khi máy kia đang chạy = hai máy cùng ghi
     # `prices/` ⇒ conflicted copy (CLAUDE.md, hệ quả #3).
     _pl_running, _pl_why = _is_pipeline_running(
@@ -3354,138 +3267,25 @@ with _update_col:
                     "Khi xong, bấm **🔄 Refresh** để load dữ liệu mới."
                 )
 
-total_tickers = data.get("total_tickers", 0)
-classified    = data.get("classified_tickers", 0)
-presets_data  = data.get("presets", {})
+_d = data or {}
+total_tickers = _d.get("total_tickers", 0)
+classified    = _d.get("classified_tickers", 0)
+presets_data  = _d.get("presets", {})
 total_hits    = sum(v.get("count", 0) for v in presets_data.values())
 top_preset    = max(presets_data.items(), key=lambda x: x[1].get("count", 0), default=("—", {}))
-industry_summary = data.get("industry_summary", {})
+industry_summary = _d.get("industry_summary", {})
 
-# ── Theme toggle ──────────────────────────────────────────────────────────────
+# ── Sidebar chung (render MỌI lượt, mọi trang) ────────────────────────────────
+# 3 badge tests/doctor/model cũ ở đây đã gộp thành chấm "Hệ thống" trên thanh trạng
+# thái + trang Hệ thống (P2, dashboard/status_strip.py).
 with st.sidebar:
-    # ── Test status badge ──────────────────────────────────────────────
-    try:
-        _ts_path = Path("data_warehouse/_meta/test_status.json")
-        if _ts_path.exists():
-            _ts = json.loads(_ts_path.read_text(encoding="utf-8"))
-            _ts_ran = _ts.get("ran_at", "")
-            _ts_passed = _ts.get("passed", 0)
-            _ts_failed = _ts.get("failed", 0)
-            _ts_errors = _ts.get("errors", 0)
-            _ts_mode   = _ts.get("mode", "?")
-            _ts_total_bad = _ts_failed + _ts_errors
-            # Age
-            try:
-                _age_d = (datetime.now() - datetime.fromisoformat(_ts_ran)).days
-                _age_str = f"{_age_d}d trước" if _age_d > 0 else "hôm nay"
-            except Exception:
-                _age_str = "?"
-            _ts_color = "#22c55e" if _ts_total_bad == 0 else "#ef4444"
-            _ts_icon  = "✅" if _ts_total_bad == 0 else "❌"
-            st.markdown(
-                f'<div style="padding:6px 10px;border-radius:6px;'
-                f'border:1px solid {_ts_color};background:rgba(30,41,59,0.4);'
-                f'font-size:11px;color:{_ts_color};margin-bottom:8px;'
-                f'font-family:\'IBM Plex Sans\',sans-serif">'
-                f'{_ts_icon} <b>Tests {_ts_mode}</b>: {_ts_passed} passed'
-                + (f", <b>{_ts_total_bad} fail</b>" if _ts_total_bad else "")
-                + f'<br><span style="color:#9ca3af">Chạy {_age_str} · {_ts.get("elapsed_s","?")}s</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                '<div style="padding:6px 10px;border-radius:6px;'
-                'border:1px solid #6b7280;background:rgba(30,41,59,0.4);'
-                'font-size:11px;color:#9ca3af;margin-bottom:8px;'
-                'font-family:\'IBM Plex Sans\',sans-serif">'
-                '⏸ Tests chưa chạy.<br>'
-                '<code>python run.py test --fast</code>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
-    except Exception:
-        st.caption("⚠ không đọc được test_status.json")
-
-    # ── Doctor badge (sức khỏe nguồn dữ liệu — run.py doctor) ──────────
-    try:
-        _dr_path = Path("data_warehouse/_meta/doctor_status.json")
-        if _dr_path.exists():
-            _dr = json.loads(_dr_path.read_text(encoding="utf-8"))
-            _dr_counts = _dr.get("counts", {})
-            _dr_worst = _dr.get("worst", "ok")
-            try:
-                _dr_age_d = (datetime.now()
-                             - datetime.fromisoformat(_dr.get("ran_at", ""))).days
-                _dr_age = f"{_dr_age_d}d trước" if _dr_age_d > 0 else "hôm nay"
-            except Exception:
-                _dr_age = "?"
-            _dr_color = {"ok": "#22c55e", "off": "#9ca3af",
-                         "warn": "#eab308", "error": "#ef4444"}.get(_dr_worst, "#9ca3af")
-            _dr_parts = " · ".join(
-                f"{_dr_counts.get(_s, 0)}{_i}"
-                for _s, _i in (("ok", "✅"), ("warn", "⚠️"), ("off", "⬜"), ("error", "❌"))
-                if _dr_counts.get(_s, 0))
-            st.markdown(
-                f'<div style="padding:6px 10px;border-radius:6px;'
-                f'border:1px solid {_dr_color};background:rgba(30,41,59,0.4);'
-                f'font-size:11px;color:{_dr_color};margin-bottom:8px;'
-                f'font-family:\'IBM Plex Sans\',sans-serif">'
-                f'🩺 <b>Nguồn dữ liệu</b>: {_dr_parts or "?"}'
-                f'<br><span style="color:#9ca3af">Khám {_dr_age} · {_dr.get("machine", "?")}'
-                f' · {_dr.get("mode", "?")}'
-                f' · <code>run.py doctor</code></span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-    except Exception:
-        st.caption("⚠ không đọc được doctor_status.json")
-
-    # ── Model watch badge (ladder LLM — run.py models, chạy T7 hàng tuần) ──
-    try:
-        _mw_path = Path("data_warehouse/_meta/model_status.json")
-        if _mw_path.exists():
-            _mw = json.loads(_mw_path.read_text(encoding="utf-8"))
-            _mw_level = _mw.get("level", "green")
-            try:
-                _mw_age_d = (datetime.now()
-                             - datetime.fromisoformat(_mw.get("ran_at", ""))).days
-                _mw_age = f"{_mw_age_d}d trước" if _mw_age_d > 0 else "hôm nay"
-            except Exception:
-                _mw_age = "?"
-            _mw_color = {"green": "#22c55e", "warn": "#eab308",
-                         "red": "#ef4444", "skipped": "#9ca3af"}.get(_mw_level, "#9ca3af")
-            _mw_probe = _mw.get("probe") or {}
-            _mw_gone = len((_mw.get("catalog") or {}).get("gone_in_use", []))
-            _mw_ripe = sum(1 for _p in (_mw.get("proposals") or []) if _p.get("ripe"))
-            _mw_slow = len((_mw.get("latency") or {}).get("slow", []))
-            _mw_line = (f'{_mw_probe.get("ok", 0)}✅'
-                        + (f' · {_mw_probe.get("fail", 0)}❌' if _mw_probe.get("fail") else "")
-                        + (f' · {_mw_gone}🗑 đang dùng bị gỡ' if _mw_gone else "")
-                        + (f' · {_mw_slow}🐌 chậm bất thường' if _mw_slow else "")
-                        + (f' · {_mw_ripe}💡 đề xuất' if _mw_ripe else ""))
-            st.markdown(
-                f'<div style="padding:6px 10px;border-radius:6px;'
-                f'border:1px solid {_mw_color};background:rgba(30,41,59,0.4);'
-                f'font-size:11px;color:{_mw_color};margin-bottom:8px;'
-                f'font-family:\'IBM Plex Sans\',sans-serif">'
-                f'🧠 <b>Ladder model</b>: {_mw_line or "?"}'
-                f'<br><span style="color:#9ca3af">Soi {_mw_age}'
-                f' · <code>run.py models</code></span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-    except Exception:
-        st.caption("⚠ không đọc được model_status.json")
-
     # ── 🔴 Live Mode — công tắc ĐỘNG CƠ WSS, đặt ở sidebar CHUNG ─────────────
     # Phải nằm đây (render mọi lượt, mọi tab) chứ không trong tab Phân tích:
     # widget nằm trong tab là bị Streamlit dọn session_state khi user rời tab
     # (bug 17/08 — heatmap Thị trường không bao giờ hiện), và tên na ná các
     # toggle "Live Scan" của Screener/Dòng Tiền làm user bật nhầm công tắc.
     # Key widget vẫn TÁCH khỏi key cờ: tab khác đọc st.session_state["live_mode"].
-    st.divider()
-    st.markdown("### 🔴 Live Mode")
+    st.markdown('<div class="vn-side-label">Live</div>', unsafe_allow_html=True)
     if WSS_AVAILABLE:
         _live_on = st.toggle(
             "Real-time WSS",
@@ -3503,18 +3303,16 @@ with st.sidebar:
                 _status_label = _wss_status.get("status", "unknown")
                 _mode_label = _wss_status.get("mode", "?")
                 _color = {
-                    "connected": "#10b981",
-                    "reconnecting": "#fbbf24",
-                    "market_closed": "#6b7280",
-                    "error": "#ef4444",
-                    "disconnected": "#6b7280",
-                }.get(_status_label, "#6b7280")
+                    "connected": _T["up"],
+                    "reconnecting": _T["warn"],
+                    "error": _T["down"],
+                }.get(_status_label, _T["text_off"])   # market_closed / disconnected
                 st.markdown(
                     f'<div style="display:flex;align-items:center;gap:8px;padding:6px 0">'
                     f'<span style="width:8px;height:8px;border-radius:50%;background:{_color};'
                     f'box-shadow:0 0 8px {_color}"></span>'
-                    f'<span style="color:#d1d5db;font-size:12px">{_status_label.upper()}</span>'
-                    f'<span style="color:#6b7280;font-size:11px">({_mode_label})</span>'
+                    f'<span style="color:{_T["text"]};font-size:12px">{_status_label.upper()}</span>'
+                    f'<span style="color:{_T["text_faint"]};font-size:11px">({_mode_label})</span>'
                     f'</div>',
                     unsafe_allow_html=True
                 )
@@ -3555,21 +3353,14 @@ with st.sidebar:
         st.session_state["live_scan"] = False
         st.caption("⚠ Module `vnstock_wss` chưa có — Live mode không khả dụng")
 
+    # Công tắc "☀️ Light mode" cũ đã BỎ (P1): nó chỉ đè 9 selector — nửa sáng nửa tối.
+    # Sáng/tối thật (P4): theo hệ điều hành hoặc menu ⋮ của Streamlit (System/Light/Dark).
+    # Đổi trong menu KHÔNG chạy lại script ⇒ iframe ẩn thấy nền lệch thì bấm nút ẩn này
+    # một lần (dashboard/theme.py::theme_watch_html). Cả hai bị CSS giấu.
+    st.button("Đồng bộ giao diện", key=_THEME_SYNC_KEY)
+    with st.container(key=_THEME_WATCH_KEY):
+        _stc.html(_theme_watch_html(_theme_current_mode()), height=0)
     st.divider()
-    _theme = st.toggle("☀️ Light mode", value=False, key="light_mode")
-    if _theme:
-        _t = THEMES["light"]
-        st.markdown(f"""<style>
-        .stApp {{ background: {_t['bg']} !important; }}
-        .metric-card {{ background: {_t['card_bg']} !important; border-color: {_t['border']} !important; }}
-        .metric-card .value {{ color: {_t['text']} !important; }}
-        .metric-card .label, .metric-card .sub {{ color: {_t['text3']} !important; }}
-        .card {{ background: {_t['card_bg']} !important; border-color: {_t['border']} !important; }}
-        .card-title {{ color: {_t['text2']} !important; }}
-        .section-title {{ color: {_t['text2']} !important; }}
-        [data-testid="stSidebar"] {{ background: {_t['card_bg']} !important; }}
-        [data-testid="stMarkdownContainer"] p {{ color: {_t['text2']}; }}
-        </style>""", unsafe_allow_html=True)
 
 # All constants and functions are defined above this point.
 # Refresh the sys.modules alias on every run so tab modules that do
@@ -3577,139 +3368,169 @@ with st.sidebar:
 # (Streamlit creates a fresh __main__ on each hot-reload).
 sys.modules["vnstock_dashboard"] = sys.modules["__main__"]
 
-# ── NAVIGATION (dùng pills thay tabs để tránh lazy-render) ────────────────────
-_TAB_OPTIONS = ["📊 Screener", "🔬 Phân tích", "🌏 Thị trường", "🗞️ Tin tức", "💰 Dòng Tiền",
-                "📑 Phái sinh NN", "💱 Hàng hoá & Tiền tệ", "💼 Portfolio", "⚕️ Sức khỏe"]
-_active_tab = st.pills("Điều hướng", _TAB_OPTIONS, default="📊 Screener", key="nav_tab",
-                       label_visibility="collapsed")
-# Bấm lại pill đang chọn ⇒ pills trả None ⇒ không tab nào render: giữ tab trước.
-if _active_tab is None:
-    _active_tab = st.session_state.get("_nav_tab_last", "📊 Screener")
-st.session_state["_nav_tab_last"] = _active_tab
+# ── ĐIỀU HƯỚNG: st.navigation 5 nhóm (P2, docs/THIET-KE-GIAO-DIEN.md §5a) ─────────
+# Sổ trang ở dashboard/pages.py (thuần). Mỗi trang = một callable; Streamlit chỉ chạy
+# trang đang mở (như st.pills cũ) nhưng nay có URL riêng (/phan-tich…), F5 giữ trang,
+# Back được. Sidebar chung ở trên vẫn render mọi lượt ⇒ cờ Live Mode/Live Scan sống.
+from dashboard import ui as _ui  # noqa: E402
+from dashboard.pages import (  # noqa: E402
+    DEFAULT_URL as _DEFAULT_URL, MAIN as _PAGES_MAIN, sections as _page_sections,
+)
+from dashboard.status_strip import (  # noqa: E402
+    index_change as _index_change, session_phase as _session_phase,
+    system_items as _system_items, worst_level as _worst_level,
+)
 
-# ══════════════════════════════════════════════════════
-# TAB 1: SCREENER
-# ══════════════════════════════════════════════════════
-if _active_tab == "📊 Screener":
+
+def _page_screener() -> None:
+    """Bộ lọc — cần dữ liệu screener + tham số dựng ở script chính."""
+    if data is None:
+        _ui.show_error("Chưa có dữ liệu screener.")
+        st.caption('Vào trang **Hệ thống** bấm "📥 Cập nhật giá", hoặc chạy `python vnstock_runner.py`.')
+        return
+    from dashboard.screener_tab import render_screener_tab
+    render_screener_tab(
+        presets_data=presets_data,
+        industry_summary=industry_summary,
+        gen_time=gen_time,
+        total_tickers=total_tickers,
+        classified=classified,
+        total_hits=total_hits,
+        top_preset=top_preset,
+        stale_excluded=data.get("stale_excluded"),
+    )
+
+
+def _status_row_html(item: dict) -> str:
+    """Một dòng trạng thái (chấm + tên + nội dung + dòng phụ) cho popover / trang Hệ thống."""
+    return (f'<div style="display:flex;gap:10px;align-items:flex-start;margin:4px 0 10px">'
+            f'<span style="margin-top:7px">{_ui.status_dot(item["level"])}</span>'
+            f'<div><div style="color:{_T["text"]}"><b>{item["name"]}</b> — {item["text"]}</div>'
+            f'<div style="font-size:12px;color:{_T["text_faint"]}">{item["sub"]}</div></div></div>')
+
+
+def _page_system() -> None:
+    """Hệ thống: trạng thái · cập nhật dữ liệu (3 nút pipeline) · chẩn đoán · sức khoẻ nguồn."""
+    _ui.page_header("Hệ thống", "Trạng thái · cập nhật dữ liệu · chế độ chẩn đoán")
+    _ui.section("Trạng thái")
+    st.markdown("".join(_status_row_html(it) for it in _system_items()), unsafe_allow_html=True)
+
+    _ui.section("Cập nhật dữ liệu")
+    st.caption(f"Screener chạy lúc {gen_time}"
+               + (" — đã CŨ so với phiên hiện tại." if _screener_stale else "."))
+    _render_pipeline_controls()
+
+    _ui.section("Chẩn đoán")
+    _diag = st.toggle(
+        "Chế độ chẩn đoán", value=_ui.diag_on(), key="diag_mode_toggle",
+        help="Hiện stack trace, JSON thô và các khối Debug ở mọi trang. Tắt khi dùng hằng ngày.")
+    # Key widget TÁCH khỏi cờ (như Live Mode): rời trang là Streamlit dọn widget-state.
+    st.session_state[_ui.DIAG_FLAG] = _diag
+    st.divider()
+    from vnstock_health import render_health_tab
+    render_health_tab()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _vnindex_tail() -> tuple:
+    """(2 giá đóng cửa cuối, ngày phiên cuối 'YYYY-MM-DD') của VNINDEX từ KHO — không gọi mạng."""
     try:
-        from dashboard.screener_tab import render_screener_tab
-        render_screener_tab(
-            presets_data=presets_data,
-            industry_summary=industry_summary,
-            gen_time=gen_time,
-            total_tickers=total_tickers,
-            classified=classified,
-            total_hits=total_hits,
-            top_preset=top_preset,
-            stale_excluded=data.get("stale_excluded"),
-        )
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Screener tab: {_e}")
-        st.caption("Kiểm tra `dashboard/screener_tab.py` và các preset JSON.")
+        from vnstock_brief import _load_vnindex_df
+        df = _load_vnindex_df(augment=False)
+    except Exception:
+        log.exception("Thanh trạng thái: không đọc được VNINDEX từ kho")
+        return (), ""
+    if df is None or df.empty or "close" not in df.columns:
+        return (), ""
+    if "time" in df.columns:
+        # Dropbox đẻ "… (conflicted copy).parquet" ⇒ cùng ngày hai dòng ⇒ "+0.00%" giả (review P2).
+        df = df.sort_values("time").drop_duplicates("time", keep="last")
+    tail = df.tail(2)
+    last = str(tail["time"].iloc[-1])[:10] if "time" in tail.columns else ""
+    return tuple(float(x) for x in tail["close"]), last
 
 
-# ══════════════════════════════════════════════════════
-# TAB 2: PHÂN TÍCH
-# ══════════════════════════════════════════════════════
-if _active_tab == "🔬 Phân tích":
-    try:
-        from dashboard.analysis_tab import render_analysis_tab
-        render_analysis_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Phân tích tab: {_e}")
-        st.caption("Kiểm tra `dashboard/analysis_tab.py` và các cache trong `data_warehouse/`.")
+def _render_status_strip(system_page) -> None:
+    """Một dòng trên MỌI trang (§5b): VN-Index · phiên · dữ liệu · Live · Hệ thống · làm mới."""
+    mono = "font-family:'IBM Plex Mono',monospace"
+    parts = []
+    closes, last_day = _vnindex_tail()
+    chg = _index_change(closes)
+    if chg:
+        c, d, pct = chg
+        col = _T["up"] if d > 0 else (_T["down"] if d < 0 else _T["ref"])
+        arrow = "▲" if d > 0 else ("▼" if d < 0 else "■")
+        day = f' <span style="color:{_T["text_faint"]}">{last_day[8:10]}/{last_day[5:7]}</span>' if last_day else ""
+        parts.append(f'<span style="color:{_T["text_muted"]}">VN-Index</span> '
+                     f'<b style="{mono};color:{_T["text_strong"]};font-weight:500">{c:,.2f}</b> '
+                     f'<span style="{mono};color:{col}">{arrow} {pct:+.2f}%</span>{day}')
+    _, phase = _session_phase(datetime.now())
+    parts.append(f'<span style="color:{_T["text_muted"]}">Phiên</span> <span class="vn-chip">{phase}</span>')
+    if _screener_stale:
+        parts.append(f'<span style="color:{_T["warn"]}">⚠ Screener cũ ({str(gen_time)[:16].replace("T", " ")}) — '
+                     f'vào Hệ thống bấm "📥 Cập nhật giá"</span>')
+    elif data is None:
+        parts.append(f'<span style="color:{_T["warn"]}">⚠ Chưa có dữ liệu screener — vào Hệ thống bấm '
+                     f'"📥 Cập nhật giá"</span>')
+    else:
+        parts.append(f'<span style="color:{_T["text_muted"]}">Dữ liệu</span> '
+                     f'<span style="{mono}">{str(gen_time)[:16].replace("T", " ")}</span>')
+    _live = bool(st.session_state.get("live_mode"))
+    parts.append(f'{_ui.status_dot("ok" if _live else "off")} '
+                 f'<span style="color:{_T["text_muted"]}">Live {"bật" if _live else "tắt"}</span>')
+
+    # Cột nút đủ rộng cho "Hệ thống" + "Làm mới" trên cùng một hàng ở màn laptop 1366px (P5).
+    # (`st.container(wrap=False)` chỉ có từ Streamlit 1.66 — 1.56 ném TypeError.)
+    c_info, c_act = st.columns([5, 2.7], vertical_alignment="center", gap="small")
+    c_info.markdown('<div class="vn-strip">' + "".join(f'<span class="vn-strip-item">{p}</span>' for p in parts)
+                    + "</div>", unsafe_allow_html=True)
+    items = _system_items()
+    lvl = _worst_level(i["level"] for i in items)
+    color = {"ok": "green", "warn": "orange", "error": "red", "off": "gray"}[lvl]
+    with c_act.container(horizontal=True, horizontal_alignment="right", vertical_alignment="center"):
+        with st.popover(f":{color}[●] Hệ thống",
+                        help={"ok": "Tests, nguồn dữ liệu, ladder model đều ổn",
+                              "warn": "Có mục cần xem", "error": "Có mục ĐỎ — xem trước khi merge/deploy",
+                              "off": "Chưa có số (chưa chạy test/doctor/models)"}[lvl]):
+            st.markdown("".join(_status_row_html(it) for it in items), unsafe_allow_html=True)
+            st.page_link(system_page, label="Mở trang Hệ thống", icon=":material/arrow_forward:")
+        if st.button("Làm mới", icon=":material/refresh:", key="top_refresh",
+                     help="**Vẽ lại dashboard** (~1 giây): xoá cache RAM rồi đọc lại file hiện có — "
+                          "KHÔNG tính lại screener, KHÔNG tải giá mới."):
+            st.cache_data.clear()
+            st.rerun()
 
 
-
-# ══════════════════════════════════════════════════════
-# TAB 3: THỊ TRƯỜNG
-# ══════════════════════════════════════════════════════
-if _active_tab == "🌏 Thị trường":
-    try:
-        from dashboard.market_tab import render_market_tab
-        render_market_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Thị trường tab: {_e}")
-        st.caption("Kiểm tra `dashboard/market_tab.py` và cache `data_warehouse/_meta/`.")
-
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB: DÒNG TIỀN (Money Flow)
-# ══════════════════════════════════════════════════════════════════════════════
-if _active_tab == "💰 Dòng Tiền":
-    try:
-        from dashboard.money_flow_tab import render_money_flow_tab
-        render_money_flow_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Dòng Tiền tab: {_e}")
-        st.caption("Kiểm tra `dashboard/money_flow_tab.py` và các cache trong `data_warehouse/_meta/`.")
+def _page_runner(spec):
+    """Bọc một trang: lỗi ⇒ log đủ traceback + MỘT câu cho người dùng (chi tiết ở chẩn đoán)."""
+    def _run() -> None:
+        try:
+            if spec.module == _PAGES_MAIN:
+                fn = globals()[spec.func]
+            else:
+                import importlib
+                fn = getattr(importlib.import_module(spec.module), spec.func)
+            fn()
+        except Exception as _e:
+            log.exception("Không render được trang %s", spec.title)
+            _ui.show_error(f"Không mở được trang {spec.title}.", _e)
+    _run.__name__ = "page_" + spec.url_path.replace("-", "_")
+    return _run
 
 
+_PAGE_OBJS: dict = {}
+_NAV_SPEC: dict = {}
+for _sec, _specs in _page_sections().items():
+    _NAV_SPEC[_sec] = []
+    for _spec in _specs:
+        _PAGE_OBJS[_spec.url_path] = st.Page(
+            _page_runner(_spec), title=_spec.title, icon=_spec.icon,
+            url_path=_spec.url_path, default=(_spec.url_path == _DEFAULT_URL))
+        _NAV_SPEC[_sec].append(_PAGE_OBJS[_spec.url_path])
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB: Portfolio
-# ══════════════════════════════════════════════════════════════════════════════
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB: PHÁI SINH NN (vị thế ròng khối ngoại HĐTL VN30 — chỉ đọc kho data_warehouse/futures, U88)
-# ══════════════════════════════════════════════════════════════════════════════
-if _active_tab == "📑 Phái sinh NN":
-    try:
-        from dashboard.futures_foreign_tab import render_futures_foreign_tab
-        render_futures_foreign_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được tab Phái sinh NN: {_e}")
-        st.caption("Kiểm tra `dashboard/futures_foreign_tab.py`, `vnstock_futures_foreign_view.py` "
-                   "và kho `data_warehouse/futures/`.")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB: HÀNG HOÁ & TIỀN TỆ (vàng · dầu · USD — chỉ đọc kho data_warehouse/assets, U83)
-# ══════════════════════════════════════════════════════════════════════════════
-if _active_tab == "💱 Hàng hoá & Tiền tệ":
-    try:
-        from dashboard.assets_tab import render_assets_tab
-        render_assets_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được tab Hàng hoá & Tiền tệ: {_e}")
-        st.caption("Kiểm tra `dashboard/assets_tab.py`, `vnstock_assets_view.py` và kho `data_warehouse/assets/`.")
-
-if _active_tab == "🗞️ Tin tức":
-    try:
-        from dashboard.news_tab import render_news_tab
-        render_news_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Tin tức tab: {_e}")
-        st.caption("Kiểm tra `dashboard/news_tab.py` và `vnstock_news.py`.")
-
-if _active_tab == "💼 Portfolio":
-    try:
-        from dashboard.portfolio_tab import render_portfolio_tab
-        render_portfolio_tab(Path("data_warehouse"))
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Portfolio tab: {_e}")
-        st.caption("Kiểm tra `dashboard/portfolio_tab.py` và `data_warehouse/_meta/portfolio.json`.")
-
-
-# ══════════════════════════════════════════════════════
-# TAB 6: SYSTEM HEALTH (Feature 3C)
-# ══════════════════════════════════════════════════════
-if _active_tab == "⚕️ Sức khỏe":
-    try:
-        from vnstock_health import render_health_tab
-        render_health_tab()
-    except Exception as _e:
-        log.exception("Không render được tab %s", _active_tab)
-        st.error(f"Không render được Health tab: {_e}")
-        st.caption("Kiểm tra `vnstock_health.py` và các file metadata trong `data_warehouse/_meta/`.")
+_nav = st.navigation(_NAV_SPEC, position="top")
+try:
+    _render_status_strip(_PAGE_OBJS["he-thong"])
+except Exception:  # thanh trạng thái hỏng KHÔNG được kéo sập trang (nhất là trang Hệ thống)
+    log.exception("Thanh trạng thái lỗi")
+_nav.run()

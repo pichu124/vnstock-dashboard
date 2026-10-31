@@ -5,6 +5,8 @@ chưa có lịch sử chấm điểm thì im lặng, không phải lỗi.
 """
 from __future__ import annotations
 
+from dashboard.theme import TOKENS as _T, rgba, status_color
+
 
 def vnindex_closes():
     """Chuỗi đóng cửa VNINDEX dùng chung widget này + panel Lịch sử brief.
@@ -50,21 +52,21 @@ def render_accuracy_widget() -> None:
                     _ne  = _slot.get("n_evaluated") or 0
                     _ok = bool(_slot.get("reliable"))
                     _emoji = (("🥇", "🥈", "🥉")[_i] if _i < 3 else "🎖") if _ok else "⏳"
-                    _color = (
-                        "#9ca3af" if not _ok
-                        else "#22c55e" if _acc >= 0.6
-                        else "#fbbf24" if _acc >= 0.5
-                        else "#ef4444"
+                    _color = status_color(
+                        "off" if not _ok
+                        else "ok" if _acc >= 0.6
+                        else "warn" if _acc >= 0.5
+                        else "error"
                     )
                     with _lc[_i]:
                         st.markdown(
                             f"<div style='text-align:center;padding:8px;"
                             f"border:1px solid {_color};border-radius:6px;"
-                            f"background:rgba(30,41,59,0.4)'>"
+                            f"background:{rgba(_T['surface_2'], 0.4)}'>"
                             f"<div style='font-size:18px'>{_emoji} <b>{_nm}</b></div>"
                             f"<div style='font-size:24px;color:{_color};font-weight:700'>"
                             f"{_fmt_acc(_slot)}</div>"
-                            f"<div style='font-size:11px;color:#9ca3af'>"
+                            f"<div style='font-size:11px;color:{_T['text_muted']}'>"
                             f"{_slot.get('n_match',0)} / {_ne} matched</div>"
                             f"</div>",
                             unsafe_allow_html=True,

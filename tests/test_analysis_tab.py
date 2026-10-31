@@ -299,13 +299,13 @@ def test_futures_button_wins_over_previous_selectbox_pick():
 _FN_BODY = next(n for n in _TAB_TREE.body if isinstance(n, ast.FunctionDef)).body
 
 
-def _dashboard_fn(name: str):
+def _dashboard_fn(name: str, **globs):
     """Hàm THẬT của vnstock_dashboard (module đó dựng UI khi import ⇒ lấy từ source)."""
     src = (Path(__file__).resolve().parent.parent / "vnstock_dashboard.py").read_text(
         encoding="utf-8")
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == name)
-    ns: dict = {"pd": pd}
+    ns: dict = {"pd": pd, **globs}
     exec(compile(ast.Module([fn], []), "vnstock_dashboard.py", "exec"), ns)
     return ns[name]
 
@@ -335,12 +335,14 @@ def test_today_bar_writer_only_for_daily_views(tf, writes_bar, live):
     """1W/1M: bar hôm nay mang time=hôm nay < nhãn kỳ cuối ⇒ JS chart luôn bỏ
     (`b.time < lastT`). Bộ ghi khi đó là code chết mà vẫn gọi VCI mỗi phút,
     cả ngoài giờ."""
+    import dashboard.analysis_tab as tab
     from tests.test_tab_render_smoke import _fake_streamlit
     block = next(n for n in _FN_BODY if isinstance(n, ast.If)
                  and ast.unparse(n.test) == "_live_daily")
     vci: list = []
     live_urls: list = []
-    ns = {"st": _fake_streamlit(), "tf": tf, "ticker": "VCB", "chart_df": pd.DataFrame(),
+    ns = {**vars(tab), "st": _fake_streamlit(), "tf": tf, "ticker": "VCB",
+          "chart_df": pd.DataFrame(),
           "_live_daily": live, "_live_intraday": False,
           "load_intraday": lambda t, interval: vci.append(interval) or pd.DataFrame(),
           "load_live_quote": lambda t: None,
@@ -357,12 +359,14 @@ def test_today_bar_writer_only_for_daily_views(tf, writes_bar, live):
 
 def test_fundamental_ratios_use_thousands_separator():
     """EPS 4523.12 đ / Book Value 25123.46 đ thiếu dấu phẩy nghìn (quy ước `{:,.2f}`)."""
+    import dashboard.analysis_tab as tab
     loop = next(n for n in ast.walk(_TAB_TREE) if isinstance(n, ast.For)
                 and ast.unparse(n.iter) == "ratios")
     html: list = []
     st = types.SimpleNamespace(markdown=lambda s, **kw: html.append(s))
     ratios = [("EPS", 4523.123, "đ"), ("Book Value", 25123.456, "đ"), ("P/E", 12.5, "lần")]
-    exec(compile(ast.Module([loop], []), "analysis_tab.py", "exec"), {"st": st, "ratios": ratios})
+    exec(compile(ast.Module([loop], []), "analysis_tab.py", "exec"),
+         {**vars(tab), "st": st, "ratios": ratios})
     assert "4,523.12 đ" in html[0]
     assert "25,123.46 đ" in html[1]
     assert "12.50 lần" in html[2]
@@ -400,3 +404,98 @@ def test_composite_card_when_fund_api_fails_says_tech_only():
     exec(compile(ast.Module(body[start:end + 1], []), "analysis_tab.py", "exec"), ns)
     assert "(chỉ technical)" in html[-1] and "60% fund" not in html[-1]
     assert "STRONG BUY" in html[-1] and "+0.80" in html[-1]
+
+
+# ── P3 giao diện: tiêu đề trang + màu giá theo bảng điện ────────────────────
+
+def test_page_title_shows_exchange_and_industry():
+    from dashboard.analysis_tab import page_title
+    assert page_title("VCB", "Vietcombank", "HOSE", "Ngân hàng") == (
+        "VCB — Vietcombank", "HOSE · Ngân hàng")
+    assert page_title("FPT", "FPT Corp", "", "Công nghệ") == ("FPT — FPT Corp", "Công nghệ")
+
+
+def test_page_title_without_company_name_or_meta():
+    """Hợp đồng tương lai / chỉ số không có trong bảng ngành: tên rơi về chính mã ⇒
+    không in "VN30F1M — VN30F1M", không dòng phụ rỗng."""
+    from dashboard.analysis_tab import page_title
+    assert page_title("VN30F1M", "VN30F1M", "", "") == ("VN30F1M", None)
+
+
+def _metric_row_items(closes: list) -> list:
+    """Chạy ĐÚNG đoạn `price = …` → `render_metric_row([...])` với giá kho `closes`."""
+    import dashboard.analysis_tab as tab
+    i0 = next(i for i, n in enumerate(_FN_BODY) if isinstance(n, ast.Assign)
+              and ast.unparse(n.targets[0]) == "price")
+    i1 = next(i for i, n in enumerate(_FN_BODY) if isinstance(n, ast.Expr)
+              and ast.unparse(n).startswith("render_metric_row("))
+    df = pd.DataFrame({"time": pd.bdate_range("2026-10-26", periods=len(closes)),
+                       "close": closes})
+    chg1d = round((closes[-1] / closes[-2] - 1) * 100, 2) if len(closes) > 1 else None
+    got: list = []
+    ns = {**vars(tab), "df": df, "render_metric_row": got.extend,
+          "fmt_pct": _dashboard_fn("fmt_pct"),
+          "tech": {"price": closes[-1], "chg1d": chg1d, "pct52": 50.0,
+                   "lo52": min(closes), "hi52": max(closes)}}
+    exec(compile(ast.Module(_FN_BODY[i0:i1 + 1], []), "analysis_tab.py", "exec"), ns)
+    return got
+
+
+@pytest.mark.parametrize("closes, token", [
+    ([50.0, 51.0], "up"), ([50.0, 49.0], "down"),
+    ([50.0, 50.0], "ref"),          # đứng giá = vàng tham chiếu (bản cũ: trắng / "0.0%")
+    ([50.0], "text_faint"),         # không có phiên trước ⇒ không đoán chiều
+])
+def test_price_and_1d_change_use_board_colors(closes, token):
+    """Giá + "1 ngày" tô theo tham chiếu (= đóng cửa phiên trước) như bảng điện VN;
+    5/20 ngày vẫn tô theo dấu (không ép màu)."""
+    from dashboard.theme import TOKENS
+    items = _metric_row_items(closes)
+    assert items[0][:2] == ("Giá hiện tại", f"{closes[-1]:,.1f}")
+    assert items[0][3] == TOKENS[token]
+    assert items[1][0] == "1 ngày" and items[1][3] == TOKENS[token]
+    assert all(len(it) == 3 for it in items[2:])
+
+
+def test_metric_row_color_override_wins_over_sign():
+    """Phần tử thứ 4 là màu ép; thiếu thì vẫn tô theo dấu `+`/`-` như cũ."""
+    from dashboard.theme import TOKENS
+    from tests.test_tab_render_smoke import _fake_streamlit
+    st = _fake_streamlit()
+    row = _dashboard_fn("render_metric_row", st=st, _T=TOKENS)
+    row([("Giá", "51.0", "nghìn đồng", TOKENS["ref"]), ("5 ngày", "+1.2%", ""),
+         ("20 ngày", "-3.0%", ""), ("Khác", "12", "")])
+    html = [c.args[0] for c in st.markdown.call_args_list]
+    assert f"color:{TOKENS['ref']}\">51.0<" in html[0]
+    assert f"color:{TOKENS['up']}\">+1.2%<" in html[1]
+    assert f"color:{TOKENS['down']}\">-3.0%<" in html[2]
+    assert f"color:{TOKENS['text_strong']}\">12<" in html[3]
+
+
+def _live_daily_strip(quote: dict) -> str:
+    """HTML dải giá live của khung ngày (khối `if _live_daily:` thật, st giả)."""
+    import dashboard.analysis_tab as tab
+    from tests.test_tab_render_smoke import _fake_streamlit
+    block = next(n for n in _FN_BODY if isinstance(n, ast.If)
+                 and ast.unparse(n.test) == "_live_daily")
+    st = _fake_streamlit()
+    ns = {**vars(tab), "st": st, "tf": "1W", "ticker": "VCB", "chart_df": pd.DataFrame(),
+          "_live_daily": True, "_live_intraday": False,
+          "load_live_quote": lambda t: quote, "is_futures": lambda t: False,
+          "fetch_volume_profile_direct": lambda t: [],
+          "render_chart": lambda *a, **k: None}
+    exec(compile(ast.Module([block], []), "analysis_tab.py", "exec"), ns)
+    return next(c.args[0] for c in st.markdown.call_args_list if "BID/ASK" in c.args[0])
+
+
+@pytest.mark.parametrize("chg, token", [(1.2, "up"), (-0.8, "down"), (0.0, "ref")])
+def test_live_strip_price_and_change_colored_vs_reference(chg, token):
+    """Bảng điện: giá + %D cùng màu theo tham chiếu; 0% là vàng (bản cũ: `>= 0` ⇒ xanh)."""
+    import re
+    from dashboard.theme import TOKENS
+    html = _live_daily_strip({"price": 25.5, "chg_pct": chg, "volume": 1e6, "bid": 25.4,
+                              "ask": 25.5, "time": "2026-10-30T10:15:00"})
+    price = re.search(r"<span style='color:([^;']+);[^']*'>25\.50</span>", html)
+    pct = re.search(r"<span style='color:([^;']+);[^']*'>[+-]?\d+\.\d\d%</span>", html)
+    assert price and price.group(1) == TOKENS[token]
+    assert pct and pct.group(1) == TOKENS[token]

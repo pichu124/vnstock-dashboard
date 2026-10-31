@@ -16,9 +16,24 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
-_LONG, _SHORT = "#3987e5", "#d95926"                       # xanh · cam (phân cực long/short)
-_ROLE_COLORS = ("#3987e5", "#d95926", "#199e70", "#c98500")  # ô 1–4, thứ tự cố định theo kỳ hạn
-_PRICE = "#199e70"
+from dashboard import ui
+from dashboard.theme import PLOTLY_BG, TOKENS, rgba, series
+
+# Màu đọc LÚC VẼ (P4 sáng/tối — hằng cấp module đóng băng màu tối, review 31/10).
+def _long() -> str:          # xanh · cam = phân cực long/short
+    return series()[0]
+
+
+def _short() -> str:
+    return series()[1]
+
+
+def _role_colors() -> tuple[str, ...]:   # ô 1–4, thứ tự cố định theo kỳ hạn
+    return series()[:4]
+
+
+def _price() -> str:         # đường giá như đường chỉ số
+    return TOKENS["accent"]
 _REF = "rgba(150,150,150,0.85)"
 _RANGES = {"3 tháng": 92, "6 tháng": 183, "1 năm": 366, "Tất cả": None}
 
@@ -28,9 +43,9 @@ def render_futures_foreign_tab() -> None:
         import vnstock_futures_foreign as ff
         import vnstock_futures_foreign_view as fv
     except ImportError as e:
-        st.error(f"Không nạp được kho phái sinh: {e}")
+        ui.show_error("Không nạp được kho phái sinh.", e)
         return
-    st.markdown("### 📑 Phái sinh: vị thế ròng khối ngoại (HĐTL VN30)")
+    ui.page_header("Phái sinh NN", "Vị thế ròng khối ngoại HĐTL VN30")
     df = ff.load()
     if not len(df):
         st.info("Kho phái sinh trống — ○ máy nào cũng được, một lần: `python run.py futures-foreign --seed` "
@@ -59,7 +74,8 @@ def render_futures_foreign_tab() -> None:
             try:
                 fn()
             except Exception as e:                                 # noqa: BLE001
-                st.warning(f"Mục {name} lỗi khi vẽ: {type(e).__name__}: {e}")
+                st.warning(f"Mục {name} lỗi khi vẽ."
+                           + (f" {type(e).__name__}: {e}" if ui.diag_on() else ""))
 
 
 # ── đầu tab ──────────────────────────────────────────────────────────────────
@@ -117,14 +133,14 @@ def _layout(fig, height: int, yfmt: str = ",.0f", legend: bool = False):
     fig.update_layout(height=height, margin={"l": 10, "r": 10, "t": 30, "b": 10},
                       hovermode="x unified", showlegend=legend,
                       legend={"orientation": "h", "y": 1.12, "x": 0},
-                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      **PLOTLY_BG,
                       xaxis={"showgrid": False, "tickformat": "%d/%m/%y", "hoverformat": "%d/%m/%Y"},
-                      yaxis={"gridcolor": "rgba(128,128,128,0.15)", "tickformat": yfmt})
+                      yaxis={"gridcolor": rgba(TOKENS["text_muted"], 0.15), "tickformat": yfmt})
     return fig
 
 
 def _plot(title: str, fig) -> None:
-    st.markdown(f"###### {title}")
+    ui.section(title)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -149,19 +165,19 @@ def _render_position(fv, view) -> None:
     fig = go.Figure()
     _zero(fig, x)
     fig.add_trace(go.Scatter(x=x, y=view["after"], name="Vị thế ròng", mode="lines",
-                             line={"color": _LONG, "width": 2},
+                             line={"color": _long(), "width": 2},
                              hovertemplate="Vị thế ròng: %{y:+,.0f} HĐ<extra></extra>"))
     short = view["after"].where(view["after"] < 0)
     fig.add_trace(go.Scatter(x=x, y=short, name="Phiên short ròng", mode="lines",
-                             line={"color": _SHORT, "width": 2.5}, connectgaps=False,
+                             line={"color": _short(), "width": 2.5}, connectgaps=False,
                              hovertemplate="Short ròng: %{y:+,.0f} HĐ<extra></extra>"))
     _plot("Vị thế ròng khối ngoại sau đáo hạn — hợp đồng (đoạn cam: short ròng)", _layout(fig, 320, legend=True))
     px = view["next_close"]
     fig = go.Figure(go.Scatter(x=x, y=px, name="Giá HĐ tháng gần", mode="lines",
-                               line={"color": _PRICE, "width": 2},
+                               line={"color": _price(), "width": 2},
                                hovertemplate="Giá HĐ tháng gần: %{y:,.1f}<extra></extra>"))
     _plot("Giá đóng cửa HĐ tháng gần (sau đáo hạn) — điểm", _layout(fig, 220, yfmt=",.0f"))
-    colors = [_LONG if v >= 0 else _SHORT for v in view["flow"]]
+    colors = [_long() if v >= 0 else _short() for v in view["flow"]]
     fig = go.Figure(go.Bar(x=x, y=view["flow"], marker={"color": colors}, name="Dòng lệnh ròng",
                            hovertemplate="Dòng lệnh ròng: %{y:+,.0f} HĐ<extra></extra>"))
     _plot("Dòng lệnh ròng khối ngoại mỗi phiên — hợp đồng (xanh: mua nhiều hơn bán · cam: ngược lại)",
@@ -174,7 +190,7 @@ def _render_position(fv, view) -> None:
 # ── 🧩 Theo kỳ hạn ───────────────────────────────────────────────────────────
 def _render_terms(fv, s, pos, view) -> None:
     import plotly.graph_objects as go
-    st.markdown(f"###### Từng hợp đồng — phiên {s['date']}")
+    ui.section(f"Từng hợp đồng — phiên {s['date']}")
     tbl = fv.contract_table(s)
     if len(tbl):
         show = tbl.copy()
@@ -191,7 +207,7 @@ def _render_terms(fv, s, pos, view) -> None:
         return
     x = _x(roles)
     fig = go.Figure()
-    for name, color in zip(fv.ROLES, _ROLE_COLORS):
+    for name, color in zip(fv.ROLES, _role_colors()):
         fig.add_trace(go.Bar(x=x, y=roles[name], name=f"HĐ {name.lower()}", marker={"color": color},
                              hovertemplate=f"HĐ {name.lower()}: %{{y:+,.0f}} HĐ<extra></extra>"))
     fig.update_layout(barmode="relative", bargap=0.15)
@@ -205,7 +221,7 @@ def _render_terms(fv, s, pos, view) -> None:
 def _render_history(fv, pos, s) -> None:
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("###### Cuối mỗi tháng")
+        ui.section("Cuối mỗi tháng")
         me = fv.month_end_table(pos)
         if len(me):
             show = me.drop(columns=["Phiên"]).copy()
@@ -215,7 +231,7 @@ def _render_history(fv, pos, s) -> None:
             st.dataframe(show, hide_index=True, use_container_width=True, height=420)
     with c2:
         for sign, title in ((-1, "Các chuỗi short ròng (dài nhất trước)"), (1, "Các chuỗi long ròng (dài nhất trước)")):
-            st.markdown(f"###### {title}")
+            ui.section(title)
             t = fv.streak_table(pos, sign=sign, top=8)
             if len(t):
                 t = t.copy()
@@ -236,7 +252,7 @@ def _render_history(fv, pos, s) -> None:
 
 # ── 🔍 Dữ liệu ───────────────────────────────────────────────────────────────
 def _render_data(fv, df, pos) -> None:
-    st.markdown("###### Dòng nguồn thiếu trường khối ngoại")
+    ui.section("Dòng nguồn thiếu trường khối ngoại")
     q = fv.quality_table(df)
     if len(q):
         show = q.copy()

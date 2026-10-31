@@ -245,6 +245,9 @@ def test_ai_context_caption_tells_empty_cache_from_old_news(monkeypatch, on_disk
     st, news_tab = _news_tab_with_fake_st(monkeypatch)
     st.session_state["_news_data"] = [
         {"news_title": "Tin cũ", "ticker": "VCB", "_date_sort": "2026-10-01"}]
+    # Khối "context đang inject vào AI" là ruột pipeline ⇒ từ P2 giao diện chỉ hiện
+    # ở chế độ chẩn đoán (trang Hệ thống).
+    st.session_state["diag_mode"] = True
     st.selectbox = lambda label, options=(), key=None, **k: (
         "Tất cả" if key == "_news_recency_filter" else list(options)[0])
 
@@ -255,6 +258,37 @@ def test_ai_context_caption_tells_empty_cache_from_old_news(monkeypatch, on_disk
     assert not any(reject in s for s in captions), captions
     if on_disk:
         assert any(f"{NEWS_FALLBACK_DAYS} ngày" in s for s in captions), captions
+
+
+def test_ticker_news_page_title_and_raw_keys_only_in_diag(monkeypatch):
+    """Trang "Tin theo mã": tiêu đề chuẩn thay "#### 🗞️ …"; tin thiếu tiêu đề chỉ báo một câu —
+    JSON thô của item là ruột, chỉ hiện ở chế độ chẩn đoán (trang Hệ thống)."""
+    import re
+    import sys
+    import types
+
+    nn = types.ModuleType("vnstock_news")
+    nn.NEWS_CACHE_PATH = __import__("pathlib").Path("không-có-news_cache.json")
+    nn.cache_info = lambda: {"exists": True, "count": 1, "age_minutes": 5}
+    nn.load_news_cache = lambda: [{"ticker": "VCB", "_date_sort": "2026-10-16"}]  # thiếu tiêu đề
+    nn.news_context_block = lambda **k: ""
+    monkeypatch.setitem(sys.modules, "vnstock_news", nn)
+    monkeypatch.setitem(sys.modules, "vnstock_sentiment", None)
+    st, news_tab = _news_tab_with_fake_st(monkeypatch)
+    st.selectbox = lambda label, options=(), key=None, **k: (
+        "Tất cả" if key == "_news_recency_filter" else list(options)[0])
+
+    news_tab.render_ticker_news()
+
+    md = [str(c.args[0]) for c in st.markdown.call_args_list if c.args]
+    assert any(">Tin theo mã<" in s for s in md), md
+    assert not [s for s in md if re.match(r"\s*#{1,6}\s", s)], md
+    assert any("thiếu trường tiêu đề" in str(c.args[0]) for c in st.warning.call_args_list)
+    assert not st.json.called
+
+    st.session_state["diag_mode"] = True
+    news_tab.render_ticker_news()
+    assert st.json.called
 
 
 @pytest.mark.parametrize("raw,expect_prefix,reject_prefix", [
@@ -385,34 +419,32 @@ def test_specific_date_filter_uses_vn_calendar_day(monkeypatch):
     assert shown == ["Tin không tz"]
 
 
-# ─── Sub-tab lười + đệm cache_info ───────────────────────────────────────────
+# ─── Tab lười (dùng ở trang Hàng hoá & Tiền tệ) + đệm cache_info ─────────────
 
 @pytest.mark.parametrize("stateful,expect", [
-    (True, ["macro"]),                                          # streamlit có `on_change`: chỉ tab mở
-    (False, ["ticker", "macro", "rates", "reports", "alloc"]),  # bản cũ: chạy hết như trước
+    (True, ["b"]),               # streamlit có `on_change`: chỉ tab đang mở chạy
+    (False, ["a", "b", "c"]),    # bản cũ: chạy hết như trước
 ])
-def test_news_subtabs_run_only_open_tab_when_supported(monkeypatch, stateful, expect):
-    import sys
-    import types
+def test_lazy_tabs_run_only_open_tab_when_supported(monkeypatch, stateful, expect):
+    """Từ P2 tab con của Tin tức là trang riêng; `lazy_tabs` còn phục vụ assets_tab."""
     from tests.test_tab_render_smoke import _stateful_tabs
 
-    ran = []
-    for mod, fn, tag in (("dashboard.macro_tab", "render_macro_subtab", "macro"),
-                         ("dashboard.rates_report_tab", "render_rates_report_subtab", "rates"),
-                         ("dashboard.reports_tab", "render_reports_subtab", "reports"),
-                         ("dashboard.allocation_tab", "render_allocation_subtab", "alloc")):
-        m = types.ModuleType(mod)
-        setattr(m, fn, lambda tag=tag: ran.append(tag))
-        monkeypatch.setitem(sys.modules, mod, m)
     st, news_tab = _news_tab_with_fake_st(monkeypatch)
-    monkeypatch.setattr(news_tab, "_render_ticker_news", lambda: ran.append("ticker"))
     if stateful:
         st.tabs = _stateful_tabs(open_idx=1)
-
-    news_tab.render_news_tab()
-
+    ran = []
+    for tab, tag in zip(news_tab.lazy_tabs(st, ["A", "B", "C"], key="_k"), ("a", "b", "c")):
+        if news_tab.tab_open(tab):
+            ran.append(tag)
     assert ran == expect
-    assert not st.error.called
+
+
+def test_old_news_subtab_dispatcher_is_gone(monkeypatch):
+    """5 tab con cũ thành trang (dashboard/pages.py) — dispatcher cũ không được sống lại
+    song song (vẽ gấp đôi, hai nơi cho một nội dung)."""
+    _, news_tab = _news_tab_with_fake_st(monkeypatch)
+    assert not hasattr(news_tab, "render_news_tab") and not hasattr(news_tab, "_SUBTABS")
+    assert callable(news_tab.render_ticker_news)
 
 
 def test_cache_info_parsed_once_per_file_version(monkeypatch, tmp_path):

@@ -28,6 +28,7 @@ import pytest
 
 from dashboard.chart_indicators import compute_indicators
 from dashboard.table_style import cell_color, cell_weight
+from dashboard.theme import TOKENS as T, font_face_css, lwc_palette
 from dashboard.watchlist_io import load_watchlist, save_watchlist
 from vnstock_console_launch import build_ps_command
 from vnstock_parquet_io import write_json_atomic
@@ -172,41 +173,41 @@ class TestNormalizeMissingColumns:
 class TestCellColorUncoveredBranches:
 
     def test_trend_up_is_green(self):
-        assert cell_color("Trend", "UP") == "#10b981"
+        assert cell_color("Trend", "UP") == T["up"]
 
     @pytest.mark.parametrize("val", ["DOWN", "DN", "down", "dn"])
     def test_trend_down_variants_are_red(self, val):
-        assert cell_color("Trend", val) == "#ef4444"
+        assert cell_color("Trend", val) == T["down"]
 
     def test_trend_unknown_is_neutral(self):
-        assert cell_color("Trend", "SIDEWAY") == "#9ca3af"
+        assert cell_color("Trend", "SIDEWAY") == T["text_muted"]
 
     def test_ticker_and_industry_have_own_colors(self):
-        assert cell_color("Ticker", "VCB") == "#60a5fa"
-        assert cell_color("Ngành", "Ngân hàng") == "#a78bfa"
+        assert cell_color("Ticker", "VCB") == T["link"]
+        assert cell_color("Ngành", "Ngân hàng") == T["category"]
 
     def test_rsi_soft_bands(self):
         """Bậc 40/60 (cảnh báo mềm) — replica cũ nhảy thẳng từ 30 sang 70."""
-        assert cell_color("RSI", "35") == "#6ee7b7"
-        assert cell_color("RSI", "65") == "#fca5a5"
-        assert cell_color("RSI", "50") == "#e5e7eb"
+        assert cell_color("RSI", "35") == T["up_soft"]
+        assert cell_color("RSI", "65") == T["down_soft"]
+        assert cell_color("RSI", "50") == T["text"]
 
     @pytest.mark.parametrize("val,expected", [
-        ("BUY", "#10b981"), ("BULL", "#34d399"),
-        ("SELL", "#ef4444"), ("BEAR", "#f87171"),
-        ("buy", "#10b981"),
+        ("BUY", T["up"]), ("BULL", T["up_soft"]),
+        ("SELL", T["down"]), ("BEAR", T["down_soft"]),
+        ("buy", T["up"]),
     ])
     def test_macd_palette(self, val, expected):
         assert cell_color("MACD", val) == expected
 
     def test_macd_unknown_is_neutral(self):
-        assert cell_color("MACD", "???") == "#9ca3af"
+        assert cell_color("MACD", "???") == T["text_muted"]
 
     def test_unknown_column_gets_default(self):
-        assert cell_color("Vốn hoá", "12,345") == "#d1d5db"
+        assert cell_color("Vốn hoá", "12,345") == T["text"]
 
     def test_empty_string_is_empty_gray(self):
-        assert cell_color("Ticker", "") == "#4b5563"
+        assert cell_color("Ticker", "") == T["text_faint"]
 
 
 class TestCellWeightUncoveredBranches:
@@ -488,15 +489,15 @@ class _Rerun(Exception):
 
 
 def _run_alert_sidebar(alert_env, **session):
-    """Chạy ĐÚNG khối 🔔 Price Alerts ở sidebar analysis_tab, bấm "✅ Tạo alert"
+    """Chạy ĐÚNG khối "Cảnh báo giá" ở sidebar analysis_tab, bấm "✅ Tạo alert"
     (nút giả tôn trọng `disabled` như Streamlit thật)."""
-    from dashboard.analysis_tab import _ALERT_SAVE_FAIL_MAX
+    import dashboard.analysis_tab as tab
     from tests.test_tab_render_smoke import _fake_streamlit
 
     tree = ast.parse((_ROOT / "dashboard" / "analysis_tab.py").read_text(encoding="utf-8"))
     side = next(n for n in ast.walk(tree)
-                if isinstance(n, ast.With) and "🔔 Price Alerts" in ast.unparse(n))
-    start = next(i for i, n in enumerate(side.body) if "🔔 Price Alerts" in ast.unparse(n))
+                if isinstance(n, ast.With) and "Cảnh báo giá" in ast.unparse(n))
+    start = next(i for i, n in enumerate(side.body) if "Cảnh báo giá" in ast.unparse(n))
     st = _fake_streamlit()
     st.button = lambda label, key=None, **k: key == "alert_create" and not k.get("disabled")
     st.text_input = lambda label, **k: "VCB" if k.get("key") == "alert_ticker" else ""
@@ -507,8 +508,7 @@ def _run_alert_sidebar(alert_env, **session):
 
     st.rerun = _rerun
     st.session_state.update(session)
-    ns = {"st": st, "ALERTS_PATH": alert_env["ALERTS_PATH"],
-          "_ALERT_SAVE_FAIL_MAX": _ALERT_SAVE_FAIL_MAX,
+    ns = {**vars(tab), "st": st, "ALERTS_PATH": alert_env["ALERTS_PATH"],
           "load_alerts": alert_env["load_alerts"], "save_alerts": alert_env["save_alerts"]}
     try:
         exec(compile(ast.Module(side.body[start:], []), "analysis_tab.py", "exec"), ns)
@@ -846,7 +846,8 @@ def _render_chart_html(lwc_path: Path, df=None, **chart_kw) -> tuple[list, list]
     stc = types.SimpleNamespace(html=lambda h, **k: html.append(h))
     ns = load_source_fns("vnstock_dashboard.py", "_lwc_js", "render_chart",
                          st=st, _stc=stc, pd=pd, compute_indicators=compute_indicators,
-                         LWC_JS_PATH=lwc_path)
+                         LWC_JS_PATH=lwc_path, _lwc_palette=lwc_palette,
+                         _font_face_css=font_face_css)
     ns["render_chart"](_rising() if df is None else df, "VCB", **chart_kw)
     return html, said
 
@@ -997,42 +998,54 @@ def test_preset_rsi_vol_price_show_zero_and_hide_nan():
     assert out["Giá"].tolist() == ["2.6", "—"]
 
 
-# ── Điều hướng tab bằng st.pills ─────────────────────────────────────────────
+# ── Điều hướng st.navigation (P2 giao diện, thay st.pills) ──────────────────
 
 _DASH_SRC = (_ROOT / "vnstock_dashboard.py").read_text(encoding="utf-8")
 
 
-def _run_nav(clicks: list) -> tuple:
-    """Chạy ĐÚNG khối nav (trích từ source) qua nhiều lượt rerun với st giả."""
-    start = _DASH_SRC.index("_TAB_OPTIONS = [")
-    block = _DASH_SRC[start:_DASH_SRC.index("if _active_tab ==", start)]
-    calls: list = []
-    session: dict = {}
-    tabs = []
-    for value in clicks:
-        def pills(label, options, **kw):
-            calls.append((label, kw))
-            return value
-        ns = {"st": types.SimpleNamespace(pills=pills, session_state=session)}
-        exec(block, ns)
-        tabs.append(ns["_active_tab"])
-    return tabs, calls
+def test_navigation_is_top_bar_built_from_registry():
+    """5 nhóm ở thanh trên cùng, dựng từ dashboard/pages.py; pills cũ không quay lại."""
+    assert 'st.navigation(_NAV_SPEC, position="top")' in _DASH_SRC
+    assert "st.pills(" not in _DASH_SRC and "_TAB_OPTIONS" not in _DASH_SRC
+    # thanh trạng thái vẽ TRƯỚC nội dung trang, trên mọi trang
+    assert _DASH_SRC.index("_render_status_strip(_PAGE_OBJS") < _DASH_SRC.index("_nav.run()")
 
 
-def test_reclicking_selected_pill_keeps_previous_tab():
-    """Bấm lại pill đang chọn ⇒ st.pills trả None ⇒ vùng chính TRẮNG."""
-    assert _run_nav(["💰 Dòng Tiền", None, None])[0] == ["💰 Dòng Tiền"] * 3
+def _page_runner_ns(log_calls, shown):
+    ui = types.SimpleNamespace(show_error=lambda msg, exc=None: shown.append((msg, exc)))
+    log = types.SimpleNamespace(exception=lambda *a, **k: log_calls.append(a))
+    return load_source_fns("vnstock_dashboard.py", "_page_runner",
+                           _PAGES_MAIN="<main>", log=log, _ui=ui)
 
 
-def test_first_run_with_no_selection_falls_back_to_screener():
-    assert _run_nav([None])[0] == ["📊 Screener"]
+def test_page_error_is_logged_and_shown_as_one_sentence(monkeypatch):
+    """st.error chỉ in 1 dòng — không log thì không ai lần ra lỗi gốc; traceback cho
+    người dùng chỉ hiện ở chế độ chẩn đoán (ui.show_error)."""
+    from dashboard.pages import PageSpec
+
+    mod = types.ModuleType("_trang_thu")
+
+    def _boom():
+        raise RuntimeError("hỏng")
+    mod.boom = _boom
+    monkeypatch.setitem(sys.modules, "_trang_thu", mod)
+    logged, shown = [], []
+    run = _page_runner_ns(logged, shown)["_page_runner"](
+        PageSpec("Thị trường", "Thử", ":material/science:", "thu", "_trang_thu", "boom"))
+    run()
+    assert logged and "Thử" in logged[0]
+    assert shown[0][0] == "Không mở được trang Thử." and isinstance(shown[0][1], RuntimeError)
+    assert run.__name__ == "page_thu"
 
 
-def test_nav_pills_have_a_real_but_hidden_label():
-    """label rỗng ⇒ Streamlit cảnh báo accessibility mỗi lượt."""
-    label, kw = _run_nav(["📊 Screener"])[1][0]
-    assert label.strip()
-    assert kw.get("label_visibility") == "collapsed"
+def test_page_runner_calls_main_script_pages_from_globals():
+    logged, shown, called = [], [], []
+    ns = _page_runner_ns(logged, shown)
+    ns["_page_he_thong_thu"] = lambda: called.append(1)
+    from dashboard.pages import PageSpec
+    ns["_page_runner"](PageSpec("Hệ thống", "Hệ thống", ":material/x:", "he-thong", "<main>",
+                                "_page_he_thong_thu"))()
+    assert called == [1] and not logged and not shown
 
 
 # ── _fetch_order_stats_batch: cache đĩa theo TỪNG mã ────────────────────────
@@ -1166,37 +1179,12 @@ def test_nn_1d_and_long_windows(nn_fns):
     assert net(_nn_df(), 30) == {"AAA": 21.0}   # data chỉ có 6 phiên
 
 
-# ── Lỗi không được nuốt im: dispatch tab + badge sidebar ────────────────────
+# ── Lỗi không được nuốt im ──────────────────────────────────────────────────
+# Dispatch trang: test_page_error_is_logged_and_shown_as_one_sentence (trên).
+# Badge file hỏng phải NÓI RA: tests/test_status_strip.py::test_corrupt_file_says_so_and_warns
+# (3 badge sidebar gộp thành chấm "Hệ thống" ở P2 giao diện).
 
 _DASH_TREE = ast.parse(_DASH_SRC)
-
-
-def test_every_tab_dispatch_logs_the_traceback():
-    """st.error chỉ in 1 dòng — không log thì không ai lần ra lỗi gốc."""
-    branches = [n for n in _DASH_TREE.body if isinstance(n, ast.If)
-                and "_active_tab ==" in ast.unparse(n.test)]
-    assert len(branches) >= 8
-    for br in branches:
-        for tr in (n for n in br.body if isinstance(n, ast.Try)):
-            for h in tr.handlers:
-                assert "log.exception(" in ast.unparse(h), ast.unparse(br.test)
-
-
-@pytest.mark.parametrize("fname", ["test_status.json", "doctor_status.json",
-                                   "model_status.json"])
-def test_unreadable_sidebar_badge_says_so(fname, tmp_path, monkeypatch):
-    """Badge biến mất khi file hỏng = user tưởng mọi thứ ổn."""
-    tr = next(n for n in ast.walk(_DASH_TREE) if isinstance(n, ast.Try)
-              and f"_meta/{fname}" in ast.unparse(n.body[0]))
-    (tmp_path / "data_warehouse" / "_meta").mkdir(parents=True)
-    (tmp_path / "data_warehouse" / "_meta" / fname).write_text("{hỏng", encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    captions: list = []
-    st = types.SimpleNamespace(caption=captions.append, markdown=lambda *a, **k: None)
-    from datetime import datetime
-    exec(compile(ast.Module([tr], []), "vnstock_dashboard.py", "exec"),
-         {"st": st, "json": json, "Path": Path, "datetime": datetime})
-    assert captions == [f"⚠ không đọc được {fname}"]
 
 
 # ── load_fundamental: khối lỗi phải có log và KHÔNG vào cache đĩa 24h ───────
@@ -1681,8 +1669,8 @@ def test_load_alerts_returns_valid_list_unchanged(alert_env):
 # ── 3 nút pipeline khoá khi marker "pipeline đang chạy" còn tươi ────────────
 
 def _run_pipeline_buttons(tmp_path, marker, override=False):
-    """Chạy ĐÚNG khối `with _update_col:` (📥/🧩/🚀). Nút giả "được bấm" khi KHÔNG
-    disabled — như người dùng bấm mọi nút bấm được."""
+    """Chạy ĐÚNG thân hàm `_render_pipeline_controls` (📥/🧩/🚀, trang Hệ thống từ P2).
+    Nút giả "được bấm" khi KHÔNG disabled — như người dùng bấm mọi nút bấm được."""
     from datetime import datetime
 
     import vnstock_pipeline_marker as pm
@@ -1691,8 +1679,8 @@ def _run_pipeline_buttons(tmp_path, marker, override=False):
     path = tmp_path / "pipeline_running.json"
     if marker is not None:
         write_json_atomic(marker, path)
-    block = next(n for n in _DASH_TREE.body if isinstance(n, ast.With)
-                 and ast.unparse(n.items[0].context_expr) == "_update_col")
+    block = next(n for n in _DASH_TREE.body if isinstance(n, ast.FunctionDef)
+                 and n.name == "_render_pipeline_controls")
     st = _fake_streamlit()
     disabled, launched, warned = {}, [], []
 

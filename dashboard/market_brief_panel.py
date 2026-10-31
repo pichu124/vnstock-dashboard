@@ -21,8 +21,10 @@ def render_brief_panel() -> None:
     """Render khối AI Market Brief. Gọi từ `render_market_tab` (nhánh có data)."""
     import streamlit as st
 
+    from dashboard import ui
+
     st.markdown("---")
-    st.markdown("#### 🤖 AI Market Brief")
+    ui.section("Brief AI")
 
     try:
         # Giữ NGUYÊN danh sách tên như bản cũ: thiếu bất kỳ tên nào cũng phải

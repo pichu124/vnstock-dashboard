@@ -20,6 +20,9 @@ the dashboard module has finished initialising.
 
 from __future__ import annotations
 
+from dashboard import ui as _ui
+from dashboard.theme import TOKENS as _T, pct_color as _pct_color, price_color as _price_color
+
 # Lưu alert lỗi bấy nhiêu lần LIÊN TIẾP ⇒ `_alert_checker` ngừng gửi Telegram (không lưu
 # được dấu "đã bắn" thì 10s sau lại gửi lặp) tới khi lưu lại được.
 _ALERT_SAVE_FAIL_MAX = 3
@@ -68,7 +71,7 @@ def render_analysis_tab() -> None:
 
     # Controls cho tab phân tích
     with st.sidebar:
-        st.markdown("### 🔬 Phân tích")
+        st.markdown('<div class="vn-side-label">Phân tích</div>', unsafe_allow_html=True)
 
         # Ticker autocomplete — selectbox với mã + tên công ty
         _ind_map = load_industry_map()
@@ -131,7 +134,7 @@ def render_analysis_tab() -> None:
                               kwargs={"ticker_sidebar": "", "analyze_ticker": _fut_pick})
 
         st.divider()
-        st.markdown("### ⏱ Khoảng thời gian")
+        st.markdown('<div class="vn-side-label">Khoảng thời gian</div>', unsafe_allow_html=True)
         lookback = st.select_slider(
             "Lọc từ",
             options=[0, 365, 730, 1825, 3650],
@@ -142,7 +145,7 @@ def render_analysis_tab() -> None:
         load_fund = st.toggle("Tải dữ liệu cơ bản (API)", value=False, key="load_fund_anal",
                               help="Gọi vnstock API để lấy P/E, ROE, EPS...")
         st.divider()
-        st.markdown("### 📐 Hiển thị chart")
+        st.markdown('<div class="vn-side-label">Hiển thị chart</div>', unsafe_allow_html=True)
         chart_height = st.slider("Chiều cao chart (px)", 500, 1400, 850, step=50, key="chart_height_anal")
 
         # Toggle 🔴 Live Mode đã CHUYỂN LÊN sidebar chung (vnstock_dashboard,
@@ -153,7 +156,8 @@ def render_analysis_tab() -> None:
         # tab. Tab này chỉ còn ĐỌC cờ `st.session_state["live_mode"]`.
 
         st.divider()
-        st.markdown("### 📼 Intraday Replay")
+        st.markdown('<div class="vn-side-label">Xem lại trong phiên</div>',
+                    unsafe_allow_html=True)
         _bar_dates = list_available_bar_dates()
         if _bar_dates:
             replay_date = st.selectbox(
@@ -168,7 +172,7 @@ def render_analysis_tab() -> None:
             st.caption("Chưa có bars parquet — bật Live Mode trong phiên để tạo")
 
         st.divider()
-        st.markdown("### 🔔 Price Alerts")
+        st.markdown('<div class="vn-side-label">Cảnh báo giá</div>', unsafe_allow_html=True)
 
         try:
             _alerts, _alerts_broken = load_alerts(), False
@@ -180,7 +184,7 @@ def render_analysis_tab() -> None:
         _active_alerts = [a for a in _alerts if not a.get("fired")]
         _fired_alerts = [a for a in _alerts if a.get("fired")]
 
-        st.caption(f"{len(_active_alerts)} active · {len(_fired_alerts)} fired")
+        st.caption(f"{len(_active_alerts)} đang chờ · {len(_fired_alerts)} đã kích hoạt")
         _save_fails = st.session_state.get("_alert_save_fails", 0)
         # Không còn alert active thì không có gì bị chặn gửi — bộ đếm giữ nguyên để
         # alert kế tiếp vẫn phải qua lượt dò.
@@ -249,8 +253,8 @@ def render_analysis_tab() -> None:
             for i, a in enumerate(_active_alerts):
                 _lbl = _cond_labels.get(a["condition"], "?")
                 st.markdown(
-                    f"<span style='color:#60a5fa;font-weight:600'>{a['ticker']}</span> "
-                    f"<span style='color:#9ca3af;font-size:11px'>"
+                    f"<span style='color:{_T['link']};font-weight:600'>{a['ticker']}</span> "
+                    f"<span style='color:{_T['text_muted']};font-size:11px'>"
                     f"{_lbl} {a['target']:,.1f}</span>",
                     unsafe_allow_html=True,
                 )
@@ -274,36 +278,42 @@ def render_analysis_tab() -> None:
     ticker = ticker_input or st.session_state.get("analyze_ticker", "")
 
     if not ticker:
-        # Landing page
-        st.markdown("## 🔬 VnStock Analysis Dashboard")
-        st.markdown('<p style="color:#6b7280">Nhập mã cổ phiếu ở sidebar để bắt đầu phân tích.</p>', unsafe_allow_html=True)
+        _ui.page_header("Phân tích mã", "Nhập mã ở thanh bên để bắt đầu")
 
         # Hiện top movers nếu có screener data
         if data and data.get("presets"):
             st.markdown("---")
             col1, col2 = st.columns(2)
             with col1:
-                st.markdown("**⚡ Momentum mạnh nhất**")
+                _ui.section("Đà tăng mạnh nhất")
                 mom = data["presets"].get("momentum", {}).get("results", [])[:5]
+                if not mom:
+                    _ui.empty_state("Preset Momentum chưa có mã nào.",
+                                    "Preset tính cùng screener mỗi tối.")
                 for r in mom:
-                    chg = r.get("chg_20d_pct", "")
+                    chg = r.get("chg_20d_pct")
+                    _chg_txt = f"{chg:+.1f}% (20 phiên)" if isinstance(chg, (int, float)) else "—"
                     st.markdown(
                         f'<div style="display:flex;justify-content:space-between;'
-                        f'padding:5px 0;border-bottom:1px solid #1a2234;cursor:pointer">'
-                        f'<span style="color:#60a5fa;font-weight:600">{r["ticker"]}</span>'
-                        f'<span style="color:#10b981">{chg}</span></div>',
+                        f'padding:5px 0;border-bottom:1px solid {_T["surface_2"]};cursor:pointer">'
+                        f'<span style="color:{_T["link"]};font-weight:600">{r["ticker"]}</span>'
+                        f'<span style="color:{_pct_color(chg if isinstance(chg, (int, float)) else None)};'
+                        f'font-family:IBM Plex Mono,monospace">{_chg_txt}</span></div>',
                         unsafe_allow_html=True
                     )
             with col2:
-                st.markdown("**🟢 Oversold tiềm năng**")
+                _ui.section("Quá bán tiềm năng")
                 ov = data["presets"].get("oversold", {}).get("results", [])[:5]
+                if not ov:
+                    _ui.empty_state("Preset Oversold chưa có mã nào.",
+                                    "Preset tính cùng screener mỗi tối.")
                 for r in ov:
                     rsi = r.get("rsi_14", "")
                     st.markdown(
                         f'<div style="display:flex;justify-content:space-between;'
-                        f'padding:5px 0;border-bottom:1px solid #1a2234">'
-                        f'<span style="color:#60a5fa;font-weight:600">{r["ticker"]}</span>'
-                        f'<span style="color:#fbbf24">RSI {rsi}</span></div>',
+                        f'padding:5px 0;border-bottom:1px solid {_T["surface_2"]}">'
+                        f'<span style="color:{_T["link"]};font-weight:600">{r["ticker"]}</span>'
+                        f'<span style="color:{_T["ref"]}">RSI {rsi}</span></div>',
                         unsafe_allow_html=True
                     )
         st.stop()
@@ -328,14 +338,12 @@ def render_analysis_tab() -> None:
     industry     = company_info.get("industry", "")
     summary      = company_info.get("business_summary", "")
 
+    from vnstock_exchange_map import load_exchange_map
+    exchange = st.cache_data(ttl=600, show_spinner=False)(load_exchange_map)().get(ticker, "")
+
     col_h1, col_h2 = st.columns([5, 1])
     with col_h1:
-        st.markdown(f"## {ticker} — {company_name}")
-        if industry:
-            st.markdown(
-                f'<span class="tag" style="background:#1e3a5f;color:#60a5fa">{industry}</span>',
-                unsafe_allow_html=True
-            )
+        _ui.page_header(*page_title(ticker, company_name, exchange, industry))
         if summary and summary not in ("", "nan", "None"):
             st.caption(summary[:200] + ("..." if len(summary) > 200 else ""))
     with col_h2:
@@ -347,12 +355,16 @@ def render_analysis_tab() -> None:
 
     # ── Price metrics row ─────────────────────────────────────────────────────────
     price = tech.get("price", 0)
+    # Bảng điện: giá + đổi 1 phiên tô theo tham chiếu = đóng cửa phiên trước (kho không
+    # có trần/sàn). 5/20 ngày vẫn tô theo dấu.
+    _board = _price_color(price, df["close"].iloc[-2] if len(df) > 1 else None)
     render_metric_row([
-        ("Giá hiện tại",  f"{price:,.1f}",              "nghìn đồng"),
-        ("1 ngày",        fmt_pct(tech.get("chg1d")),   f"{df['time'].iloc[-1].strftime('%d/%m/%Y')}"),
+        ("Giá hiện tại",  f"{price:,.1f}",              "nghìn đồng", _board),
+        ("1 ngày",        fmt_pct(tech.get("chg1d")),   f"{df['time'].iloc[-1].strftime('%d/%m/%Y')}",
+         _board),
         ("5 ngày",        fmt_pct(tech.get("chg5d")),   "so với 5 phiên trước"),
         ("20 ngày",       fmt_pct(tech.get("chg20d")),  "so với 20 phiên trước"),
-        ("52W Range",     f"{tech.get('pct52', 0):.0f}%", f"Low {tech.get('lo52',0):,.1f} — High {tech.get('hi52',0):,.1f}"),
+        ("Biên 52 tuần",  f"{tech.get('pct52', 0):.0f}%", f"Thấp {tech.get('lo52',0):,.1f} — Cao {tech.get('hi52',0):,.1f}"),
     ])
 
     # ── Chart ─────────────────────────────────────────────────────────────────────
@@ -452,12 +464,13 @@ def render_analysis_tab() -> None:
     if _live_intraday:
         # Banner nhắc nhở Live mode đang hoạt động
         st.markdown(
-            '<div style="background:linear-gradient(90deg,#ef4444,#f59e0b);'
+            f'<div style="background:linear-gradient(90deg,{_T["down"]},{_T["warn"]});'
             'padding:6px 14px;border-radius:6px;margin:8px 0;'
             'display:flex;align-items:center;gap:10px;font-weight:500">'
-            '<span style="width:10px;height:10px;border-radius:50%;background:#fff;'
-            'box-shadow:0 0 10px #fff;animation:pulse 1.5s infinite"></span>'
-            f'<span style="color:#fff;font-size:13px">🔴 LIVE MODE — {ticker} @ {tf} — refresh 3s</span>'
+            f'<span style="width:10px;height:10px;border-radius:50%;background:{_T["on_fill"]};'
+            f'box-shadow:0 0 10px {_T["on_fill"]};animation:pulse 1.5s infinite"></span>'
+            f'<span style="color:{_T["on_fill"]};font-size:13px">'
+            f'🔴 LIVE MODE — {ticker} @ {tf} — refresh 3s</span>'
             '</div>',
             unsafe_allow_html=True
         )
@@ -583,7 +596,8 @@ def render_analysis_tab() -> None:
                          live_url=f"/app/static/today_bars/{ticker}_{tf}.json",
                          live_poll_ms=2000)
         except Exception as _e:
-            st.error(f"Chart render error: {_e}")
+            _ui.show_error(f"Không vẽ được biểu đồ khung {tf} — thử khung khác hoặc bấm "
+                           "🔄 Refresh Chart.", _e)
 
         # Manual refresh button for chart
         if st.button("🔄 Refresh Chart", key="refresh_live_chart"):
@@ -652,12 +666,13 @@ def render_analysis_tab() -> None:
     # ── Live mode + Daily/Weekly/Monthly chart ────────────────────────────
     if _live_daily:
         st.markdown(
-            '<div style="background:linear-gradient(90deg,#3b82f6,#8b5cf6);'
+            f'<div style="background:linear-gradient(90deg,{_T["accent"]},{_T["category"]});'
             'padding:6px 14px;border-radius:6px;margin:8px 0;'
             'display:flex;align-items:center;gap:10px;font-weight:500">'
-            '<span style="width:10px;height:10px;border-radius:50%;background:#fff;'
-            'box-shadow:0 0 10px #fff;animation:pulse 1.5s infinite"></span>'
-            f'<span style="color:#fff;font-size:13px">🔴 LIVE — {ticker} @ {tf} — quote strip live</span>'
+            f'<span style="width:10px;height:10px;border-radius:50%;background:{_T["on_fill"]};'
+            f'box-shadow:0 0 10px {_T["on_fill"]};animation:pulse 1.5s infinite"></span>'
+            f'<span style="color:{_T["on_fill"]};font-size:13px">'
+            f'🔴 LIVE — {ticker} @ {tf} — quote strip live</span>'
             '</div>',
             unsafe_allow_html=True
         )
@@ -673,24 +688,27 @@ def render_analysis_tab() -> None:
                 _ask = float(live_q.get("ask", 0))
                 _time = live_q.get("time", "")
 
-                _chg_color = "#10b981" if _chg >= 0 else "#ef4444"
+                # Bảng điện: giá + %D cùng màu theo tham chiếu (chg_pct = so tham chiếu;
+                # quote không có trần/sàn), đứng giá = vàng.
+                _chg_color = _pct_color(_chg, flat="ref")
                 _chg_sign = "+" if _chg >= 0 else ""
+                _lbl = f"color:{_T['text_faint']};font-size:10px"
 
                 st.markdown(
                     f"<div style='display:flex;gap:20px;align-items:center;padding:8px 0;"
                     f"font-family:IBM Plex Mono,monospace'>"
-                    f"<div><span style='color:#6b7280;font-size:10px'>GIÁ</span><br>"
-                    f"<span style='color:#e5e7eb;font-size:22px;font-weight:700'>{_price:,.2f}</span></div>"
-                    f"<div><span style='color:#6b7280;font-size:10px'>%D</span><br>"
+                    f"<div><span style='{_lbl}'>GIÁ</span><br>"
+                    f"<span style='color:{_chg_color};font-size:22px;font-weight:700'>{_price:,.2f}</span></div>"
+                    f"<div><span style='{_lbl}'>%D</span><br>"
                     f"<span style='color:{_chg_color};font-size:16px;font-weight:600'>"
                     f"{_chg_sign}{_chg:.2f}%</span></div>"
-                    f"<div><span style='color:#6b7280;font-size:10px'>VOLUME</span><br>"
-                    f"<span style='color:#e5e7eb;font-size:14px'>{_vol:,.0f}</span></div>"
-                    f"<div><span style='color:#6b7280;font-size:10px'>BID/ASK</span><br>"
-                    f"<span style='color:#10b981;font-size:13px'>{_bid:,.0f}</span>"
-                    f" / <span style='color:#ef4444;font-size:13px'>{_ask:,.0f}</span></div>"
-                    f"<div><span style='color:#6b7280;font-size:10px'>CẬP NHẬT</span><br>"
-                    f"<span style='color:#9ca3af;font-size:12px'>{_time[-8:] if _time else '—'}</span></div>"
+                    f"<div><span style='{_lbl}'>VOLUME</span><br>"
+                    f"<span style='color:{_T['text']};font-size:14px'>{_vol:,.0f}</span></div>"
+                    f"<div><span style='{_lbl}'>BID/ASK</span><br>"
+                    f"<span style='color:{_T['up']};font-size:13px'>{_bid:,.0f}</span>"
+                    f" / <span style='color:{_T['down']};font-size:13px'>{_ask:,.0f}</span></div>"
+                    f"<div><span style='{_lbl}'>CẬP NHẬT</span><br>"
+                    f"<span style='color:{_T['text_muted']};font-size:12px'>{_time[-8:] if _time else '—'}</span></div>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -779,9 +797,9 @@ def render_analysis_tab() -> None:
                          height=st.session_state.get("chart_height_anal", 850))
         else:
             st.markdown(
-                f'<div style="background:#1e293b;padding:8px 14px;border-radius:6px;'
-                f'margin-bottom:8px;font-size:13px;color:#94a3b8">'
-                f'📼 <b style="color:#fbbf24">Replay</b> — {ticker} ngày '
+                f'<div style="background:{_T["surface_2"]};padding:8px 14px;border-radius:6px;'
+                f'margin-bottom:8px;font-size:13px;color:{_T["text_muted"]}">'
+                f'📼 <b style="color:{_T["ref"]}">Replay</b> — {ticker} ngày '
                 f'{_replay_date} — {len(_replay_df)} bars 1m '
                 f'({_replay_df["time"].iloc[0].strftime("%H:%M")} → '
                 f'{_replay_df["time"].iloc[-1].strftime("%H:%M")})'
@@ -841,13 +859,8 @@ def render_analysis_tab() -> None:
                          live_url=_idle_url,
                          live_poll_ms=10000)
         except Exception as _e:
-            st.error(
-                f"Chart render error ({tf}, {len(chart_df)} bars): "
-                f"{type(_e).__name__}: {_e}"
-            )
-            import traceback as _tb
-            with st.expander("Stack trace"):
-                st.code(_tb.format_exc())
+            _ui.show_error(f"Không vẽ được biểu đồ khung {tf} ({len(chart_df):,} nến) — thử "
+                           "khung khác hoặc bấm 🔄 để tải lại.", _e)
 
     st.markdown("---")
 
@@ -855,19 +868,20 @@ def render_analysis_tab() -> None:
     col_tech, col_fund = st.columns([1, 1])
 
     with col_tech:
-        st.markdown('<p class="section-title">📈 Phân tích kỹ thuật</p>', unsafe_allow_html=True)
+        _ui.section("Kỹ thuật")
 
         # RSI gauge
         rsi = tech.get("rsi")
         if rsi:
-            rsi_color = "#10b981" if rsi < 30 else ("#ef4444" if rsi > 70 else "#fbbf24")
+            rsi_color = _T["up"] if rsi < 30 else (_T["down"] if rsi > 70 else _T["ref"])
             st.markdown(
                 f'<div class="card">'
                 f'<div class="card-title">RSI (14)</div>'
                 f'<div style="font-family:IBM Plex Mono,monospace;font-size:32px;'
                 f'font-weight:500;color:{rsi_color}">{rsi:.1f}</div>'
                 f'<div class="fscore-bar"><div class="fscore-fill" style="width:{rsi}%;background:{rsi_color}"></div></div>'
-                f'<div style="font-size:11px;color:#6b7280;display:flex;justify-content:space-between">'
+                f'<div style="font-size:11px;color:{_T["text_faint"]};display:flex;'
+                f'justify-content:space-between">'
                 f'<span>Oversold &lt;30</span><span>Overbought &gt;70</span></div>'
                 f'</div>',
                 unsafe_allow_html=True
@@ -883,17 +897,17 @@ def render_analysis_tab() -> None:
 
         # EMA levels
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">EMA Levels</div>', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Các mức EMA</div>', unsafe_allow_html=True)
         for span, val in [("EMA 9", tech.get("ema9")), ("EMA 21", tech.get("ema21")),
                            ("EMA 50", tech.get("ema50")), ("EMA 200", tech.get("ema200"))]:
             if val:
                 diff = round((price - val) / val * 100, 2)
-                color = "#10b981" if price > val else "#ef4444"
+                color = _T["up"] if price > val else _T["down"]
                 st.markdown(
                     f'<div style="display:flex;justify-content:space-between;'
-                    f'padding:5px 0;border-bottom:1px solid #1a2234;font-size:13px">'
-                    f'<span style="color:#9ca3af">{span}</span>'
-                    f'<span style="color:#e5e7eb">{val:,.2f}</span>'
+                    f'padding:5px 0;border-bottom:1px solid {_T["surface_2"]};font-size:13px">'
+                    f'<span style="color:{_T["text_muted"]}">{span}</span>'
+                    f'<span style="color:{_T["text"]}">{val:,.2f}</span>'
                     f'<span style="color:{color}">{fmt_pct(diff)}</span>'
                     f'</div>',
                     unsafe_allow_html=True
@@ -905,11 +919,11 @@ def render_analysis_tab() -> None:
         vol_ma = tech.get("vol_ma20")
         vol_spike = tech.get("vol_spike")
         if vol and vol_ma:
-            spike_color = "#f97316" if vol_spike and vol_spike > 2 else "#9ca3af"
+            spike_color = _T["warn"] if vol_spike and vol_spike > 2 else _T["text_muted"]
             st.markdown(
                 f'<div class="card">'
                 f'<div class="card-title">Volume</div>'
-                f'<div style="font-size:16px;color:#e5e7eb">{vol/1e6:.1f}M</div>'
+                f'<div style="font-size:16px;color:{_T["text"]}">{vol/1e6:.1f}M</div>'
                 f'<div style="font-size:12px;color:{spike_color};margin-top:4px">'
                 f'Vol spike: {vol_spike:.1f}× MA20</div>'
                 f'</div>',
@@ -918,11 +932,11 @@ def render_analysis_tab() -> None:
 
         # Tech score
         ts = tech.get("tech_score", 0)
-        ts_color = "#10b981" if ts > 0.2 else ("#ef4444" if ts < -0.2 else "#fbbf24")
+        ts_color = _T["up"] if ts > 0.2 else (_T["down"] if ts < -0.2 else _T["ref"])
         ts_label = "BULLISH" if ts > 0.2 else ("BEARISH" if ts < -0.2 else "NEUTRAL")
         st.markdown(
             f'<div class="card">'
-            f'<div class="card-title">Technical Score</div>'
+            f'<div class="card-title">Điểm kỹ thuật</div>'
             f'<div style="font-family:IBM Plex Mono,monospace;font-size:28px;color:{ts_color}">'
             f'{ts:+.2f}</div>'
             f'<div style="font-size:12px;color:{ts_color};font-weight:600">{ts_label}</div>'
@@ -932,30 +946,34 @@ def render_analysis_tab() -> None:
 
 
     with col_fund:
-        st.markdown('<p class="section-title">🏦 Phân tích cơ bản</p>', unsafe_allow_html=True)
+        _ui.section("Cơ bản")
 
         if load_fund:
             with st.spinner("Đang tải dữ liệu cơ bản từ API..."):
                 fund = load_fundamental(ticker)
 
-            # Debug: show raw result
+            # Tên cột / lỗi thô của nguồn chỉ ở chế độ chẩn đoán (trang Hệ thống)
             if fund:
                 non_none = {k:v for k,v in fund.items() if v is not None and k != "_cols_debug"}
                 if not non_none or (len(non_none)==1 and "error" in non_none):
-                    cols_info = fund.get("_cols_debug", [])
-                    st.warning(f"⚠ Không lấy được dữ liệu cơ bản. Columns: {cols_info}")
+                    st.warning("Không lấy được dữ liệu cơ bản cho mã này.")
+                    if _ui.diag_on():
+                        st.caption(f"Columns: {fund.get('_cols_debug', [])}")
                 elif fund.get("error"):
-                    st.warning(f"Lỗi: {fund['error']}")
+                    st.warning("Không tải được dữ liệu cơ bản từ API — thử lại sau.")
+                    if _ui.diag_on():
+                        st.caption(f"Lỗi: {fund['error']}")
                 # Debug expander when key metrics are missing
                 _missing = [k for k in ("eps", "book_value") if fund.get(k) is None]
                 if _missing and not fund.get("error"):
-                    with st.expander(f"🔍 Debug: {', '.join(_missing)} = None"):
-                        _oc = fund.get("_overview_cols", [])
-                        _rc = fund.get("_ratio_cols", [])
-                        st.caption(f"Overview cols ({len(_oc)}): {_oc}")
-                        st.caption(f"Ratio cols ({len(_rc)}): {_rc}")
+                    if _ui.diag_on():  # cột thô của nguồn — chế độ chẩn đoán
+                        with st.expander(f"🔍 Debug: {', '.join(_missing)} = None"):
+                            _oc = fund.get("_overview_cols", [])
+                            _rc = fund.get("_ratio_cols", [])
+                            st.caption(f"Overview cols ({len(_oc)}): {_oc}")
+                            st.caption(f"Ratio cols ({len(_rc)}): {_rc}")
             else:
-                st.warning("⚠ load_fundamental() trả về rỗng")
+                st.warning("Nguồn không trả dữ liệu cơ bản cho mã này.")
 
             if fund.get("error"):
                 pass  # already shown above
@@ -981,9 +999,9 @@ def render_analysis_tab() -> None:
                             if display:
                                 st.markdown(
                                     f'<div style="display:flex;justify-content:space-between;'
-                                    f'padding:4px 0;border-bottom:1px solid #1a2234;font-size:13px">'
-                                    f'<span style="color:#9ca3af">{label}</span>'
-                                    f'<span style="color:#e5e7eb;font-family:IBM Plex Mono,monospace">'
+                                    f'padding:4px 0;border-bottom:1px solid {_T["surface_2"]};font-size:13px">'
+                                    f'<span style="color:{_T["text_muted"]}">{label}</span>'
+                                    f'<span style="color:{_T["text"]};font-family:IBM Plex Mono,monospace">'
                                     f'{display} {unit}</span></div>',
                                     unsafe_allow_html=True
                                 )
@@ -1013,16 +1031,16 @@ def render_analysis_tab() -> None:
                 ]
                 for label, val, unit in ratios:
                     if val is not None:
-                        color = "#e5e7eb"
-                        if label in ("ROE","ROA") and val > 15: color = "#10b981"
+                        color = _T["text"]
+                        if label in ("ROE","ROA") and val > 15: color = _T["up"]
                         if label == "Tăng trưởng DT":
-                            color = "#10b981" if val > 0 else "#ef4444"
-                        if label == "P/E" and val < 15: color = "#10b981"
-                        if label == "P/E" and val > 30: color = "#ef4444"
+                            color = _T["up"] if val > 0 else _T["down"]
+                        if label == "P/E" and val < 15: color = _T["up"]
+                        if label == "P/E" and val > 30: color = _T["down"]
                         st.markdown(
                             f'<div style="display:flex;justify-content:space-between;'
-                            f'padding:6px 0;border-bottom:1px solid #1a2234;font-size:13px">'
-                            f'<span style="color:#9ca3af">{label}</span>'
+                            f'padding:6px 0;border-bottom:1px solid {_T["surface_2"]};font-size:13px">'
+                            f'<span style="color:{_T["text_muted"]}">{label}</span>'
                             f'<span style="color:{color};font-family:IBM Plex Mono,monospace">'
                             f'{val:,.2f} {unit}</span>'
                             f'</div>',
@@ -1047,11 +1065,11 @@ def render_analysis_tab() -> None:
 
                 if cnt > 0:
                     fund_score = round((pts / cnt) * 2 - 1, 2)
-                    fs_color = "#10b981" if fund_score > 0.2 else ("#ef4444" if fund_score < -0.2 else "#fbbf24")
+                    fs_color = _T["up"] if fund_score > 0.2 else (_T["down"] if fund_score < -0.2 else _T["ref"])
                     fs_label = "STRONG" if fund_score > 0.5 else ("GOOD" if fund_score > 0.2 else ("WEAK" if fund_score < -0.2 else "FAIR"))
                     st.markdown(
                         f'<div class="card">'
-                        f'<div class="card-title">Fundamental Score</div>'
+                        f'<div class="card-title">Điểm cơ bản</div>'
                         f'<div style="font-family:IBM Plex Mono,monospace;font-size:28px;color:{fs_color}">'
                         f'{fund_score:+.2f}</div>'
                         f'<div style="font-size:12px;color:{fs_color};font-weight:600">{fs_label} ({pts}/{cnt} tiêu chí)</div>'
@@ -1061,10 +1079,10 @@ def render_analysis_tab() -> None:
 
         else:
             st.markdown(
-                '<div class="card" style="border:1px dashed #374151">'
+                f'<div class="card" style="border:1px dashed {_T["border"]}">'
                 '<div class="card-title">Dữ liệu cơ bản</div>'
-                '<div style="color:#6b7280;font-size:13px;line-height:1.7">'
-                'Bật toggle <strong style="color:#9ca3af">Tải dữ liệu cơ bản</strong> ở sidebar '
+                f'<div style="color:{_T["text_faint"]};font-size:13px;line-height:1.7">'
+                f'Bật toggle <strong style="color:{_T["text_muted"]}">Tải dữ liệu cơ bản</strong> ở sidebar '
                 'để xem P/E, ROE, EPS và các chỉ số tài chính khác.'
                 '</div></div>',
                 unsafe_allow_html=True
@@ -1081,7 +1099,7 @@ def render_analysis_tab() -> None:
             "SELL 🔴"         if composite >= -0.6 else
             "STRONG SELL 🔴🔴"
         )
-        rec_color = "#10b981" if composite > 0.2 else ("#ef4444" if composite < -0.2 else "#fbbf24")
+        rec_color = _T["up"] if composite > 0.2 else (_T["down"] if composite < -0.2 else _T["ref"])
 
         st.markdown(
             f'<div class="card" style="border:1px solid {rec_color}40;margin-top:12px">'
@@ -1090,18 +1108,15 @@ def render_analysis_tab() -> None:
             f'</div>'
             f'<div style="font-size:24px;font-weight:600;color:{rec_color};margin:8px 0">'
             f'{rec_label}</div>'
-            f'<div style="font-size:12px;color:#6b7280">'
-            f'Composite score: <span style="color:{rec_color};font-family:IBM Plex Mono">'
+            f'<div style="font-size:12px;color:{_T["text_faint"]}">'
+            f'Điểm tổng hợp: <span style="color:{rec_color};font-family:IBM Plex Mono">'
             f'{composite:+.2f}</span></div>'
             f'</div>',
             unsafe_allow_html=True
         )
 
         # ── AI Strategy Recommendation ─────────────────────────────────────────
-        st.markdown(
-            '<div style="margin-top:20px;font-size:16px;font-weight:600">🤖 Khuyến nghị từ AI Strategy</div>',
-            unsafe_allow_html=True,
-        )
+        _ui.section("Khuyến nghị chiến lược AI")
 
         try:
             import vnstock_memory as _vm_ai
@@ -1144,7 +1159,7 @@ def render_analysis_tab() -> None:
             if _is_fresh:
                 _r   = _cached_rec
                 _act = _r.get("action", "hold")
-                _col = "#10b981" if _act == "buy" else ("#ef4444" if _act == "sell" else "#fbbf24")
+                _col = _T["up"] if _act == "buy" else (_T["down"] if _act == "sell" else _T["ref"])
                 _act_label = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_act, "KHÔNG GIAO DỊCH 🟡")
 
                 # ── Consensus badge (multi-agent) ──────────────────────────
@@ -1156,10 +1171,10 @@ def render_analysis_tab() -> None:
 
                 if _n_ag > 1:
                     _cons_label = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_cons_act, "KHÔNG GIAO DỊCH 🟡")
-                    _cons_col   = "#10b981" if _cons_act == "buy" else ("#ef4444" if _cons_act == "sell" else "#fbbf24")
+                    _cons_col   = _T["up"] if _cons_act == "buy" else (_T["down"] if _cons_act == "sell" else _T["ref"])
                     _agree_pct  = int(_agree_rt * 100)
                     _strat_pct  = int((_strat_agree or 0) * 100)
-                    _badge_col  = "#10b981" if _agree_pct >= 67 else ("#fbbf24" if _agree_pct >= 34 else "#ef4444")
+                    _badge_col  = _T["up"] if _agree_pct >= 67 else (_T["ref"] if _agree_pct >= 34 else _T["down"])
                     st.markdown(
                         f'<div class="card" style="border:1px solid {_cons_col}60;margin-top:8px">'
                         f'<div class="card-title" style="font-size:11px">'
@@ -1170,10 +1185,10 @@ def render_analysis_tab() -> None:
                         f'<div style="display:flex;gap:16px;margin-top:4px">'
                         f'<span style="font-size:12px;color:{_badge_col};font-weight:600">'
                         f'🗳 Đồng thuận: {_agree_pct}%</span>'
-                        f'<span style="font-size:12px;color:#6b7280">'
+                        f'<span style="font-size:12px;color:{_T["text_faint"]}">'
                         f'Tin strategy: {_strat_pct}%</span>'
-                        f'<span style="font-size:12px;color:#6b7280">'
-                        f'Signal conf: {_r.get("confidence",0):.0%}</span>'
+                        f'<span style="font-size:12px;color:{_T["text_faint"]}">'
+                        f'Độ tin tín hiệu: {_r.get("confidence",0):.0%}</span>'
                         f'</div></div>',
                         unsafe_allow_html=True,
                     )
@@ -1182,12 +1197,12 @@ def render_analysis_tab() -> None:
                         with st.expander("Xem chi tiết từng agent", expanded=False):
                             for _v in _votes:
                                 _va  = _v.get("action", "hold")
-                                _vc  = "#10b981" if _va == "buy" else ("#ef4444" if _va == "sell" else "#fbbf24")
+                                _vc  = _T["up"] if _va == "buy" else (_T["down"] if _va == "sell" else _T["ref"])
                                 _val = {"buy": "MUA 🟢", "sell": "BÁN 🔴"}.get(_va, "KHÔNG GD 🟡")
                                 _agr = "✅" if _v.get("agrees") else ("❌" if _v.get("agrees") is False else "—")
                                 st.markdown(
                                     f'**{_v["agent"]}** — {_val} {_agr} '
-                                    f'<span style="color:#6b7280;font-size:12px">'
+                                    f'<span style="color:{_T["text_faint"]};font-size:12px">'
                                     f'{_v.get("reason","")}</span>',
                                     unsafe_allow_html=True,
                                 )
@@ -1197,7 +1212,8 @@ def render_analysis_tab() -> None:
                         f'<div class="card" style="border:1px solid {_col}60;margin-top:8px">'
                         f'<div class="card-title" style="font-size:11px">{_r.get("strategy_name","—")}</div>'
                         f'<div style="font-size:26px;font-weight:700;color:{_col};margin:6px 0">{_act_label}</div>'
-                        f'<div style="font-size:12px;color:#6b7280">Confidence: {_r.get("confidence",0):.0%}</div>'
+                        f'<div style="font-size:12px;color:{_T["text_faint"]}">'
+                        f'Độ tin cậy: {_r.get("confidence",0):.0%}</div>'
                         f'</div>',
                         unsafe_allow_html=True,
                     )
@@ -1262,11 +1278,12 @@ def render_analysis_tab() -> None:
                             st.session_state[_ai_cache_key] = _rec_result
                             st.rerun()
                         except Exception as _ai_err:
-                            st.error(f"Lỗi phân tích: {type(_ai_err).__name__}: {_ai_err}")
+                            _ui.show_error(f"Không phân tích được {ticker} bằng AI — thử lại sau.",
+                                           _ai_err)
 
         # ── Tin tức theo mã ────────────────────────────────────────────────
         st.markdown("---")
-        st.markdown("#### 🗞️ Tin tức liên quan")
+        _ui.section("Tin tức liên quan")
         try:
             import vnstock_news as _nn
             _ticker_news = _nn.news_for_ticker(ticker)
@@ -1293,7 +1310,8 @@ def render_analysis_tab() -> None:
                     if not _ntitle:
                         continue
                     with st.container():
-                        st.markdown(f"**{_ntitle}** <span style='color:#6b7280;font-size:12px'>{_ndate}</span>",
+                        st.markdown(f"**{_ntitle}** <span style='color:{_T['text_faint']};"
+                                    f"font-size:12px'>{_ndate}</span>",
                                     unsafe_allow_html=True)
                         if _nshort:
                             st.caption(_nshort[:250])
@@ -1306,7 +1324,19 @@ def render_analysis_tab() -> None:
                             with _nc2:
                                 st.markdown(f"[🔗 Nguồn gốc]({_nlink})")
         except Exception as _ne:
-            st.caption(f"Không tải được tin tức: {type(_ne).__name__}")
+            st.caption("Không tải được tin tức liên quan.")
+            if _ui.diag_on():
+                st.exception(_ne)
+
+
+def page_title(ticker: str, company_name: str, exchange: str,
+               industry: str) -> tuple[str, str | None]:
+    """(tiêu đề, dòng phụ "sàn · ngành") của trang khi đã chọn mã.
+
+    Mã không có trong bảng ngành (HĐTL, chỉ số) thì tên rơi về chính mã — khi đó
+    chỉ in mã, không "VN30F1M — VN30F1M"."""
+    title = f"{ticker} — {company_name}" if company_name and company_name != ticker else ticker
+    return title, " · ".join(p for p in (exchange, industry) if p) or None
 
 
 def composite_score(tech_score: float, fund_score: float | None) -> tuple[float, str]:

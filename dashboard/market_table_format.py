@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import math
 
+from dashboard.theme import TOKENS as _T
+
 # ── Nhóm cột ────────────────────────────────────────────────────────────────
 PRICE_PCT_COLS = ("Giá 1T %", "Giá 1M %", "Giá 3M %")
 AMP_COLS = ("Biên 1T (%)", "Biên 1M (%)", "Biên 3M (%)")
@@ -25,9 +27,8 @@ FREE_VOL_COLS = ("Vol 5/Free %", "Vol 10/Free %", "Vol 20/Free %")
 VOL_AVG_COLS = ("Vol Avg 5", "Vol Avg 10", "Vol Avg 20")
 MONEY_COLS = ("Vốn hoá (tỷ)", "GTGD TB (tỷ)", "Freefloat (tỷ)")
 
-GREEN, RED, GRAY = "#10b981", "#ef4444", "#9ca3af"
-MISSING = "#4b5563"
-DEFAULT = "#e5e7eb"
+# Màu đọc từ token LÚC VẼ (P4 sáng/tối — hằng cấp module đứng yên ở màu tối).
+# Ô thiếu số từng là #4b5563 (2,6:1 — dưới chuẩn đọc) ⇒ nay `text_faint`.
 
 # Vol 5/20 %: trên 110 là dòng tiền đang vào, dưới 90 là đang rút.
 _VOL_RATIO_HOT, _VOL_RATIO_COLD = 110, 90
@@ -81,24 +82,24 @@ def fvol_colors(val, vmin, vrange) -> tuple:
         r = int(249 + (153 - 249) * s)
         g = int(115 + (27 - 115) * s)
         b = int(22 + (27 - 22) * s)
-    return f"rgb({r},{g},{b})", ("#111827" if t < 0.35 else "#ffffff")
+    return f"rgb({r},{g},{b})", (_T["on_light"] if t < 0.35 else _T["on_fill"])
 
 
 def color_val(val, col, amp_min=0, amp_range=1) -> str:
     """Màu chữ của một ô theo giá trị + tên cột."""
     if val is None or _is_nan(val):
-        return MISSING
+        return _T["text_faint"]
     if col in PRICE_PCT_COLS + NN_COLS + NET_BS_COLS + AVG_VOL_COLS:
         v = float(val)
-        return GREEN if v > 0 else (RED if v < 0 else GRAY)
+        return _T["up"] if v > 0 else (_T["down"] if v < 0 else _T["text_muted"])
     if col in FREE_VOL_COLS:
-        return DEFAULT              # ô này tô nền riêng bằng fvol_colors
+        return _T["text"]              # ô này tô nền riêng bằng fvol_colors
     if col == "Vol 5/20 %":
         v = float(val)
-        return GREEN if v > _VOL_RATIO_HOT else (RED if v < _VOL_RATIO_COLD else DEFAULT)
+        return _T["up"] if v > _VOL_RATIO_HOT else (_T["down"] if v < _VOL_RATIO_COLD else _T["text"])
     if col in AMP_COLS:
         return amp_color(val, amp_min, amp_range)
-    return DEFAULT
+    return _T["text"]
 
 
 def fmt(val, col) -> str:

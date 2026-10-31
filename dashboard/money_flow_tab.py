@@ -28,6 +28,13 @@ from vnstock_sectors import (  # noqa: E402
     custom_sector_for as _custom_sector_for,
 )
 from vnstock_price_units import normalize_quote_price  # noqa: E402
+from dashboard.theme import PLOTLY_BG, TOKENS as _T, pct_color as _pct_color  # noqa: E402
+
+
+def _th(label: str, align: str = "right", pad: str = "6px") -> str:
+    """Ô tiêu đề của 3 bảng HTML trên trang: nhãn xám, căn theo cột."""
+    return (f'<th style="text-align:{align};padding:{pad};color:{_T["text_muted"]}">'
+            f'{label}</th>')
 
 
 def _live_buy_ratio(q: dict) -> float:
@@ -84,6 +91,7 @@ def render_money_flow_tab() -> None:
     except ImportError:
         print("[money_flow_tab] streamlit not available")
         return
+    from dashboard.ui import diag_on, page_header, section
 
     import json
     import numpy as np
@@ -125,22 +133,9 @@ def render_money_flow_tab() -> None:
         """Money-flow sector: custom-group ticker → its label, else shared mapping."""
         return _custom_sector_for(symbol) or _get_sector(industry)
 
-    st.markdown("### 💰 Dòng Tiền Ngành")
-
-    # Data staleness badges
-    try:
-        from pathlib import Path as _Path
-        from vnstock_freshness import render_freshness_row
-        render_freshness_row([
-            ("💸 NN flow",         _Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
-            ("📊 Order stats",     _Path("data_warehouse/_meta/order_stats_cache.json"), 2 * 3600),
-        ])
-    except Exception as e:
-        st.caption(f"⚠️ Badge độ tươi lỗi: {type(e).__name__}: {e}")
-
-    # ── Sidebar controls ─────────────────────────────────────────────────
+    # ── Sidebar controls (trước tiêu đề: dòng phụ cần khung đang chọn) ──
     with st.sidebar:
-        st.markdown("### 💰 Dòng Tiền")
+        st.markdown('<div class="vn-side-label">Dòng tiền</div>', unsafe_allow_html=True)
         _mf_window = st.radio(
             "Khung thời gian NN ròng",
             ["1D", "5D", "20D"],
@@ -153,9 +148,9 @@ def render_money_flow_tab() -> None:
                 "hoặc ngày T-1 nếu ngoài giờ / cuối tuần).\n"
                 "- **5D**: 5 ngày — xu hướng tuần, lọc nhiễu ngày.\n"
                 "- **20D**: 20 ngày — xu hướng tháng, tay to tích/xả dần.\n\n"
-                "**Lưu ý**: chỉ **NN ròng** thay đổi theo khung. Các cột "
-                "**GTGD**, **Vol**, **Buy/Sell** luôn là **snapshot hôm nay** "
-                "(từ live quotes), không đổi theo 1D/5D/20D."
+                "**Lưu ý**: **NN ròng** và **GTGD** tính theo khung (tiêu đề cột ghi "
+                "khung); **Vol**, **Buy/Sell** là **snapshot hôm nay** (live quote), "
+                "không đổi theo 1D/5D/20D."
             ),
         )
         _mf_days = {"1D": 0, "5D": 7, "20D": 30}[_mf_window]
@@ -167,7 +162,7 @@ def render_money_flow_tab() -> None:
         st.caption(
             ("🔴 **Live Scan bật** — Buy/Sell cập nhật mỗi 15s từ live quote "
              "(không có NN ròng real-time, NN chỉ có cuối ngày)." if _mf_live_on else
-             "Live Scan tắt — bật **Live Scan** ở mục 🔴 Live Mode phía trên "
+             "Live Scan tắt — bật **Live Scan** ở mục **Live** phía trên "
              "để cập nhật Buy/Sell mỗi 15s (cần bật Real-time WSS trước)."))
         st.caption(
             "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND)\n\n"
@@ -177,6 +172,20 @@ def render_money_flow_tab() -> None:
             "(top 50 mã từ `order_stats`)\n\n"
             "**Score** = 40% × NN + 35% × Buy/Sell + 25% × Lệnh lớn"
         )
+
+    page_header("Dòng tiền", f"Theo ngành · khối ngoại · khung {_mf_window}")
+
+    # Data staleness badges
+    try:
+        from pathlib import Path as _Path
+        from vnstock_freshness import render_freshness_row
+        render_freshness_row([
+            ("NN ròng",   _Path("data_warehouse/_meta/nn_flow_cache.json"),    2 * 3600),
+            ("Lệnh lớn",  _Path("data_warehouse/_meta/order_stats_cache.json"), 2 * 3600),
+        ])
+    except Exception as e:
+        st.caption("⚠️ Không hiện được độ tươi dữ liệu"
+                   + (f" — {type(e).__name__}: {e}" if diag_on() else "."))
 
     # ── Load industry map ────────────────────────────────────────────────
     _ind_map = _load_industry_map()
@@ -222,7 +231,7 @@ def render_money_flow_tab() -> None:
     if _nn_record_count == 0:
         st.warning(
             "⚠️ Không tải được dữ liệu NN ròng từ TopStock API. "
-            "Thử bấm **🗑 Xoá cache NN** trong sidebar, hoặc kiểm tra "
+            "Thử bấm **🗑 Xoá cache** trong sidebar, hoặc kiểm tra "
             "kết nối internet + vnstock_data sponsor."
         )
 
@@ -234,18 +243,19 @@ def render_money_flow_tab() -> None:
     _total_buy = sum(v.get("buy", 0) for v in _nn_bs_by_ticker.values())
     _total_sell = sum(v.get("sell", 0) for v in _nn_bs_by_ticker.values())
     if _total_buy == 0 and _total_sell > 0:
-        with st.expander("⚠️ NN Mua = 0 — debug info (foreign_buy)"):
-            _buy_state = _NN_DIAG.get("buy_state", "unknown (fetch loop may not have run — cache hit)")
-            _sell_state = _NN_DIAG.get("sell_state", "unknown")
-            st.caption(f"**foreign_buy state:** {_buy_state}")
-            st.caption(f"**foreign_sell state:** {_sell_state}")
-            if "buy_cols" in _NN_DIAG:
-                st.caption(f"**Buy rows:** {_NN_DIAG['buy_rows']}")
-                st.caption(f"**Buy columns:** {_NN_DIAG['buy_cols']}")
-                st.caption(f"**Buy sample row:** {_NN_DIAG['buy_sample']}")
-            if "sell_cols" in _NN_DIAG:
-                st.caption(f"**Sell columns:** {_NN_DIAG['sell_cols']}")
-                st.caption(f"**Sell sample row:** {_NN_DIAG['sell_sample']}")
+        if diag_on():  # trạng thái fetch foreign_buy — chế độ chẩn đoán
+            with st.expander("⚠️ NN Mua = 0 — debug info (foreign_buy)"):
+                _buy_state = _NN_DIAG.get("buy_state", "unknown (fetch loop may not have run — cache hit)")
+                _sell_state = _NN_DIAG.get("sell_state", "unknown")
+                st.caption(f"**foreign_buy state:** {_buy_state}")
+                st.caption(f"**foreign_sell state:** {_sell_state}")
+                if "buy_cols" in _NN_DIAG:
+                    st.caption(f"**Buy rows:** {_NN_DIAG['buy_rows']}")
+                    st.caption(f"**Buy columns:** {_NN_DIAG['buy_cols']}")
+                    st.caption(f"**Buy sample row:** {_NN_DIAG['buy_sample']}")
+                if "sell_cols" in _NN_DIAG:
+                    st.caption(f"**Sell columns:** {_NN_DIAG['sell_cols']}")
+                    st.caption(f"**Sell sample row:** {_NN_DIAG['sell_sample']}")
 
     # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
     # days, 20D=20 trading days). Always use warehouse for consistency.
@@ -351,7 +361,7 @@ def render_money_flow_tab() -> None:
 
     kc1, kc2, kc3, kc4 = st.columns(4)
     with kc1:
-        _nn_color = "#10b981" if _total_nn >= 0 else "#ef4444"
+        _nn_color = _T["up"] if _total_nn >= 0 else _T["down"]
         _nn_sign = "+" if _total_nn > 0 else ""
         st.markdown(
             f'<div class="metric-card"><div class="label">NN ròng ({_mf_window})</div>'
@@ -361,13 +371,13 @@ def render_money_flow_tab() -> None:
     with kc2:
         st.markdown(
             f'<div class="metric-card"><div class="label">Ngành có tiền VÀO</div>'
-            f'<div class="value" style="color:#10b981">{_inflow_sectors}</div>'
+            f'<div class="value" style="color:{_T["up"]}">{_inflow_sectors}</div>'
             f'<div class="sub">/ {len(_sector_summary)} ngành</div></div>',
             unsafe_allow_html=True)
     with kc3:
         st.markdown(
             f'<div class="metric-card"><div class="label">Ngành có tiền RA</div>'
-            f'<div class="value" style="color:#ef4444">{_outflow_sectors}</div>'
+            f'<div class="value" style="color:{_T["down"]}">{_outflow_sectors}</div>'
             f'<div class="sub">/ {len(_sector_summary)} ngành</div></div>',
             unsafe_allow_html=True)
     with kc4:
@@ -375,7 +385,7 @@ def render_money_flow_tab() -> None:
         _top_score = _top_sector[1].get("score", 0)
         st.markdown(
             f'<div class="metric-card"><div class="label">Ngành mạnh nhất</div>'
-            f'<div class="value" style="color:#10b981">{_MF_SECTOR_ICONS.get(_top_name, "")} '
+            f'<div class="value" style="color:{_pct_color(_top_score)}">{_MF_SECTOR_ICONS.get(_top_name, "")} '
             f'{_top_name}</div>'
             f'<div class="sub">Score: {_top_score:+.0f}</div></div>',
             unsafe_allow_html=True)
@@ -383,16 +393,14 @@ def render_money_flow_tab() -> None:
     st.markdown("")
 
     # ── Sector summary table (Tầng 1) ────────────────────────────────────
+    _hpad = "8px 6px"
     _table_html = (
         '<table style="width:100%;border-collapse:collapse;font-size:13px">'
-        '<tr style="border-bottom:2px solid #374151">'
-        '<th style="text-align:left;padding:8px 6px;color:#9ca3af">Ngành</th>'
-        '<th style="text-align:right;padding:8px 6px;color:#9ca3af">Mã</th>'
-        f'<th style="text-align:right;padding:8px 6px;color:#9ca3af">GTGD {_mf_window} (tỷ)</th>'
-        '<th style="text-align:right;padding:8px 6px;color:#9ca3af">Vol (tr CP)</th>'
-        f'<th style="text-align:right;padding:8px 6px;color:#9ca3af">NN ròng {_mf_window} (tỷ)</th>'
-        '<th style="text-align:right;padding:8px 6px;color:#9ca3af">Buy/Sell</th>'
-        '<th style="text-align:center;padding:8px 6px;color:#9ca3af">Dòng tiền</th>'
+        f'<tr style="border-bottom:2px solid {_T["border"]}">'
+        f'{_th("Ngành", "left", _hpad)}{_th("Mã", pad=_hpad)}'
+        f'{_th(f"GTGD {_mf_window} (tỷ)", pad=_hpad)}{_th("Vol (tr CP)", pad=_hpad)}'
+        f'{_th(f"NN ròng {_mf_window} (tỷ)", pad=_hpad)}{_th("Buy/Sell", pad=_hpad)}'
+        f'{_th("Dòng tiền", "center", _hpad)}'
         '</tr>'
     )
 
@@ -402,20 +410,22 @@ def render_money_flow_tab() -> None:
         s = _sector_summary[sec]
         icon = _MF_SECTOR_ICONS.get(sec, "")
         _, name_color = _score_label(s["score"])
-        nn_color = "#10b981" if s["nn_net"] >= 0 else "#ef4444"
+        nn_color = _T["up"] if s["nn_net"] >= 0 else _T["down"]
         nn_sign = "+" if s["nn_net"] > 0 else ""
         buy_pct = s["buy_ratio"] * 100
-        buy_color = "#10b981" if buy_pct > 55 else ("#ef4444" if buy_pct < 45 else "#9ca3af")
-        bg = "#0d1117" if i % 2 == 0 else "#111827"
+        buy_color = _T["up"] if buy_pct > 55 else (
+            _T["down"] if buy_pct < 45 else _T["text_muted"])
+        bg = _T["bg"] if i % 2 == 0 else _T["surface"]
 
         _table_html += (
-            f'<tr style="background:{bg};border-bottom:1px solid #1f2937">'
+            f'<tr style="background:{bg};border-bottom:1px solid {_T["border"]}">'
             f'<td style="padding:7px 6px;color:{name_color};font-weight:600">'
             f'{icon} {sec}</td>'
-            f'<td style="padding:7px 6px;text-align:right;color:#d1d5db">{s["n_stocks"]}</td>'
-            f'<td style="padding:7px 6px;text-align:right;color:#d1d5db">'
+            f'<td style="padding:7px 6px;text-align:right;color:{_T["text"]}">'
+            f'{s["n_stocks"]}</td>'
+            f'<td style="padding:7px 6px;text-align:right;color:{_T["text"]}">'
             f'{s["gtgd"]:,.0f}</td>'
-            f'<td style="padding:7px 6px;text-align:right;color:#d1d5db">'
+            f'<td style="padding:7px 6px;text-align:right;color:{_T["text"]}">'
             f'{s["volume"]/1e6:,.1f}</td>'
             f'<td style="padding:7px 6px;text-align:right;color:{nn_color};font-weight:500">'
             f'{nn_sign}{s["nn_net"]:,.0f}</td>'
@@ -468,23 +478,12 @@ def render_money_flow_tab() -> None:
         _det_html = (
             '<table style="width:100%;border-collapse:collapse;font-size:12px;'
             'margin-top:8px">'
-            '<tr style="border-bottom:2px solid #374151">'
-            '<th style="text-align:left;padding:6px;color:#9ca3af">Mã</th>'
-            '<th style="text-align:left;padding:6px;color:#9ca3af">Ngành gốc</th>'
-            '<th style="text-align:right;padding:6px;color:#9ca3af">Giá</th>'
-            f'<th style="text-align:right;padding:6px;color:#9ca3af">'
-            f'GTGD {_mf_window} (tỷ)</th>'
-            f'<th style="text-align:right;padding:6px;color:#9ca3af">'
-            f'NN Mua {_mf_window}</th>'
-            f'<th style="text-align:right;padding:6px;color:#9ca3af">'
-            f'NN Bán {_mf_window}</th>'
-            f'<th style="text-align:right;padding:6px;color:#9ca3af">'
-            f'NN Ròng {_mf_window}</th>'
-            '<th style="text-align:right;padding:6px;color:#9ca3af">Buy/Sell</th>'
-            '<th style="text-align:right;padding:6px;color:#9ca3af">Lệnh lớn</th>'
-            '<th style="text-align:right;padding:6px;color:#9ca3af">Score</th>'
-            '<th style="text-align:center;padding:6px;color:#9ca3af">Dòng tiền</th>'
-            '<th style="text-align:center;padding:6px;color:#9ca3af">Vai trò</th>'
+            f'<tr style="border-bottom:2px solid {_T["border"]}">'
+            f'{_th("Mã", "left")}{_th("Ngành gốc", "left")}{_th("Giá")}'
+            f'{_th(f"GTGD {_mf_window} (tỷ)")}{_th(f"NN Mua {_mf_window}")}'
+            f'{_th(f"NN Bán {_mf_window}")}{_th(f"NN Ròng {_mf_window}")}'
+            f'{_th("Buy/Sell")}{_th("Lệnh lớn")}{_th("Score")}'
+            f'{_th("Dòng tiền", "center")}{_th("Vai trò", "center")}'
             '</tr>'
         )
 
@@ -492,26 +491,26 @@ def render_money_flow_tab() -> None:
         _sec_nn_total = abs(_sec["nn_net"]) if _sec["nn_net"] != 0 else 1
         for j, stk in enumerate(stocks[:50]):
             s_label, s_color = _score_label(stk["score"])
-            nn_color = "#10b981" if stk["nn_net"] >= 0 else "#ef4444"
+            nn_color = _T["up"] if stk["nn_net"] >= 0 else _T["down"]
             nn_sign = "+" if stk["nn_net"] > 0 else ""
             buy_pct = stk["buy_ratio"] * 100
-            buy_color = "#10b981" if buy_pct > 55 else (
-                "#ef4444" if buy_pct < 45 else "#9ca3af")
-            bg = "#0d1117" if j % 2 == 0 else "#111827"
+            buy_color = _T["up"] if buy_pct > 55 else (
+                _T["down"] if buy_pct < 45 else _T["text_muted"])
+            bg = _T["bg"] if j % 2 == 0 else _T["surface"]
 
             # Role: does this stock pull the sector?
             nn_contribution = abs(stk["nn_net"]) / _sec_nn_total * 100
             if nn_contribution > 25 and abs(stk["score"]) > 20:
                 if stk["score"] > 0:
-                    role = '<span style="color:#10b981;font-weight:700">★ Kéo VÀO</span>'
+                    role = f'<span style="color:{_T["up"]};font-weight:700">★ Kéo VÀO</span>'
                 else:
-                    role = '<span style="color:#ef4444;font-weight:700">★ Kéo RA</span>'
+                    role = f'<span style="color:{_T["down"]};font-weight:700">★ Kéo RA</span>'
             elif abs(stk["score"]) > 30 and (
                 (stk["score"] > 0) != (_sec["score"] > 0)
             ):
-                role = '<span style="color:#f59e0b">↔ Ngược dòng</span>'
+                role = f'<span style="color:{_T["warn"]}">↔ Ngược dòng</span>'
             else:
-                role = '<span style="color:#4b5563">—</span>'
+                role = f'<span style="color:{_T["text_faint"]}">—</span>'
 
             _nn_buy = stk.get("nn_buy", 0)
             _nn_sell = stk.get("nn_sell", 0)
@@ -519,23 +518,24 @@ def render_money_flow_tab() -> None:
             # (a literal 0 there is "no data", not "order size == average").
             _bo = stk.get("big_order_score", 0)
             if stk.get("has_order"):
-                _bo_color = "#10b981" if _bo > 10 else ("#ef4444" if _bo < -10 else "#9ca3af")
+                _bo_color = _T["up"] if _bo > 10 else (
+                    _T["down"] if _bo < -10 else _T["text_muted"])
                 _bo_txt = f"{_bo:+.0f}"
             else:
-                _bo_color, _bo_txt = "#4b5563", "—"
+                _bo_color, _bo_txt = _T["text_faint"], "—"
             _det_html += (
-                f'<tr style="background:{bg};border-bottom:1px solid #1f2937">'
-                f'<td style="padding:5px 6px;color:#60a5fa;font-weight:600">'
+                f'<tr style="background:{bg};border-bottom:1px solid {_T["border"]}">'
+                f'<td style="padding:5px 6px;color:{_T["link"]};font-weight:600">'
                 f'{stk["ticker"]}</td>'
-                f'<td style="padding:5px 6px;color:#9ca3af;font-size:11px">'
+                f'<td style="padding:5px 6px;color:{_T["text_muted"]};font-size:11px">'
                 f'{stk["industry"]}</td>'
-                f'<td style="padding:5px 6px;text-align:right;color:#d1d5db">'
+                f'<td style="padding:5px 6px;text-align:right;color:{_T["text"]}">'
                 f'{stk["price"]:,.1f}</td>'
-                f'<td style="padding:5px 6px;text-align:right;color:#d1d5db">'
+                f'<td style="padding:5px 6px;text-align:right;color:{_T["text"]}">'
                 f'{stk["gtgd"]:,.0f}</td>'
-                f'<td style="padding:5px 6px;text-align:right;color:#10b981">'
+                f'<td style="padding:5px 6px;text-align:right;color:{_T["up"]}">'
                 f'{_nn_buy:,.0f}</td>'
-                f'<td style="padding:5px 6px;text-align:right;color:#ef4444">'
+                f'<td style="padding:5px 6px;text-align:right;color:{_T["down"]}">'
                 f'{_nn_sell:,.0f}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:{nn_color};'
                 f'font-weight:500">{nn_sign}{stk["nn_net"]:,.0f}</td>'
@@ -556,7 +556,7 @@ def render_money_flow_tab() -> None:
 
     # ── F4: Foreign flow deep dive — top mã + sector chart ───────────────
     st.markdown("---")
-    st.markdown("#### 🔍 Khối Ngoại Chi Tiết")
+    section("Khối ngoại chi tiết")
 
     if _nn_raw.empty:
         st.info("Chưa có dữ liệu NN ròng. Bấm **🗑 Xoá cache** trong sidebar rồi thử lại.")
@@ -638,7 +638,7 @@ def render_money_flow_tab() -> None:
                     import plotly.graph_objects as _go
                     _secs   = [s for s, _ in _sec_items]
                     _vals   = [v for _, v in _sec_items]
-                    _colors = ["#22c55e" if v >= 0 else "#ef4444" for v in _vals]
+                    _colors = [_T["up"] if v >= 0 else _T["down"] for v in _vals]
                     _fig = _go.Figure(_go.Bar(
                         x=_secs, y=_vals,
                         marker_color=_colors,
@@ -648,15 +648,14 @@ def render_money_flow_tab() -> None:
                     _fig.update_layout(
                         height=300,
                         margin=dict(l=0, r=0, t=10, b=60),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        font_color="#e5e7eb",
+                        **PLOTLY_BG,
+                        font_color=_T["text"],
                         yaxis=dict(
                             title="tỷ VND",
                             showgrid=True,
-                            gridcolor="#374151",
+                            gridcolor=_T["border"],
                             zeroline=True,
-                            zerolinecolor="#6b7280",
+                            zerolinecolor=_T["text_off"],
                         ),
                         xaxis=dict(showgrid=False, tickangle=-30),
                     )
@@ -671,13 +670,13 @@ def render_money_flow_tab() -> None:
     # ── Real-time mode ───────────────────────────────────────────────────
     if _mf_live_on and WSS_AVAILABLE:
         st.markdown("---")
-        st.markdown("#### 🔴 Live Money Flow (real-time)")
+        section("Dòng tiền trong phiên (live)")
 
         @st.fragment(run_every=15)
         def _live_money_flow_fragment():
             _live_d = Path("data_warehouse/_live")
             if not _live_d.exists():
-                st.caption("⏳ Chưa có live data — chờ WSS poll (🔴 Live Mode ở sidebar trái)")
+                st.caption("⏳ Chưa có live data — chờ WSS poll (mục **Live** ở sidebar trái)")
                 return
 
             quote_files = list(_live_d.glob("quote_*.json"))
@@ -705,12 +704,10 @@ def render_money_flow_tab() -> None:
             # Build compact live table
             _lt = (
                 '<table style="width:100%;border-collapse:collapse;font-size:12px">'
-                '<tr style="border-bottom:2px solid #374151">'
-                '<th style="text-align:left;padding:5px;color:#9ca3af">Ngành</th>'
-                '<th style="text-align:right;padding:5px;color:#9ca3af">Mã</th>'
-                '<th style="text-align:right;padding:5px;color:#9ca3af">GTGD</th>'
-                '<th style="text-align:right;padding:5px;color:#9ca3af">Buy/Sell</th>'
-                '<th style="text-align:center;padding:5px;color:#9ca3af">Áp lực</th>'
+                f'<tr style="border-bottom:2px solid {_T["border"]}">'
+                f'{_th("Ngành", "left", "5px")}{_th("Mã", pad="5px")}'
+                f'{_th("GTGD", pad="5px")}{_th("Buy/Sell", pad="5px")}'
+                f'{_th("Áp lực", "center", "5px")}'
                 '</tr>'
             )
             for idx, sec in enumerate(_MF_SECTOR_ORDER):
@@ -719,19 +716,19 @@ def render_money_flow_tab() -> None:
                 sl = sector_live[sec]
                 buy_pct = sl["buy_ratio"] * 100
                 sell_pct = 100 - buy_pct
-                buy_color = "#10b981" if buy_pct > 55 else (
-                    "#ef4444" if buy_pct < 45 else "#9ca3af")
+                buy_color = _T["up"] if buy_pct > 55 else (
+                    _T["down"] if buy_pct < 45 else _T["text_muted"])
 
                 # Simple score from buy/sell only (no NN in realtime)
                 live_score = (buy_pct - 50) * 2
-                bg = "#0d1117" if idx % 2 == 0 else "#111827"
+                bg = _T["bg"] if idx % 2 == 0 else _T["surface"]
                 _lt += (
-                    f'<tr style="background:{bg};border-bottom:1px solid #1f2937">'
-                    f'<td style="padding:4px 5px;color:#d1d5db">'
+                    f'<tr style="background:{bg};border-bottom:1px solid {_T["border"]}">'
+                    f'<td style="padding:4px 5px;color:{_T["text"]}">'
                     f'{_MF_SECTOR_ICONS.get(sec, "")} {sec}</td>'
-                    f'<td style="padding:4px 5px;text-align:right;color:#9ca3af">'
+                    f'<td style="padding:4px 5px;text-align:right;color:{_T["text_muted"]}">'
                     f'{sl["count"]}</td>'
-                    f'<td style="padding:4px 5px;text-align:right;color:#d1d5db">'
+                    f'<td style="padding:4px 5px;text-align:right;color:{_T["text"]}">'
                     f'{sl["gtgd"]:,.0f} tỷ</td>'
                     f'<td style="padding:4px 5px;text-align:right;color:{buy_color}">'
                     f'{buy_pct:.0f}/{sell_pct:.0f}</td>'

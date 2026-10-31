@@ -1,5 +1,100 @@
 [server]
 # Serve files from <repo>/static/ at /app/static/* — used by the analysis tab
 # to push today's OHLCV bar to the chart iframe for smooth live updates
-# without rebuilding the LWC chart on each tick.
+# without rebuilding the LWC chart on each tick. Also serves static/fonts/
+# (IBM Plex, self-hosted — see [[theme.fontFaces]] below).
 enableStaticServing = true
+
+[client]
+# Ẩn nút Deploy + mục dev (rerun, clear cache) ở góc phải (P2 giao diện); "viewer" giữ
+# mục của người xem (in, chọn giao diện) — "minimal" ẩn cả chúng.
+toolbarMode = "viewer"
+
+# Theme — giá trị CHÉP từ dashboard/theme.py DARK/LIGHT (tests/test_theme_tokens.py canh
+# khớp). Hai bộ [theme.dark]/[theme.light] (P4): Streamlit theo chế độ sáng/tối của HỆ
+# ĐIỀU HÀNH; script chính đọc `st.context.theme.type` mỗi lượt để CSS/chart/bảng HTML
+# dùng đúng bảng màu. `base` chỉ là bản dự phòng (trước P4, thiếu nó thì máy để chế độ
+# sáng dựng theme sáng dưới CSS tối — đo 30/10). Phần chung (font, bo góc) ở [theme].
+[theme]
+base = "dark"
+font = "IBM Plex Sans, sans-serif"
+codeFont = "IBM Plex Mono, monospace"
+baseRadius = "8px"
+
+[theme.dark]
+primaryColor = "#3b82f6"
+backgroundColor = "#0a0e1a"
+secondaryBackgroundColor = "#111827"
+textColor = "#e5e7eb"
+borderColor = "#1f2937"
+linkColor = "#60a5fa"
+greenColor = "#10b981"
+redColor = "#ef4444"
+yellowColor = "#fbbf24"
+orangeColor = "#f59e0b"
+violetColor = "#a78bfa"
+blueColor = "#3b82f6"
+grayColor = "#9ca3af"
+dataframeBorderColor = "#1f2937"
+dataframeHeaderBackgroundColor = "#111827"
+chartCategoricalColors = ["#60a5fa", "#f59e0b", "#a78bfa", "#22d3ee", "#34d399", "#f87171", "#d946ef", "#9ca3af"]
+
+[theme.light]
+primaryColor = "#2563eb"
+backgroundColor = "#f6f8fb"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1f2937"
+borderColor = "#dfe5ee"
+linkColor = "#1d4ed8"
+greenColor = "#047857"
+redColor = "#c81e1e"
+yellowColor = "#a15c07"
+orangeColor = "#b45309"
+violetColor = "#7c3aed"
+blueColor = "#2563eb"
+grayColor = "#4b5563"
+dataframeBorderColor = "#dfe5ee"
+dataframeHeaderBackgroundColor = "#ffffff"
+chartCategoricalColors = ["#1d4ed8", "#b45309", "#7c3aed", "#0e7490", "#0f766e", "#b42318", "#a21caf", "#4b5563"]
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/IBMPlexSans-Regular.woff2"
+weight = "400"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/IBMPlexSans-Medium.woff2"
+weight = "500"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/IBMPlexSans-SemiBold.woff2"
+weight = "600"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/IBMPlexSans-Bold.woff2"
+weight = "700"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Mono"
+url = "app/static/fonts/IBMPlexMono-Regular.woff2"
+weight = "400"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Mono"
+url = "app/static/fonts/IBMPlexMono-Medium.woff2"
+weight = "500"
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Mono"
+url = "app/static/fonts/IBMPlexMono-SemiBold.woff2"
+weight = "600"
+style = "normal"

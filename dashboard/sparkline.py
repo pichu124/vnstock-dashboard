@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import math
 
-_EMPTY = '<span style="color:#4b5563;font-size:10px">—</span>'
+from dashboard.theme import TOKENS as _T, rgba as _rgba
 
-_UP_LINE, _DOWN_LINE = "#10b981", "#ef4444"
-_UP_FILL, _DOWN_FILL = "#10b98122", "#ef444422"
-_ZERO_LINE = "#4b5563"
+# Màu đọc LÚC VẼ (P4 sáng/tối — hằng cấp module đứng yên ở màu tối).
+def _empty() -> str:
+    return f'<span style="color:{_T["text_faint"]};font-size:10px">—</span>'
 
 
 def _clean(values) -> list:
@@ -34,7 +34,7 @@ def sparkline_svg(values: list, width: int = 80, height: int = 28) -> str:
     """Trả SVG nội tuyến. Dưới 2 điểm dữ liệu → dấu "—" (không vẽ đường giả)."""
     vals = _clean(values)
     if len(vals) < 2:
-        return _EMPTY
+        return _empty()
 
     mn, mx = min(vals), max(vals)
     rng = mx - mn if mx != mn else 1.0
@@ -46,8 +46,8 @@ def sparkline_svg(values: list, width: int = 80, height: int = 28) -> str:
     pt_str = " ".join(f"{x},{y}" for x, y in pts)
 
     last_val = vals[-1]
-    lc = _UP_LINE if last_val >= 0 else _DOWN_LINE
-    fc = _UP_FILL if last_val >= 0 else _DOWN_FILL
+    lc = _T["up"] if last_val >= 0 else _T["down"]
+    fc = _rgba(lc, 0.13)
 
     # Polygon tô từ đường 0 xuống/lên đường giá
     fill_pts = [(pts[0][0], int(zero_y))] + pts + [(pts[-1][0], int(zero_y))]
@@ -59,7 +59,7 @@ def sparkline_svg(values: list, width: int = 80, height: int = 28) -> str:
             f'<polygon points="{fp_str}" fill="{fc}" stroke="none"/>'
             f'<polyline points="{pt_str}" fill="none" stroke="{lc}" stroke-width="1.5" stroke-linejoin="round"/>'
             f'<line x1="0" y1="{zero_y:.0f}" x2="{width}" y2="{zero_y:.0f}" '
-            f'stroke="{_ZERO_LINE}" stroke-width="0.5" stroke-dasharray="3,3"/>'
+            f'stroke="{_T["text_off"]}" stroke-width="0.5" stroke-dasharray="3,3"/>'
             f'<text x="{width+2}" y="{height//2+4}" font-size="9" fill="{lc}" '
             f'font-family="IBM Plex Mono,monospace">{last_disp}</text>'
             f'</svg>')

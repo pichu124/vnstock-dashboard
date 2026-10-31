@@ -10,6 +10,7 @@ from __future__ import annotations
 def render_brief_runner() -> None:
     """Render panel. Streamlit import LƯỜI để pytest import được module."""
     import streamlit as st  # noqa: F401
+    from dashboard import ui
     from vnstock_brief import build_agents, generate_brief, load_agent_configs
 
     # ── Brief controls ─────────────────────────────────────────────
@@ -72,10 +73,8 @@ def render_brief_runner() -> None:
                                           key=lambda kv: kv[1])[0]
                         _icon = {"bullish": "🟢", "bearish": "🔴",
                                  "neutral": "🟡", "unknown": "⚪"}.get(_stance_top, "🟡")
-                        st.markdown(
-                            f"### {_icon} Consensus — "
-                            f"{_cons['consensus_line']}"
-                        )
+                        ui.section("Đồng thuận các agent")
+                        st.markdown(f"{_icon} {_cons['consensus_line']}")
                         # Per-agent stance row
                         _stance_emoji = {"bullish": "🟢", "bearish": "🔴",
                                          "neutral": "🟡", "unknown": "⚪"}

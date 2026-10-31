@@ -1,5 +1,6 @@
 # Core
-streamlit>=1.35.0
+streamlit>=1.56.0,<1.57   # bản ĐÃ THỬ giao diện (docs/THIET-KE-GIAO-DIEN.md). Trần vì components.v1.html
+                          # (chart LWC, bảng screener) bị Streamlit báo sẽ gỡ — nâng thì thử chart trước.
 pandas>=2.0.0
 numpy>=1.24.0
 pyarrow>=14.0.0
