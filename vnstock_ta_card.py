@@ -41,7 +41,9 @@ MACD_ABOVE, MACD_BELOW = "trên tín hiệu", "dưới tín hiệu"
 CROSS_UP, CROSS_DOWN = "cắt lên", "cắt xuống"
 NO_DATA = "chưa đủ dữ liệu"
 NO_DATES = "không có cột ngày"
-BROKE_SUPPORT_TEXT = "thủng hỗ trợ — nguy cơ về S2"
+# "mức kế tiếp", KHÔNG "nguy cơ về": so mốc khớp biến động (eval_sr_methods kho thật 04/11) thủng S1 ⇒
+# chạm S2 KHÔNG hơn một mức bất kỳ cùng bội ATR — phần lợi thế §15 là do biến động, không phải mức.
+BROKE_SUPPORT_TEXT = "thủng hỗ trợ — mức kế tiếp S2"
 
 CONFLICT_BREAKOUT_NO_VOL = "giá vượt MA20 mà KL không xác nhận"
 CONFLICT_SHORT_UP_MEDIUM_DOWN = "ngắn hạn tăng mà trung hạn giảm"

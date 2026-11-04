@@ -363,3 +363,28 @@ Công tắc quay lại `VNSTOCK_INDICATOR_LEGACY=1`.
 HOSE 19,9% · VN30 36,7%. User chọn (a): **tập mã đầu tư được** (≥200 bar trong 400 ngày + GTGD TB20 ≥1 tỷ + bar cuối
 không trễ >5 phiên) cho CẢ số in trong brief LẪN phiếu regime — sau công tắc, mặc định TẮT tới khi chạy lại lịch sử:
 số phiên trạng thái ngắn hạn/Stance đổi + T4 `ta-score` cũ vs mới ⇒ user xem số ⇒ bật.
+
+## 17. P2b — so 5 cách tìm S/R trên kho thật (🖥️ desktop 04/11, `scripts/eval_sr_methods.py`)
+
+612 mã GTGD ≥1 tỷ · 21.890 ngày chấm (10/2024 → 10/2026, bước 10 phiên). CHÊNH = thật − mức giả cùng BỘI ATR
+(mốc khớp biến động, sau sửa bias review); cột đối chứng = CHÊNH trừ CHÊNH của `atr_band` (giá ± 1,5 ATR — KHÔNG
+chứa thông tin S/R nào).
+
+| Phương pháp | Hỗ trợ "chạm thì giữ" CHÊNH / −atr_band | Kháng cự CHÊNH / −atr_band | Thủng S1→S2 CHÊNH / −atr_band |
+|---|---|---|---|
+| pivot60 (hiện tại) | +3,7 / −0,4 | +6,0 / −1,5 | +3,0 / −2,6 |
+| touch_cluster | +3,3 / −0,8 | +6,8 / −0,7 | −1,4 / −7,0 |
+| volume_node | +2,2 / −1,9 | +7,9 / +0,4 | −3,8 / −9,4 |
+| round_number | +3,4 / −0,7 | +6,4 / −1,1 | +1,7 / −3,9 |
+| atr_band (đối chứng) | +4,1 / 0 | +7,5 / 0 | +5,6 / 0 |
+
+Hai nửa thời gian cho cùng kết luận. Phần VN-Index chỉ 51 ngày chấm (n một-hai chục) — không dùng.
+
+**Kết luận:**
+1. **Không cách nào hơn mốc ngây thơ "giá ± 1,5 ATR".** CHÊNH dương ~+3–8 điểm % có ở MỌI phương pháp, kể cả
+   atr_band ⇒ đó là phần mốc giả còn thiếu (dữ liệu thật hồi quy về giá gần hơn random walk), không phải thông tin S/R.
+2. **Sửa §15:** "thủng S1 ⇒ chạm S2 91% vs 69%" phần lớn là BIẾN ĐỘNG (sau phiên thủng biến động cao nên đi xa dễ):
+   so mốc khớp ATR, VN-Index chỉ còn +3,3 (n=20), từng mã +3,0 — dưới atr_band. Thẻ đổi chữ "nguy cơ về S2" ⇒
+   "mức kế tiếp S2" (sự kiện, không dự báo).
+3. Hệ quả P2: S/R pivot60 giữ làm MỐC THAM CHIẾU (không cách nào tốt hơn, đổi chỉ gây xáo trộn), nhưng nhận định
+   KHÔNG được dựa vào "hỗ trợ sẽ giữ / thủng thì về S2" như một lợi thế — chờ user chốt §17a.
