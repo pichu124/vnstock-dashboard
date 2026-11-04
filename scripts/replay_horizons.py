@@ -257,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     if breadth:
         lb = breadth[max(breadth)]
         print(f"Breadth tái dựng: {len(breadth)} phiên, mẫu số {lb['total']} mã "
-              f"(phiên cuối {lb['above_ma200_pct']}% trên EMA200)")
+              f"(phiên cuối {lb['above_ma200_pct']}% trên SMA200)")
     params = hz.MediumParams()
     df = replay(dates, closes, breadth, nn, params, rows_from=targets[0])
     df = df[df.index <= end]

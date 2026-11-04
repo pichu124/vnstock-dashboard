@@ -102,9 +102,16 @@ def indicator_legacy() -> bool:
 
 def rsi_default(close, n: int = 14) -> pd.Series:
     """RSI dùng thống nhất: Wilder (§10b). Công tắc legacy ⇒ Cutler ĐÚNG như code cũ —
-    cửa sổ không phiên giảm ra NaN (không phải 100)."""
+    cửa sổ không phiên giảm ra NaN (không phải 100).
+
+    Cửa sổ ``n`` phiên giá ĐỨNG HẲN (mọi delta = 0) ⇒ NaN: Wilder là trung bình mũ, giá đứng
+    thì trung bình tăng/giảm cùng co theo một tỉ lệ ⇒ RSI ĐÓNG BĂNG ở số cũ mãi mãi ⇒ mã kém
+    thanh khoản kẹt trong quá mua/quá bán và lọt vào đếm độ rộng (review P1 đợt 2, 04/11).
+    Cutler cũ ra NaN ở đúng cửa sổ đó ⇒ giữ nguyên nghĩa "đứng giá = không tín hiệu"."""
     if not indicator_legacy():
-        return rsi_wilder(close, n)
+        c = _series(close)
+        flat = c.diff().abs().rolling(n).sum() == 0
+        return rsi_wilder(c, n).mask(flat)
     r = rsi_cutler(close, n)
     return r.where(r < 100)
 
