@@ -842,18 +842,36 @@ def enforce_breadth_label(text: str, ctx: dict) -> str:
     pct = b.get("above_ma200_pct")
     if not text or not isinstance(pct, (int, float)):
         return text
+    from vnstock_breadth_universe import label_suffix
+    suffix = label_suffix(b)        # tập thanh khoản (PTKT §16) ⇒ " (N mã thanh khoản)", không thì ""
+
+    def _same(raw: str) -> bool:
+        n = _parse_vn_number(raw)
+        return n is not None and abs(n - pct) <= 1   # only the above-MA200 figure
 
     def _fix(m: "_re.Match") -> str:
-        n = _parse_vn_number(m.group(1))
-        if n is None or abs(n - pct) > 1:        # only the above-MA200 mislabel
+        if not _same(m.group(1)):
             return m.group(0)
-        return f"{m.group(1)}% {m.group(2)} trên MA200"
+        return f"{m.group(1)}% {m.group(2)} trên MA200{suffix}"
 
     # "số mã cổ phiếu" (cả hai tiền tố ghép lại) — thấy thật close 14/07:
     # "chỉ 13% số mã cổ phiếu tăng giá" lọt qua vì regex cũ chỉ có từng nhánh lẻ.
-    return _re.sub(
+    out = _re.sub(
         r"(\d[\d.,]*)\s*%\s*((?:số\s+mã(?:\s+cổ phiếu)?|mã\s+cổ phiếu|cổ phiếu|mã))\s+(?:đang\s+)?tăng\s+(?:giá|điểm)",
         _fix, text)
+    if not suffix:
+        return out
+    # Tập thanh khoản: số trên MA200 nêu trơn sẽ bị đọc theo thang cũ (mọi mã, ~11%) ⇒ gắn
+    # tập vào ngay sau "MA200" — cả "30% mã trên MA200" lẫn "Trên MA200: 30%". Đã có ⇒ thôi.
+    _tagged = r"(?!\s*\(\s*[\d.,]+\s+mã thanh khoản)"
+    out = _re.sub(
+        r"(\d[\d.,]*)(\s*%\s*(?:số\s+)?(?:mã\s+)?(?:cổ phiếu\s+)?(?:đang\s+)?(?:nằm\s+)?"
+        r"trên\s+(?:đường\s+)?MA\s?200)" + _tagged,
+        lambda m: m.group(0) + suffix if _same(m.group(1)) else m.group(0), out)
+    return _re.sub(
+        r"([Tt]rên\s+MA\s?200)" + _tagged + r"(\s*:\s*)(\d[\d.,]*)(?=\s*%)",
+        lambda m: m.group(1) + suffix + m.group(2) + m.group(3) if _same(m.group(3)) else m.group(0),
+        out)
 
 
 # Composite-mood pieces (vnstock_market_sentiment._MOODS). Matched separately as

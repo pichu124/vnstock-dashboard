@@ -131,17 +131,24 @@ def merge_short_states(warehouse: Path) -> tuple[dict[str, int], str]:
     return {**back, **pub}, f"dựng lại ngày {built} + horizon_state.json"
 
 
-def rebuild_short_states(warehouse: Path) -> dict[str, int]:
+def rebuild_short_states(warehouse: Path, universe: str | None = None) -> dict[str, int]:
     """Dựng lại ngắn hạn horizons TOÀN lịch sử bằng đúng code `vnstock_horizons_state`
-    (breadth tái dựng từ parquet, NN thiếu ⇒ 0 như backfill của nó). Nặng: đọc mọi mã."""
+    (breadth tái dựng từ parquet trên tập `universe` — None ⇒ `VNSTOCK_BREADTH_UNIVERSE`,
+    NN thiếu ⇒ 0 như backfill của nó). Nặng: đọc mọi mã."""
     import vnstock_horizons_state as hs
     dates, closes = hs.load_vnindex(Path(warehouse))
     if len(dates) <= 200:
         return {}
     targets = dates[199:]
     print(f"[ta-score] dựng lại ngắn hạn {len(targets):,} phiên — tái dựng breadth từ parquet…")
-    breadth = hs.breadth_history(Path(warehouse), targets)
+    breadth = hs.breadth_history(Path(warehouse), targets, universe, sessions=dates)
     scores = hs.score_inputs(dates, closes, targets, breadth, hs.load_nn(Path(warehouse)))
+    return short_states_from_scores(dates, scores)
+
+
+def short_states_from_scores(dates: list[date], scores: dict) -> dict[str, int]:
+    """Ngắn hạn từng phiên ({iso: trạng thái}) gấp từ `score_inputs` — bắt đầu từ phiên đầu có
+    điểm, phiên thiếu điểm giữ trạng thái trước (như `fold`)."""
     out, st, started = {}, hz.CHUA_RO, False
     for d in dates:
         sc = scores.get(d)

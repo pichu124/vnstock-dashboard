@@ -43,6 +43,7 @@ if str(_REPO) not in sys.path:
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from vnstock_breadth_universe import session_gtgd20, session_lag  # noqa: E402
 from vnstock_indicators import rsi_cutler, rsi_wilder, sma  # noqa: E402
 
 # Phiếu "Breadth MA200" của `vnstock_regime.classify_regime` (test canh khớp).
@@ -242,7 +243,6 @@ def suggest_thresholds(per_ticker: list[pd.DataFrame], daily: pd.DataFrame) -> d
 SCREENER_MIN_ROWS = 60              # min_rows mặc định của MarketScreener.scan
 P52_BARS, P52_MIN_BARS = 252, 50    # _calc_indicators: df.tail(252), cần ≥ 50 bar
 REVERSAL_P52 = 15.0                 # preset reversal: 52w_pct < 15
-GTGD_N = 20
 STALE_SESSIONS = 5                  # = vnstock_screener.STALE_SESSIONS (test canh)
 # Ngưỡng Wilder giữ tỉ lệ gắn nhãn, đo kho thật 120 phiên tới 03/11 — chỉ dùng khi lượt chạy
 # không tự tính được (`suggest_thresholds` trả None).
@@ -250,21 +250,6 @@ SUGGESTED_FALLBACK = {"oversold": 35.0, "overbought": 66.9, "reversal": 42.2}
 _SUGGEST_KEY = {"oversold": "rsi_qua_ban_30", "overbought": "rsi_qua_mua_70",
                 "reversal": "rsi_reversal_40"}
 _OLD_THR = {"oversold": 30.0, "overbought": 70.0, "reversal": 40.0}
-
-
-def session_gtgd20(time, close, volume, sessions) -> pd.Series:
-    """GTGD TB20 (tỷ VND, ``close`` nghìn VND × KL / 1e6 như runner) theo LỊCH PHIÊN: phiên không
-    có bar tính 0 (mã không khớp lệnh thì thanh khoản 0, không phải "thiếu"). Trước bar đầu và
-    20 phiên đầu = NaN. Index = ``sessions``."""
-    s = pd.DatetimeIndex(sessions)
-    v = pd.Series(np.asarray(close, dtype=float) * np.asarray(volume, dtype=float) / 1e6,
-                  index=pd.DatetimeIndex(pd.to_datetime(pd.Series(time))).normalize())
-    v = v[v.index.isin(s)].groupby(level=0).sum()
-    r = v.reindex(s)
-    if len(v):
-        first = s.searchsorted(v.index[0])
-        r.iloc[first:] = r.iloc[first:].fillna(0.0)
-    return r.rolling(GTGD_N, min_periods=GTGD_N).mean()
 
 
 def ticker_signal_panel(df: pd.DataFrame, sessions, vni_close, sig_days,
@@ -399,14 +384,9 @@ def ticker_breadth_extra(time, close, volume, days, sessions) -> pd.DataFrame:
     """Thêm cho mỗi phiên ``days``: ``gtgd20`` (tỷ, theo lịch phiên) + ``lag`` = số phiên lịch
     SAU bar cuối ≤ phiên đó (như ``vnstock_screener.stale_sessions``; NaN khi chưa có bar)."""
     t = pd.DatetimeIndex(pd.to_datetime(pd.Series(time))).normalize()
-    s = pd.DatetimeIndex(sessions)
     d = pd.DatetimeIndex(days)
-    g = session_gtgd20(t, close, volume, s).reindex(d)
-    k = t.searchsorted(d, side="right") - 1
-    last = t[np.clip(k, 0, None)] if len(t) else d
-    lag = s.searchsorted(d, side="right") - s.searchsorted(last, side="right")
-    return pd.DataFrame({"gtgd20": g.to_numpy(),
-                         "lag": np.where(k >= 0, lag, np.nan).astype(float)}, index=d)
+    g = session_gtgd20(t, close, volume, pd.DatetimeIndex(sessions)).reindex(d)
+    return pd.DataFrame({"gtgd20": g.to_numpy(), "lag": session_lag(t, sessions, d)}, index=d)
 
 
 def breadth_by_denominator(st: pd.DataFrame, hose: "set | None", vn30: set,

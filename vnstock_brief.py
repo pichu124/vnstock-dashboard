@@ -3866,12 +3866,17 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         _bl = "tích cực" if _ad > 1.05 else "tiêu cực" if _ad < 0.95 else "cân bằng"
         _sign = ">" if _ad > 1 else "<" if _ad < 1 else "≈"
         _weak = " · ít mã trên MA200 → thị trường yếu" if _ma200 < 30 else ""
+        from vnstock_breadth_universe import label_suffix
+        _set = label_suffix(b)          # tập thanh khoản (PTKT §16); tập mọi mã ⇒ ""
+        _set_note = (f"\n→ % trên MA200 chỉ tính {_set.strip()[1:-1]} (≥200 phiên, GTGD TB20 ≥1 tỷ, "
+                     f"có giao dịch gần đây) — nêu số này PHẢI ghi kèm \"{_set.strip()}\"."
+                     if _set else "")
         lines.append(f"\n## Market Breadth\n"
-                     f"Trên MA200: {_ma200:.0f}% | "
+                     f"Trên MA200{_set}: {_ma200:.0f}% | "
                      f"A/D ratio: {_ad:.2f} | "
                      f"Net new highs: {b.get('net_new_highs',0):+d} | "
                      f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã"
-                     f"\n→ ĐỘ RỘNG: {_bl.upper()} (A/D {_sign} 1.0{_weak}) — DÙNG ĐÚNG nhãn này, KHÔNG tự suy ngược (A/D<1 = tiêu cực).")
+                     f"\n→ ĐỘ RỘNG: {_bl.upper()} (A/D {_sign} 1.0{_weak}) — DÙNG ĐÚNG nhãn này, KHÔNG tự suy ngược (A/D<1 = tiêu cực)." + _set_note)
     else:
         lines.append(
             "\n## Market Breadth\n⚠️ KHÔNG CÓ breadth data — "

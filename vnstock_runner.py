@@ -344,8 +344,20 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
     from datetime import date, timedelta
     cutoff = pd.Timestamp(date.today() - timedelta(days=400))
 
+    # Tập mã đầu tư được (PTKT §16): lịch phiên VNINDEX như screener; chưa có ⇒ không tính được.
+    from vnstock_breadth_universe import breadth_fields, investable_mask
+    from vnstock_screener import market_sessions
+    try:
+        sessions = market_sessions(prices_dir)
+    except Exception as e:
+        console.log(f"  [yellow]⚠ Lịch phiên VNINDEX lỗi ({e}) — không tính độ rộng tập thanh khoản[/yellow]")
+        sessions = pd.DatetimeIndex([])
+    sessions = sessions.normalize().unique().sort_values()
+    as_of = sessions[-1:]
+
     rows = []
     b_total = b_ma200 = b_rsi_ov = b_rsi_ob = 0
+    b_inv = b_inv_ma200 = 0
     b_adv = b_dec = b_unch = b_hi = b_lo = 0
     _gtgd_day_rows: list[tuple] = []  # (bar_date, giá×KLGD tỷ) → tổng GTGD phiên mới nhất
     _gtgd_by_ticker: dict = {}        # ticker → {date: giá×KLGD tỷ} 22 bar cuối (#18)
@@ -373,6 +385,7 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
             df["time"] = pd.to_datetime(df["time"])
             df = df.drop_duplicates("time", keep="last").sort_values("time")
             df = _normalize_prices(df)      # cả 3 năm đã đọc: mốc đơn vị không phụ thuộc cửa sổ
+            df_full = df
             df = df[df["time"] >= cutoff]
             if len(df) < 5:
                 continue
@@ -402,8 +415,12 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
 
             # Breadth — SMA200 + RSI Wilder (§10b); VNSTOCK_INDICATOR_LEGACY=1 ⇒ EMA200 + Cutler
             b_total += 1
-            if len(c) >= 200 and last > trend_ma(c, 200).iloc[-1]:
-                b_ma200 += 1
+            above = bool(len(c) >= 200 and last > trend_ma(c, 200).iloc[-1])
+            b_ma200 += above
+            if len(as_of) and investable_mask(df_full["time"], df_full["close"],
+                                              df_full["volume"], sessions, as_of)[0]:
+                b_inv += 1
+                b_inv_ma200 += above
 
             rsi_val = rsi_default(c).iloc[-1]
             if not np.isnan(rsi_val):
@@ -495,8 +512,7 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
     if b_total > 0:
         breadth = {
             "total": b_total,
-            "above_ma200": b_ma200,
-            "above_ma200_pct": round(b_ma200 / b_total * 100, 1),
+            **breadth_fields(b_total, b_ma200, b_inv, b_inv_ma200),
             "rsi_oversold": b_rsi_ov,
             "rsi_oversold_pct": round(b_rsi_ov / b_total * 100, 1),
             "rsi_overbought": b_rsi_ob,
