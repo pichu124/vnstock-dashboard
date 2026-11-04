@@ -438,10 +438,13 @@ def test_setup_open_position_and_invalid_inputs():
 
 # ── Badge ───────────────────────────────────────────────────────────────
 
-def _score_h1(all_k, all_n, sent_k=0, sent_n=0, neutral=0.4, repeat=0.3):
+def _score_h1(all_k, all_n, sent_k=0, sent_n=0, neutral=0.4, repeat=0.3,
+              neutral_sent=None, repeat_sent=None):
     return {"t3": {"afternoon": {"h1": {
         "all": ts.rate(all_k, all_n), "sent": ts.rate(sent_k, sent_n),
-        "baseline_neutral": {"rate": neutral}, "baseline_repeat": {"rate": repeat}}}}}
+        "baseline_neutral": {"rate": neutral}, "baseline_repeat": {"rate": repeat},
+        "baseline_neutral_sent": {"rate": neutral if neutral_sent is None else neutral_sent},
+        "baseline_repeat_sent": {"rate": repeat if repeat_sent is None else repeat_sent}}}}}
 
 
 def test_badge_ok_below_floor_even_when_all_wrong():
@@ -601,3 +604,51 @@ def test_cli_show_and_run_write_only_tmp(tmp_path, monkeypatch, capsys):
     assert not (tmp_path / "brief_memory.db").exists()
     assert runpy.cmd_ta_score(SimpleNamespace(warehouse=str(tmp_path), show=True)) == 0
     assert "T3 · Stance" in capsys.readouterr().out
+
+
+# ── Sửa sau review P0 (04/11) ───────────────────────────────────────────
+
+def test_badge_compares_sent_against_baseline_of_the_same_sessions():
+    """Bản đã gửi chỉ có từ 04/11 ⇒ so với mốc của CHÍNH các phiên đó, không phải mốc ~130 phiên."""
+    n = ts.MIN_SAMPLES
+    # gửi đúng 60%; mốc trung tính mọi phiên 35% nhưng trên các phiên có bản gửi là 70%
+    sc = _score_h1(int(n * 0.5), n * 3, sent_k=int(n * 0.6), sent_n=n,
+                   neutral=0.35, neutral_sent=0.70)
+    st, msg = ts.badge_verdict(sc)
+    assert st == "warn" and "bản đã gửi" in msg and "70%" in msg
+    # chưa đủ bản gửi ⇒ quay về mọi bản + mốc mọi phiên
+    sc2 = _score_h1(int(n * 0.5), n, sent_k=1, sent_n=2, neutral=0.35, neutral_sent=0.9)
+    assert ts.badge_verdict(sc2)[0] == "ok"
+
+
+def test_summarize_stances_sent_baseline_only_over_sessions_with_a_sent_brief():
+    def rec(d, agent, sent, bn):
+        h = {"match": True, "base_neutral": bn, "base_repeat": False, "actual": "flat",
+             "ret_pct": 0.0, "repeat_stance": "bullish"}
+        return {"brief_type": "afternoon", "brief_date": d, "agent_name": agent,
+                "sent": sent, "stance": "neutral", "h1": h, "h5": None}
+    h1 = ts.summarize_stances([rec("2026-10-01", "A", None, False),
+                               rec("2026-10-02", "A", None, False),
+                               rec("2026-11-04", "A", 1, True)])["afternoon"]["h1"]
+    assert h1["baseline_neutral"] == ts.rate(1, 3)
+    assert h1["baseline_neutral_sent"] == ts.rate(1, 1)
+
+
+def test_compute_morning_intraday_base_is_price_seen_at_run_time():
+    """Brief sáng 11:35 đã thấy +1% ⇒ gốc là giá lúc chạy, không được tính công phần đã biết."""
+    idx = _bars(_flat(2, 100) + [(100, 100, 100, 101), (101, 101, 101, 101.1)]
+                + _flat(10, 101.1), start="2026-10-01")
+    d = idx["time"][2].date().isoformat()
+    seen = _brief(d, "B", "TĂNG", {"vnindex_tech": {"intraday": True, "close": 101.0}},
+                  btype="morning")
+    sc = tio.compute([seen], idx, lambda tk: pd.DataFrame())
+    assert sc["t3"]["morning"]["h1"]["by_agent"]["B"]["k"] == 0       # 101 (lúc chạy) → 101: phẳng
+
+
+def test_setup_ceiling_then_window_not_over_is_pending_not_final():
+    """Phiên ra khuyến nghị đã chạm trigger, phiên sau mở cửa trần, chưa có bar tiếp theo ⇒
+    cửa sổ 3 phiên còn mở ⇒ 'pending', không phải kết cục 'ceiling'."""
+    s = {**SETUP, "trigger": 20.1, "sl": 19.0, "tp": 25.0}
+    rows = [(20, 20.2, 19.8, 20)] + [(21.40, 21.40, 21.40, 21.40)]
+    g = ts.grade_setup(_bars(rows), s)
+    assert (g["status"], g["reason"]) == ("not_filled", "pending")

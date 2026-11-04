@@ -234,6 +234,14 @@ def score_tickers(sessions: dict[str, dict],
             "basis_skipped": n_basis_skip, "no_bar": n_missing}
 
 
+def _num(v) -> float | None:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f > 0 else None
+
+
 def score_stances(briefs: list[dict], bars: pd.DataFrame) -> dict:
     """T3: mỗi brief (đã khử trùng) → stance → T+1/T+5 so gốc theo loại brief."""
     pos, closes = ts.date_positions(bars["time"]), bars["close"].tolist()
@@ -242,12 +250,14 @@ def score_stances(briefs: list[dict], bars: pd.DataFrame) -> dict:
         if b.get("error") or b.get("brief_type") not in ("morning", "afternoon"):
             continue
         stance = ts.brief_stance(b.get("output") or "")
-        intraday = bool((_ctx(b).get("vnindex_tech") or {}).get("intraday"))
+        vt = _ctx(b).get("vnindex_tech") or {}
+        intraday = bool(vt.get("intraday"))
         base = ts.base_index(pos, b["brief_date"], b["brief_type"], intraday)
+        live = _num(vt.get("close")) if intraday and b["brief_type"] == "morning" else None
         recs.append({"brief_type": b["brief_type"], "brief_date": str(b["brief_date"])[:10],
                      "agent_name": b.get("agent_name") or "?", "sent": b.get("sent"),
                      "stance": stance,
-                     **{f"h{h}": (ts.stance_outcome(stance, closes, base, h)
+                     **{f"h{h}": (ts.stance_outcome(stance, closes, base, h, base_close=live)
                                   if base is not None and stance != "unknown" else None)
                         for h in (1, 5)}})
     return ts.summarize_stances(recs)

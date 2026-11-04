@@ -226,14 +226,19 @@ def base_index(pos: Mapping[str, int], brief_date: str, brief_type: str,
 
 
 def stance_outcome(stance: str, closes: Sequence[float], base: int, horizon: int,
-                   flat_pct: float = FLAT_PCT) -> dict | None:
-    """Chấm một stance ở T+horizon so gốc `base`. None = chưa đủ phiên / không chấm."""
+                   flat_pct: float = FLAT_PCT, base_close: float | None = None) -> dict | None:
+    """Chấm một stance ở T+horizon so gốc `base`. None = chưa đủ phiên / không chấm.
+
+    `base_close`: giá LÚC brief chạy, cho brief sáng trong phiên — gốc là giá nó đã thấy,
+    không phải đóng cửa hôm qua (không thì được tính công cho phần biến động đã biết;
+    review P0 04/11). Mốc "lặp chiều hôm qua" vẫn theo chiều phiên `base`."""
     if base is None or base < 1 or base + horizon >= len(closes):
         return None
-    c0, c1 = float(closes[base]), float(closes[base + horizon])
+    c0 = float(base_close) if base_close else float(closes[base])
+    c1 = float(closes[base + horizon])
     ret = (c1 / c0 - 1) * 100
     act = direction(ret, flat_pct)
-    prev = direction((c0 / float(closes[base - 1]) - 1) * 100, flat_pct)
+    prev = direction((float(closes[base]) / float(closes[base - 1]) - 1) * 100, flat_pct)
     return {"ret_pct": round(ret, 3), "actual": act,
             "match": (_MATCH.get(stance) == act) if stance in _MATCH else None,
             "base_neutral": act == "flat",
@@ -259,6 +264,8 @@ def summarize_stances(records: list[dict], horizons: Sequence[int] = (1, 5)) -> 
             ev = [dict(r[hk], agent=r["agent_name"], sent=r.get("sent"), date=r["brief_date"])
                   for r in rs if r.get(hk)]
             sess = {e["date"]: e for e in ev}.values()
+            sent_sess = [e for e in sess if any(x.get("sent") and x["date"] == e["date"]
+                                                for x in ev)]
             agents = {}
             for a in sorted({e["agent"] for e in ev}):
                 agents[a] = _tally([e for e in ev if e["agent"] == a])
@@ -267,6 +274,10 @@ def summarize_stances(records: list[dict], horizons: Sequence[int] = (1, 5)) -> 
                        "by_agent": agents,
                        "baseline_neutral": _tally(list(sess), "base_neutral"),
                        "baseline_repeat": _tally(list(sess), "base_repeat"),
+                       # mốc trên ĐÚNG tập phiên có bản gửi — so "sent" với mốc mọi phiên là
+                       # so hai mẫu khác nhau (review P0 04/11)
+                       "baseline_neutral_sent": _tally(sent_sess, "base_neutral"),
+                       "baseline_repeat_sent": _tally(sent_sess, "base_repeat"),
                        "n_sessions": len(sess)}
         out[bt] = blk
     return out
@@ -354,8 +365,8 @@ def _find_entry(bars, i0, trig, valid, exchange, limit_pct) -> tuple[int | None,
             blocked = True
             continue
         return j, (max(o[j], trig) if breakout else min(o[j], trig)), ""
-    if n < i0 + 1 + valid and not blocked:
-        return None, 0.0, "pending"
+    if n < i0 + 1 + valid:          # cửa sổ hiệu lực chưa hết ⇒ còn có thể khớp, kể cả khi
+        return None, 0.0, "pending"   # một phiên trước đó mở cửa trần (review P0 04/11)
     return None, 0.0, "ceiling" if blocked else "no_trigger"
 
 
@@ -456,13 +467,15 @@ def badge_verdict(score: Mapping | None, min_samples: int = MIN_SAMPLES) -> tupl
         return "off", "chưa chạy `run.py ta-score`"
     h1 = (((score.get("t3") or {}).get("afternoon") or {}).get("h1")) or {}
     sent, allb = h1.get("sent") or {}, h1.get("all") or {}
-    pick, tag = (sent, "bản đã gửi") if (sent.get("n") or 0) >= min_samples else (allb, "mọi bản")
+    use_sent = (sent.get("n") or 0) >= min_samples
+    pick, tag = (sent, "bản đã gửi") if use_sent else (allb, "mọi bản")
+    sfx = "_sent" if use_sent else ""
     n = int(pick.get("n") or 0)
     if n < min_samples:
         return "ok", f"Stance T+1 brief chiều n={n} — chưa đủ mẫu (cần ≥{min_samples})"
     acc = pick.get("rate") or 0.0
-    bases = {"luôn trung tính": (h1.get("baseline_neutral") or {}).get("rate"),
-             "lặp chiều hôm qua": (h1.get("baseline_repeat") or {}).get("rate")}
+    bases = {"luôn trung tính": (h1.get(f"baseline_neutral{sfx}") or {}).get("rate"),
+             "lặp chiều hôm qua": (h1.get(f"baseline_repeat{sfx}") or {}).get("rate")}
     name, best = max(((k, v) for k, v in bases.items() if v is not None),
                      key=lambda kv: kv[1], default=(None, None))
     msg = f"Stance T+1 brief chiều ({tag}) đúng {acc:.0%} n={n}"

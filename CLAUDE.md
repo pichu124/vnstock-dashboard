@@ -283,6 +283,10 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   Gửi qua KÊNH `news` (05/10): `TELEGRAM_NEWS_BOT_TOKEN`/`_CHAT_ID` = bot + group
   riêng, thiếu biến nào lấy mặc định; brief + mọi thứ khác vẫn `TELEGRAM_BOT_TOKEN`/
   `_CHAT_ID`. Lấy id group: `run.py telegram chats [--channel news]`.
+- `vnstock_ta_score.py` (+`_io`) — thước đo nhận định kỹ thuật (PTKT P0, `docs/THIET-KE-PHAN-TICH-KY-THUAT.md`):
+  S/R + trigger + Stance T+1/T+5 chấm lại từ `brief_memory.db`, trạng thái horizons → lợi suất, `grade_setup` (luật
+  §13.1: mua mở cửa/chạm trigger, T+2,5, phí+thuế); `run.py ta-score [--backfill|--show]`, badge doctor `ta_score`;
+  cột `briefs.sent` = bản đã gửi Telegram. Chỉ báo dùng chung: `vnstock_indicators` (`rsi_wilder`/`sma`/`ema`/`atr`).
 - `vnstock_sectors.py` — nhóm ngành custom ("Họ VIN", "Họ M") dùng chung
   dashboard + brief; thêm họ mới = thêm 1 dòng registry.
 - `vnstock_vn30.py` — **rổ VN30 hiện hành, một nguồn sự thật duy nhất**. HOSE

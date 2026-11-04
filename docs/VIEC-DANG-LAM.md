@@ -26,11 +26,18 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
-## 📈 Nâng nhận định phân tích kỹ thuật — KẾ HOẠCH 04/11 · ĐÃ TRẢ LỜI §8 + §11, CHỜ 3 CÂU §13 (`docs/THIET-KE-PHAN-TICH-KY-THUAT.md`)
+## 📈 Nâng nhận định phân tích kỹ thuật — P0 + P1 đợt 1 CODE XONG 04/11 · CHỜ USER CHẠY 2 LỆNH (`docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §14)
 
-- Đo trước (P0: S/R, trigger, Stance T+1/T+5 chấm lại từ lịch sử brief) → sửa nền RSI/MA200/xoay vòng ngành (P1) →
-  thẻ kỹ thuật do code dựng (P2) → guard chữ kỹ thuật (P3) → học từ kết quả (P4).
-- Việc của bạn bây giờ: trả lời 3 câu ở §13 (luật chấm setup · chi phí chạy bóng · thứ tự làm).
+Nhánh `claude/adoring-bardeen-vpuq5b`. Chưa đổi chữ nào trong brief / số nào trong screener.
+
+- ○ **máy nào cũng được** (kho Dropbox chung) — lấy code: `git fetch origin claude/adoring-bardeen-vpuq5b` rồi
+  `git merge origin/claude/adoring-bardeen-vpuq5b`. **Tránh giờ pipeline** (18:00 → log in `⏱ TỔNG`).
+- ○ Thước đo P0 (chấm lại lịch sử brief + backtest trạng thái): `python run.py ta-score --backfill` rồi
+  `python run.py ta-score --show` ⇒ dán bảng in ra cho Claude. `--backfill` có thể mất vài phút.
+- ○ So công thức P1 (chỉ ĐỌC kho): `python scripts/compare_indicator_formulas.py --days 120 --json so_cong_thuc.json`
+  ⇒ dán phần in ra (+ file JSON nếu Claude hỏi). Có số này mới chuyển screener/độ rộng sang RSI Wilder + SMA200.
+- Ghi chú: lần đầu brief chạy với code mới, `brief_memory.db` được thêm cột `sent` (đánh dấu bản đã gửi Telegram) —
+  tự động, một lần, qua Dropbox như các lần nâng cấp DB trước.
 
 ## 🎨 Thiết kế lại giao diện — P0→P5 CODE XONG 31/10 · CHỜ USER MERGE + SOI MẮT (`docs/THIET-KE-GIAO-DIEN.md`)
 
