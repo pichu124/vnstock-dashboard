@@ -81,20 +81,21 @@ def _pct(a: float | None, b: float | None) -> float | None:
 
 
 def rsi_label(rsi: float | None) -> str | None:
-    """≥70 đà mạnh · [60, 70) mạnh · [40, 60) trung tính · [30, 40) yếu · <30 quá bán.
-    "Đà mạnh" KHÔNG phải cảnh báo quá mua (§16)."""
+    """>70 đà mạnh · (60, 70] mạnh · [40, 60] trung tính · [30, 40) yếu · <30 quá bán — so CHẶT
+    như canon (`vnstock_brief_canon`: prompt >70/<30, phiếu regime >60/<40), để thẻ, prompt và
+    regime cùng nhãn ở đúng mốc. "Đà mạnh" KHÔNG phải cảnh báo quá mua (§16)."""
     rsi = _num(rsi)
     if rsi is None:
         return None
-    if rsi >= RSI_OVERBOUGHT:
+    if rsi > RSI_OVERBOUGHT:
         return RSI_MOMENTUM
-    if rsi >= RSI_STRONG:
+    if rsi > RSI_STRONG:
         return RSI_STRONG_LBL
-    if rsi >= RSI_WEAK:
-        return RSI_NEUTRAL
-    if rsi >= RSI_OVERSOLD:
+    if rsi < RSI_OVERSOLD:
+        return RSI_OVERSOLD_LBL
+    if rsi < RSI_WEAK:
         return RSI_WEAK_LBL
-    return RSI_OVERSOLD_LBL
+    return RSI_NEUTRAL
 
 
 def direction(close: float | None, ma: float | None, slope_pct: float | None,

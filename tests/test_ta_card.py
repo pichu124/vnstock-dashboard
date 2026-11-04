@@ -27,9 +27,11 @@ def _trend(n, daily_pct, start=100.0, wiggle=0.004):
 
 # ── Nhãn ở biên ──────────────────────────────────────────────────────────
 
+# So CHẶT như canon (prompt >70/<30, regime >60/<40): đúng mốc 70/60 thuộc nấc dưới,
+# đúng mốc 40/30 thuộc nấc trên — thẻ, prompt, regime cùng nhãn ở mốc.
 @pytest.mark.parametrize("rsi, want", [
-    (70.0, tc.RSI_MOMENTUM), (85.0, tc.RSI_MOMENTUM), (69.99, tc.RSI_STRONG_LBL),
-    (60.0, tc.RSI_STRONG_LBL), (59.99, tc.RSI_NEUTRAL), (40.0, tc.RSI_NEUTRAL),
+    (70.01, tc.RSI_MOMENTUM), (85.0, tc.RSI_MOMENTUM), (70.0, tc.RSI_STRONG_LBL),
+    (60.01, tc.RSI_STRONG_LBL), (60.0, tc.RSI_NEUTRAL), (40.0, tc.RSI_NEUTRAL),
     (39.99, tc.RSI_WEAK_LBL), (30.0, tc.RSI_WEAK_LBL), (29.99, tc.RSI_OVERSOLD_LBL),
     (None, None), (float("nan"), None),
 ])
