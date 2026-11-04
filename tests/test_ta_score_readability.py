@@ -9,6 +9,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 
 import vnstock_ta_score as ts
 import vnstock_ta_score_io as tio
@@ -284,3 +285,30 @@ def test_dedupe_drops_errored_rerun_before_choosing():
     bad = {**good, "id": 2, "created_at": "2026-10-01T21:00:00", "error": "timeout"}
     kept = tio.dedupe_briefs([good, bad])
     assert [b["id"] for b in kept] == [1]
+
+
+# ── Sau lần chạy kho thật thứ 2 (04/11) ─────────────────────────────────────
+
+@pytest.mark.parametrize("tldr,want", [
+    ("## 🎯 TLDR\n**Bias:** GIẢM — thị trường yếu.", "bearish"),
+    ("## 🎯 TLDR\n- **Bias:** TRUNG TÍNH — chờ xác nhận.", "neutral"),
+    ("## 🎯 TLDR\nBias: TĂNG — dòng tiền vào.", "bullish"),
+    ("## 🎯 TLDR\n- Stance ngày mai: GIẢM — cẩn trọng.", "bearish"),
+])
+def test_detect_stance_reads_morning_bias_label(tldr, want):
+    """Brief sáng ghi "**Bias:**", không phải "Stance" — 14/34 brief sáng từng thành unknown."""
+    import vnstock_brief as vb
+    assert vb._detect_stance(tldr) == want
+
+
+def test_plain_run_reuses_saved_backfill_with_published_winning(tmp_path):
+    import vnstock_ta_score_io as tio
+    meta = tmp_path / "_meta"
+    meta.mkdir()
+    (meta / "horizon_state.json").write_text(json.dumps({"published": [
+        {"as_of": "2026-11-03", "short": 1}]}), encoding="utf-8")
+    assert tio.merge_short_states(tmp_path) == ({"2026-11-03": 1}, "horizon_state.json")
+    tio.save_backfill(tmp_path, {"2026-11-02": -1, "2026-11-03": 0})
+    states, src = tio.merge_short_states(tmp_path)
+    assert states == {"2026-11-02": -1, "2026-11-03": 1}            # published thắng ngày trùng
+    assert src.startswith("dựng lại ngày") and "horizon_state.json" in src

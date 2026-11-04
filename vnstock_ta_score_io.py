@@ -103,6 +103,34 @@ def load_short_states(warehouse: Path) -> dict[str, int]:
             if p.get("as_of") and p.get("short") is not None}
 
 
+def _backfill_cache(warehouse: Path) -> Path:
+    return Path(warehouse) / "_meta" / "ta_score_short_backfill.json"
+
+
+def save_backfill(warehouse: Path, states: dict[str, int]) -> None:
+    """Cất kết quả `--backfill` để lần chạy thường không rơi về vài chục phiên đã publish."""
+    if not states:
+        return
+    from vnstock_parquet_io import write_json_atomic
+    write_json_atomic({"built_at": date.today().isoformat(), "states": states},
+                      _backfill_cache(warehouse))
+
+
+def merge_short_states(warehouse: Path) -> tuple[dict[str, int], str]:
+    """Bản dựng lại đã cất (nếu có) + `published` (published thắng ở ngày trùng — đó là bản thật
+    brief đã đọc). Trả (states, nhãn nguồn)."""
+    pub = load_short_states(warehouse)
+    try:
+        cached = json.loads(_backfill_cache(warehouse).read_text(encoding="utf-8"))
+        back = {str(k)[:10]: int(v) for k, v in (cached.get("states") or {}).items()}
+        built = cached.get("built_at") or "?"
+    except (OSError, ValueError, TypeError, AttributeError):
+        return pub, "horizon_state.json"
+    if not back:
+        return pub, "horizon_state.json"
+    return {**back, **pub}, f"dựng lại ngày {built} + horizon_state.json"
+
+
 def rebuild_short_states(warehouse: Path) -> dict[str, int]:
     """Dựng lại ngắn hạn horizons TOÀN lịch sử bằng đúng code `vnstock_horizons_state`
     (breadth tái dựng từ parquet, NN thiếu ⇒ 0 như backfill của nó). Nặng: đọc mọi mã."""
@@ -369,8 +397,9 @@ def run(warehouse: Path = _WAREHOUSE, backfill: bool = False) -> dict:
     prices = warehouse / "prices"
     if backfill:
         short, src = rebuild_short_states(warehouse), "dựng lại (--backfill)"
+        save_backfill(warehouse, short)
     else:
-        short, src = load_short_states(warehouse), "horizon_state.json"
+        short, src = merge_short_states(warehouse)
     score = compute(briefs, vb._load_vnindex_df(augment=False),
                     lambda tk: _load_history_from_parquet(tk, days, prices_dir=prices),
                     short, src)

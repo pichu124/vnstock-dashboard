@@ -5140,8 +5140,10 @@ def _extract_section(text: str, header: str) -> str:
 # Match canonical "Stance ngày mai: <X>" / "Stance: <X>" line in TLDR.
 # Prompt template asks every agent to emit this exact pattern, so parsing
 # it is far more reliable than counting keywords across the whole section.
+# Brief SÁNG ghi nhãn là "**Bias:**" (_MORNING_TEMPLATE), chiều là "Stance ngày mai:" — đọc
+# cả hai; trước 04/11 chỉ đọc "Stance" ⇒ 14/34 brief sáng rơi về "unknown" (ta-score).
 _STANCE_LINE_RE = _re.compile(
-    r"[Ss]tance(?:\s+(?:ngày\s+mai|sáng\s+mai|hôm\s+nay))?\s*[:：]\s*([^.\n]+)",
+    r"(?:[Ss]tance(?:\s+(?:ngày\s+mai|sáng\s+mai|hôm\s+nay))?|\bBias)\s*\**\s*[:：]\s*\**\s*([^.\n]+)",
     _re.IGNORECASE,
 )
 
