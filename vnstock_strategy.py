@@ -1611,8 +1611,8 @@ def signal(df, params):
     ma_short = close.rolling(params['ma_short']).mean()
     ma_long  = close.rolling(params['ma_long']).mean()
     delta = close.diff()
-    up = delta.clip(lower=0).ewm(com=13).mean()
-    dn = (-delta).clip(lower=0).ewm(com=13).mean()
+    up = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
+    dn = (-delta).clip(lower=0).ewm(com=13, adjust=False).mean()
     rsi = 100 - 100/(1 + up/dn.replace(0, np.nan))
     tr  = pd.concat([(high-low), (high-close.shift()).abs(),
                      (low-close.shift()).abs()], axis=1).max(axis=1)
@@ -2501,16 +2501,12 @@ def _ticker_indicators(df: pd.DataFrame) -> dict:
     close = df["close"].astype(float)
     n = len(close)
 
-    # RSI(14) via EWM
+    # RSI(14) Wilder — `vnstock_indicators.rsi_wilder` (cùng công thức EWM com=13 cũ)
     rsi = 50.0
     if n >= 15:
-        delta = close.diff(1)
-        roll_up = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
-        roll_dn = (-delta).clip(lower=0).ewm(com=13, adjust=False).mean()
-        rs = roll_up / roll_dn.replace(0, float("nan"))
-        val = 100.0 - (100.0 / (1.0 + rs))
-        v = val.iloc[-1]
-        rsi = float(v) if not (math.isnan(v) if isinstance(v, float) else False) else 50.0
+        from vnstock_indicators import rsi_wilder
+        v = rsi_wilder(close).iloc[-1]
+        rsi = float(v) if not math.isnan(v) else 50.0
 
     ma20 = float(close.rolling(20).mean().iloc[-1]) if n >= 20 else float(close.iloc[-1])
 

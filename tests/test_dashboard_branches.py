@@ -859,6 +859,56 @@ def test_render_chart_without_lwc_file_reports_instead_of_blank_chart(tmp_path):
     assert "Thiếu lwc.min.js" in said[0] and str(tmp_path / "lwc.min.js") in said[0]
 
 
+def _mixed(n: int = 60) -> pd.DataFrame:
+    close = 50 + np.cumsum(np.random.default_rng(7).normal(0, 0.8, n))
+    return pd.DataFrame({"time": pd.bdate_range(end="2026-04-10", periods=n),
+                         "open": close, "high": close + 0.3, "low": close - 0.3,
+                         "close": close, "volume": [1_000] * n})
+
+
+@pytest.fixture
+def no_legacy_env(monkeypatch):
+    import os
+    for k in [k for k in os.environ if k.startswith("VNSTOCK_INDICATOR_LEGACY")]:
+        monkeypatch.delenv(k)
+    return monkeypatch
+
+
+def test_chart_rsi_is_wilder_and_legacy_is_old_cutler(no_legacy_env):
+    """PTKT P1 đợt 2: panel RSI = RSI Wilder (số app môi giới hiện). `VNSTOCK_INDICATOR_LEGACY=1`
+    trả đúng công thức chart cũ (Cutler, loss = 0 ⇒ 100)."""
+    from vnstock_indicators import rsi_wilder
+    df = _mixed()
+    rsi = compute_indicators(df)["rsi"]
+    pd.testing.assert_series_equal(rsi, rsi_wilder(df["close"]), check_names=False)
+    no_legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    delta = df["close"].diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
+    old = (100 - 100 / (1 + gain / loss.replace(0, np.nan))).where(loss != 0, 100.0)
+    pd.testing.assert_series_equal(compute_indicators(df)["rsi"], old, check_names=False)
+    pd.testing.assert_series_equal(compute_indicators(_rising())["rsi"].iloc[14:],
+                                   pd.Series(100.0, index=range(14, 40)), check_names=False)
+
+
+@pytest.mark.parametrize("make", [_mixed, _rising])
+def test_render_chart_rsi_warmup_is_whitespace_and_bar_count_matches(tmp_path, no_legacy_env, make):
+    """Bất biến 4 panel: NaN đầu chuỗi của rsi_wilder (14 bar) đi đường whitespace `{time}` —
+    panel RSI cùng số bar với panel nến, không bar nào bị bỏ."""
+    from vnstock_indicators import rsi_wilder
+    lib = tmp_path / "lwc.min.js"
+    lib.write_text("", encoding="utf-8")
+    df = make()
+    html, _ = _render_chart_html(lib, df)
+    grab = lambda name: json.loads(html[0].split(f"\nvar {name}=", 1)[1].split(";\n", 1)[0])
+    candles, rsi, macd = grab("C"), grab("RSI"), grab("ML")
+    assert len(rsi) == len(candles) == len(macd) == len(df)
+    assert [p["time"] for p in rsi] == [p["time"] for p in candles]
+    assert all(set(p) == {"time"} for p in rsi[:14])
+    ref = [round(float(v), 4) for v in rsi_wilder(df["close"]).iloc[14:]]
+    assert [p["value"] for p in rsi[14:]] == ref
+
+
 def test_render_chart_inlines_lwc_library(tmp_path):
     lib = tmp_path / "lwc.min.js"
     lib.write_text("/* LWC giả */", encoding="utf-8")

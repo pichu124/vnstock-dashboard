@@ -29,6 +29,8 @@ from rich.progress import (BarColumn, MofNCompleteColumn, Progress,
                            TimeElapsedColumn)
 from rich.table import Table
 
+from vnstock_indicators import rsi_default, trend_ma
+
 warnings.filterwarnings("ignore")
 console = Console()
 
@@ -178,13 +180,9 @@ def _calc_indicators(df: pd.DataFrame) -> dict:
     if len(c) >= 21:
         result["chg_20d_pct"] = round((c.iloc[-1] / c.iloc[-21] - 1) * 100, 2)
 
-    # ── RSI 14 ────────────────────────────────────────────────────────────────
+    # ── RSI 14 (Wilder; VNSTOCK_INDICATOR_LEGACY=1 ⇒ Cutler cũ) ────────────────
     if len(c) >= 15:
-        delta = c.diff()
-        gain  = delta.clip(lower=0).rolling(14).mean()
-        loss  = (-delta.clip(upper=0)).rolling(14).mean()
-        rs    = gain / loss.replace(0, np.nan)
-        rsi   = (100 - (100 / (1 + rs))).iloc[-1]
+        rsi   = rsi_default(c).iloc[-1]
         result["rsi_14"] = round(float(rsi), 1) if not np.isnan(rsi) else None
 
     # ── EMA ───────────────────────────────────────────────────────────────────
@@ -227,18 +225,19 @@ def _calc_indicators(df: pd.DataFrame) -> dict:
             result["vol_spike"] = round(float(v.iloc[-1] / vol_ma20), 2)
 
     # ── Trend signals ─────────────────────────────────────────────────────────
+    # "MA" 50/200 = SMA (§10b, đúng biến thể đã đo ở scripts/compare_indicator_formulas.py);
+    # legacy ⇒ EMA. Cột ema_* và ema_trend (EMA 9/21) giữ nguyên.
     e9  = result.get("ema_9")
     e21 = result.get("ema_21")
-    e50 = result.get("ema_50")
-    e200= result.get("ema_200")
     p   = result["last_close"]
 
     if e9 and e21:
         result["ema_trend"] = "UP" if e9 > e21 else "DOWN"
-    if e50 and e200:
-        result["long_trend"] = "BULL" if e50 > e200 else "BEAR"
-    if e200:
-        result["above_ma200"] = p > e200
+    if len(c) >= 200:
+        m50  = round(float(trend_ma(c, 50).iloc[-1]), 2)
+        m200 = round(float(trend_ma(c, 200).iloc[-1]), 2)
+        result["long_trend"] = "BULL" if m50 > m200 else "BEAR"
+        result["above_ma200"] = p > m200
 
     # ── 52-week high/low ──────────────────────────────────────────────────────
     year_df = df.tail(252)
@@ -335,7 +334,7 @@ PRESETS = {
         "sort_asc": True,
     },
     "golden_cross": {
-        "desc": "EMA9 > EMA21 + EMA50 > EMA200 — Golden cross",
+        "desc": "EMA9 > EMA21 + SMA50 > SMA200 — Golden cross",
         "filter": lambda r: (
             r.get("ema_trend") == "UP" and
             r.get("long_trend") == "BULL" and

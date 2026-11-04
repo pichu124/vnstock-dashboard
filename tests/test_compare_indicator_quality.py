@@ -79,24 +79,37 @@ def test_signal_panel_no_lookahead(cif):
     assert got.at[sessions[301], "ex_20"] == base.at[sessions[301], "ex_20"]
 
 
-def test_signal_panel_matches_screener_indicators(cif):
+@pytest.fixture
+def legacy_env(monkeypatch):
+    for k in [k for k in __import__("os").environ if k.startswith("VNSTOCK_INDICATOR_LEGACY")]:
+        monkeypatch.delenv(k)
+    return monkeypatch
+
+
+def test_signal_panel_matches_screener_indicators(cif, legacy_env):
+    """Đợt 2: screener chạy Wilder ⇒ ``rsi_w`` khớp screener mặc định, ``rsi_c`` khớp screener
+    sau ``VNSTOCK_INDICATOR_LEGACY=1`` (Wilder gieo ở bar đầu chuỗi đọc vào ⇒ so gần đúng)."""
     from vnstock_screener import _calc_indicators
     df = _ohlcv(320, seed=4)
     sessions = pd.DatetimeIndex(df["time"])
     p = cif.ticker_signal_panel(df, sessions, np.ones(len(sessions)), sessions[-1:])
     ind = _calc_indicators(df.tail(300).reset_index(drop=True))
-    assert p["rsi_c"].iloc[-1] == ind["rsi_14"]
+    assert p["rsi_w"].iloc[-1] == pytest.approx(ind["rsi_14"], abs=0.1)
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    assert p["rsi_c"].iloc[-1] == _calc_indicators(df.tail(300).reset_index(drop=True))["rsi_14"]
     assert p["p52"].iloc[-1] == pytest.approx(ind["52w_pct"], abs=0.15)   # screener làm tròn H/L 2 số
 
 
-def test_signal_panel_cutler_without_down_day_is_no_signal(cif):
-    """Screener: 14 phiên không giảm ⇒ loss 0 ⇒ rsi_14 None ⇒ không vào overbought; Wilder còn nhớ
-    phiên giảm cũ nên vẫn có số."""
+def test_signal_panel_cutler_without_down_day_is_no_signal(cif, legacy_env):
+    """Screener cũ: 14 phiên không giảm ⇒ loss 0 ⇒ rsi_14 None ⇒ không vào overbought; Wilder còn
+    nhớ phiên giảm cũ nên vẫn có số — từ đợt 2 screener mặc định ra đúng số Wilder đó."""
     from vnstock_screener import _calc_indicators
     df = _ohlcv(90, seed=3)
     df.loc[70:, "close"] = 30.0 + np.arange(20)
     sessions = pd.DatetimeIndex(df["time"])
     p = cif.ticker_signal_panel(df, sessions, np.ones(len(sessions)), sessions[-1:])
+    assert _calc_indicators(df)["rsi_14"] == p["rsi_w"].iloc[-1]
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
     assert _calc_indicators(df)["rsi_14"] is None
     assert np.isnan(p["rsi_c"].iloc[-1]) and p["rsi_w"].iloc[-1] > 70
     assert not cif.signal_mask(p, "overbought", "rsi_c", 70.0).any()
@@ -167,7 +180,7 @@ def test_signal_quality_rows(cif):
     nen = get[("tat_ca", "nen", "mọi mã·phiên")]
     assert (nen["n"], nen["so_ma"], nen["tb"], nen["trung_vi"]) == (5, 3, 1.2, 1.0)
     assert nen["duong_pct"] == 60.0 and nen["wilson_lo"] < 60 < nen["wilson_hi"]
-    c30 = get[("tat_ca", "oversold", "Cutler 30 (hiện hành)")]
+    c30 = get[("tat_ca", "oversold", "Cutler 30 (cũ)")]
     assert (c30["n"], c30["so_ma"], c30["tb"], c30["duong_pct"]) == (2, 1, 1.0, 50.0)  # CCC 29 chưa có T+5
     w30 = get[("tat_ca", "oversold", "Wilder 30")]
     assert (w30["n"], w30["tb"]) == (1, -2.0)
