@@ -1,6 +1,6 @@
 # THIẾT KẾ — Nâng chất lượng nhận định phân tích kỹ thuật của bot
 
-> Trạng thái: **KẾ HOẠCH — user trả lời §8 và §11 ngày 04/11, chờ 3 câu ở §13** trước khi code. Chưa có dòng code nào.
+> Trạng thái: **ĐANG LÀM P0 + P1** (user chốt hết 04/11, §14).
 > Phạm vi (chốt 04/11): brief sáng/chiều (Telegram) + các mã brief nhắc tới **và** chữ AI ở tab Phân tích mã.
 
 ## 1. Vấn đề — đo từ code, không phải cảm giác
@@ -289,3 +289,39 @@ lại. Cách tốt nhất là chia việc theo đúng sở trường đó:
    mỗi (mã, ngày) khi bấm. Đồng ý?
 3. **Thứ tự:** làm đo (P0) + sửa nền (P1) trước — mấy ngày công đầu brief CHƯA đổi gì thấy được, chỉ có bảng số chấm điểm.
    Rồi mới tới thẻ kỹ thuật (P2) chạy bóng. Đồng ý, hay muốn thấy thẻ kỹ thuật sớm hơn (P2 làm song song P0)?
+
+## 14. Chốt lần 3 (04/11) — bắt đầu làm
+
+| Câu §13 | Trả lời |
+|---|---|
+| 1 Luật chấm setup | Đồng ý toàn bộ mặc định §13.1 |
+| 2 Chạy bóng | **Bỏ chạy song song 10 phiên.** Thay bằng **chạy lại trên lịch sử**: dựng bản mới cho 20–30 phiên cũ (mỗi phiên chỉ dùng dữ liệu tới ngày đó), đặt cạnh brief cũ cùng phiên, chấm cả hai bằng P0, user duyệt mẫu ⇒ **bật luôn**. Bản cũ giữ sau công tắc env để quay lại |
+| 3 Thứ tự | P0 + P1 trước, rồi P2 |
+
+### 14a. Đặc tả P0 (`vnstock_ta_score.py`)
+
+- **Phần A — chấm nhận định đã phát** (`brief_memory.db`, brief chiều chủ yếu):
+  - T1 S1/R1 VN-Index (`context_json.vnindex_tech.support_1/resistance_1`): trong 5 phiên — chạm rồi giữ / xuyên
+    (đóng cửa vượt quá 0,5%) / không chạm; so với **mức giả** đặt cùng khoảng cách ở phía ngược lại của ngày ngẫu nhiên.
+  - T2 trigger "đóng cửa vượt R1 ⇒ chạm R2" / "thủng S1 ⇒ chạm S2" trong 5 phiên; tách có/không khối lượng xác nhận
+    (KL phiên ≥ 1,2× TB20; chỉ số không có KL thì ghi "không đo được").
+  - T3 Stance theo **một** quy tắc: phẳng = |Δ| < 0,3%; T+1 và T+5; tách brief sáng/chiều, theo agent, và riêng bản đã
+    gửi; mốc so: "luôn trung tính", "lặp chiều hôm qua".
+  - T5 S/R từng mã (`sr_support`/`sr_resistance` của mover + danh mục) như T1.
+- **Phần B — backtest trên kho giá** (đủ mẫu cho trung/dài hạn):
+  - T4 trạng thái ngắn/trung hạn của horizons (dựng lại bằng `vnstock_horizons_state` từ lịch sử) ⇒ lợi suất VN-Index
+    T+5/T+20/T+60 sau mỗi trạng thái, khoảng tin cậy Wilson cho tỉ lệ tăng.
+- **Bộ chấm setup** `grade_setup(bars, setup, frame)` — hàm thuần theo đúng bảng §13.1 (dùng ở bước chạy lại lịch sử và P4).
+- **Cột `sent`** trong `briefs` (bản đã gửi Telegram) — ghi từ nay, best-effort, không bao giờ chặn đường gửi.
+- Đầu ra `_meta/ta_score.json` + `run.py ta-score [--show|--backfill]` + badge doctor `ta_score` (dưới sàn mẫu: ok n=…).
+
+### 14b. Đặc tả P1 (đợt 1 — chưa đổi số screener)
+
+- Hàm chỉ báo dùng chung trong `vnstock_indicators`: `rsi_wilder`, `rsi_cutler` (giữ để so), `sma`, `ema`, `atr`.
+- `scripts/compare_indicator_formulas.py`: chạy trên kho thật, in mỗi ngày số mã RSI<30/>70 (Cutler vs Wilder), % mã
+  trên EMA200 vs SMA200, số phiên phiếu regime đổi chiều, số mã preset đổi ⇒ user chạy, gửi số ⇒ đợt 2 mới chuyển
+  screener/độ rộng/chart sang Wilder + SMA200 và hiệu chỉnh ngưỡng.
+- Hằng ngưỡng RSI hai tầng trong `vnstock_brief_canon.py` (mạnh/yếu 60/40 · quá mua/quá bán 70/30), prompt + regime đọc chung.
+- `compute_scores(df, index_returns=…)` trong brief sau công tắc `VNSTOCK_BRIEF_SECTOR_ALPHA` (mặc định tắt tới khi
+  duyệt cùng đợt chạy lại lịch sử) — mở lại alpha vs VN-Index + xoay vòng ngành.
+- Sửa comment sai `vnstock_brief.py:3342`.
