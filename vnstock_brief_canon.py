@@ -85,6 +85,14 @@ _WATCHLIST_GTGD_MIN_TY: float = 30.0
 # actionable trong 1-2 phiên (user chốt 17/07, siết nguồn 20/07). Dùng ở cả
 # _select_sr_levels (nguồn) lẫn enforce_sr_direction tầng 3 (kéo/cắt mục tiêu).
 _SR_MAX_MOVE_PCT: float = 0.07
+# Ngưỡng RSI(14) HAI TẦNG (PTKT P1, §4 mục 4): nhãn prompt đọc tầng quá mua/quá bán,
+# phiếu RSI của `vnstock_regime` đọc tầng mạnh/yếu. So sánh CHẶT (> / <) ở cả hai chỗ.
+RSI_OVERBOUGHT: float = 70
+RSI_STRONG: float = 60
+RSI_WEAK: float = 40
+RSI_OVERSOLD: float = 30
+# Regime điểm ≥ 2 mà RSI VN-Index trên mức này ⇒ ép "sideways" (quá nóng, thận trọng).
+RSI_OVERHEAT_SIDEWAYS: float = 72
 
 # ── Bước giá HOSE ─────────────────────────────────────────────────────────────
 def _vn_tick(price_vnd: float) -> int:

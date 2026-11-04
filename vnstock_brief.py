@@ -67,6 +67,11 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _MKT_NEWS_SENT_ICON,
     _SR_MAX_MOVE_PCT,
     _WATCHLIST_GTGD_MIN_TY,
+    RSI_OVERBOUGHT,
+    RSI_OVERHEAT_SIDEWAYS,
+    RSI_OVERSOLD,
+    RSI_STRONG,
+    RSI_WEAK,
     _alloc_cap_note,
     _HORIZON_ACTIONS,
     _HORIZON_AGENT_PREFIXES,
@@ -2507,6 +2512,55 @@ def _upcoming_window_start(brief_type: str, data_date: str) -> "date | None":
         return None
 
 
+def _sector_alpha_enabled() -> bool:
+    """`VNSTOCK_BRIEF_SECTOR_ALPHA` (mặc định TẮT; 1/true/yes/on bật) — quant ngành của brief
+    chấm theo alpha vs VN-Index + tín hiệu xoay vòng, như dashboard (PTKT P1 §14b)."""
+    return (os.environ.get("VNSTOCK_BRIEF_SECTOR_ALPHA", "0").strip().lower()
+            in ("1", "true", "yes", "on"))
+
+
+def _quant_index_returns(ctx: dict) -> "dict | None":
+    """Lợi suất 1T/1M/3M của VN-Index cho `compute_scores(index_returns=…)` — cùng hàm
+    `compute_index_returns` của dashboard (`dashboard/market_commentary.py`), nhưng đọc KHO
+    (bar EOD, không gộp bar live: số ngành của runner cũng là EOD). Công tắc tắt ⇒ None
+    (lời gọi cũ). Kho thiếu/lỗi ⇒ ghi vết `sector_alpha` + None: lợi suất 0 sẽ biến giá
+    ngành thành "alpha" giả."""
+    if not _sector_alpha_enabled():
+        return None
+    try:
+        import pandas as pd
+        from vnstock_market_analyzer import compute_index_returns
+        df = _load_vnindex_df(augment=False)
+        closes = (df["close"].astype(float).dropna()
+                  if df is not None and "close" in df.columns else pd.Series(dtype=float))
+        if len(closes) <= 60:
+            raise ValueError(f"VNINDEX trong kho chỉ có {len(closes)} phiên (cần > 60 cho 3M)")
+        idx = pd.DataFrame({"VNINDEX": closes.iloc[::-1].to_numpy()})   # mới nhất trước
+        return compute_index_returns(idx, index_col="VNINDEX")
+    except Exception as e:
+        _note_loader_error(ctx, "sector_alpha", e)
+        return None
+
+
+def _fill_quant(ctx: dict) -> None:
+    """Quant ngành + regime từ `ctx["sectors"]` (bước 2 của `collect_context`)."""
+    import pandas as pd
+    from vnstock_market_analyzer import compute_scores, rank, market_regime
+    df = pd.DataFrame(ctx["sectors"])
+    idx_ret = _quant_index_returns(ctx)
+    scores = (compute_scores(df) if idx_ret is None
+              else compute_scores(df, index_returns=idx_ret))
+    ranked = rank(df, scores, name_col="Ngành")
+    regime = market_regime(scores, ctx["breadth"])
+    ctx["quant_regime"] = regime
+    ctx["quant_top"] = ranked.get("top", [])[:3]
+    ctx["quant_avoid"] = ranked.get("avoid", [])[:3]
+    ctx["quant_rotation"] = ranked.get("rotation", [])[:3]
+    ctx["quant_stealth"] = ranked.get("stealth", [])[:2]
+    ctx["quant_distribution"] = ranked.get("distribution", [])[:2]
+    ctx["vol_regime"] = scores["_vol_regime"].mode().iloc[0] if "_vol_regime" in scores.columns else "normal"
+
+
 def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> dict:
     """Collect all available market data for brief generation.
 
@@ -2612,21 +2666,7 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # 2. Quant scores + regime
     if ctx["sectors"]:
         try:
-            import pandas as pd
-            from vnstock_market_analyzer import (
-                compute_scores, rank, market_regime, compute_index_returns,
-            )
-            df = pd.DataFrame(ctx["sectors"])
-            scores = compute_scores(df)
-            ranked = rank(df, scores, name_col="Ngành")
-            regime = market_regime(scores, ctx["breadth"])
-            ctx["quant_regime"] = regime
-            ctx["quant_top"] = ranked.get("top", [])[:3]
-            ctx["quant_avoid"] = ranked.get("avoid", [])[:3]
-            ctx["quant_rotation"] = ranked.get("rotation", [])[:3]
-            ctx["quant_stealth"] = ranked.get("stealth", [])[:2]
-            ctx["quant_distribution"] = ranked.get("distribution", [])[:2]
-            ctx["vol_regime"] = scores["_vol_regime"].mode().iloc[0] if "_vol_regime" in scores.columns else "normal"
+            _fill_quant(ctx)
         except Exception as e:
             ctx["quant_error"] = str(e)      # giữ khoá cũ
             _note_loader_error(ctx, "quant_scores", e)
@@ -3274,7 +3314,6 @@ def _vnindex_technicals() -> dict:
     """
     try:
         import pandas as pd
-        import numpy as np
     except Exception:
         return {}
 
@@ -3339,14 +3378,13 @@ def _vnindex_technicals() -> dict:
         res1, res2 = (res + [None, None])[:2]
         sup1, sup2 = (sup + [None, None])[:2]
 
-        # RSI(14) via EWM (same formula as ticker indicators)
+        # RSI(14) Wilder (EWM alpha=1/14) — `vnstock_indicators.rsi_wilder`, cùng số
+        # `analyze_ticker`. Screener/độ rộng/chart vẫn là RSI Cutler (SMA 14) tới đợt 2
+        # PTKT (§14b) ⇒ RSI VN-Index ở đây có thể lệch vài điểm so với gauge dashboard.
         rsi14 = None
         try:
-            delta = close.diff(1)
-            up = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
-            dn = (-delta).clip(lower=0).ewm(com=13, adjust=False).mean()
-            rs = up / dn.replace(0, np.nan)
-            v = (100.0 - 100.0 / (1.0 + rs)).iloc[-1]
+            from vnstock_indicators import rsi_wilder
+            v = rsi_wilder(close).iloc[-1]
             rsi14 = None if pd.isna(v) else float(v)
         except Exception:
             pass
@@ -3652,7 +3690,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             slope_tag = "↗ tăng" if slope > 0.2 else ("↘ giảm" if slope < -0.2 else "→ đi ngang")
             vt_lines.append(f"- MA20 slope (5 phiên): {slope:+.2f}% {slope_tag}")
         if (rsi := vt.get("rsi14")) is not None:
-            rsi_tag = "quá mua" if rsi > 70 else ("quá bán" if rsi < 30 else "trung tính")
+            rsi_tag = ("quá mua" if rsi > RSI_OVERBOUGHT
+                       else "quá bán" if rsi < RSI_OVERSOLD else "trung tính")
             vt_lines.append(f"- RSI(14): {rsi:.1f} ({rsi_tag})")
         if (chop := vt.get("chop14")) is not None:
             chop_tag = ("đi ngang/choppy" if chop > 61.8
