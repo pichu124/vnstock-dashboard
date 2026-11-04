@@ -683,8 +683,8 @@ def test_strategy_prompt_rsi_example_is_wilder():
 def test_rsi_default_no_signal_when_price_flat_for_whole_window(monkeypatch):
     """Wilder đóng băng khi giá đứng: một bước tăng rồi 60 phiên đứng ⇒ rsi_wilder giữ số cũ,
     rsi_default (screener/độ rộng/chart) phải ra NaN như Cutler cũ."""
-    from vnstock_indicators import LEGACY_ENV, rsi_default, rsi_wilder
-    monkeypatch.delenv(LEGACY_ENV, raising=False)
+    from vnstock_indicators import rsi_default, rsi_wilder, rsi_wilder_unfrozen
+    # env legacy đã được conftest xoá theo tiền tố (`_no_indicator_legacy_from_dotenv`)
     rng = np.random.default_rng(7)
     moving = 50 * np.exp(np.cumsum(rng.normal(0, 0.02, 60)))
     c = pd.Series(np.r_[moving, np.full(60, moving[-1])])
@@ -694,3 +694,5 @@ def test_rsi_default_no_signal_when_price_flat_for_whole_window(monkeypatch):
     assert np.isnan(out.iloc[-1]) and np.isnan(out.iloc[75])           # ≥14 phiên đứng ⇒ không số
     assert np.isfinite(out.iloc[65])                                   # mới đứng 5 phiên ⇒ vẫn số
     assert out.iloc[59] == pytest.approx(rsi_wilder(c).iloc[59])       # trước đó: đúng Wilder
+    # script so công thức đo ĐÚNG bản production (review đợt 2: trước đo rsi_wilder trần)
+    assert out.equals(rsi_wilder_unfrozen(c))

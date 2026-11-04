@@ -43,7 +43,7 @@ if str(_REPO) not in sys.path:
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from vnstock_indicators import rsi_cutler, rsi_wilder, sma  # noqa: E402
+from vnstock_indicators import rsi_cutler, rsi_wilder_unfrozen, sma  # noqa: E402
 
 # Phiếu "Breadth MA200" của `vnstock_regime.classify_regime` (test canh khớp).
 BREADTH_BULL = 55.0
@@ -87,7 +87,7 @@ def ticker_day_flags(time, close, days: pd.DatetimeIndex) -> pd.DataFrame:
 
     rc = rsi_cutler(x, RSI_N).to_numpy()
     rc = np.where(rc < 100, rc, np.nan)          # code cũ: loss = 0 ⇒ NaN ⇒ không đếm
-    rw = rsi_wilder(x, RSI_N).to_numpy()
+    rw = rsi_wilder_unfrozen(x, RSI_N).to_numpy()
     has_rsi = counted & (n >= RSI_N + 1)
     out["rsi_c"] = np.where(has_rsi, rc[h], np.nan)
     out["rsi_w"] = np.where(has_rsi, rw[h], np.nan)
@@ -169,7 +169,7 @@ def screener_variant(ind: dict, df: pd.DataFrame) -> dict:
     c = df["close"].astype(float)
     new = dict(ind)
     if len(c) >= RSI_N + 1:
-        v = rsi_wilder(c, RSI_N).iloc[-1]
+        v = rsi_wilder_unfrozen(c, RSI_N).iloc[-1]
         new["rsi_14"] = round(float(v), 1) if not np.isnan(v) else None
     if len(c) >= MA_LONG:
         s200 = round(float(sma(c, MA_LONG).iloc[-1]), 2)
@@ -289,7 +289,7 @@ def ticker_signal_panel(df: pd.DataFrame, sessions, vni_close, sig_days,
     sel = np.flatnonzero(t.isin(pd.DatetimeIndex(sig_days)) & (np.arange(1, len(c) + 1) >= SCREENER_MIN_ROWS))
     pos = s.get_indexer(t[sel])
     out = pd.DataFrame({"rsi_c": rc.to_numpy()[sel],
-                        "rsi_w": rsi_wilder(c, RSI_N).round(1).to_numpy()[sel],
+                        "rsi_w": rsi_wilder_unfrozen(c, RSI_N).round(1).to_numpy()[sel],
                         "p52": p52.to_numpy()[sel],
                         "gtgd20": session_gtgd20(t, c, df["volume"], s).to_numpy()[pos]},
                        index=t[sel])

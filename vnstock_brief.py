@@ -3384,9 +3384,8 @@ def _vnindex_technicals() -> dict:
         res1, res2 = (res + [None, None])[:2]
         sup1, sup2 = (sup + [None, None])[:2]
 
-        # RSI(14) Wilder (EWM alpha=1/14) — `vnstock_indicators.rsi_wilder`, cùng số
-        # `analyze_ticker`. Screener/độ rộng/chart vẫn là RSI Cutler (SMA 14) tới đợt 2
-        # PTKT (§14b) ⇒ RSI VN-Index ở đây có thể lệch vài điểm so với gauge dashboard.
+        # RSI(14) Wilder (EWM alpha=1/14) — `vnstock_indicators.rsi_wilder`, cùng công thức
+        # screener/độ rộng/chart/`analyze_ticker` từ PTKT P1 đợt 2 (§16).
         rsi14 = None
         try:
             from vnstock_indicators import rsi_wilder

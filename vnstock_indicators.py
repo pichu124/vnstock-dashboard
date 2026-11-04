@@ -100,6 +100,14 @@ def indicator_legacy() -> bool:
     return os.environ.get(LEGACY_ENV, "0").strip().lower() in ("1", "true", "yes", "on")
 
 
+def rsi_wilder_unfrozen(close, n: int = 14) -> pd.Series:
+    """`rsi_wilder` nhưng NaN khi ``n`` phiên giá đứng hẳn (xem `rsi_default`). Không đọc env —
+    `scripts/compare_indicator_formulas.py` đo đúng bản production bằng hàm này."""
+    c = _series(close)
+    flat = c.diff().abs().rolling(n).sum() == 0
+    return rsi_wilder(c, n).mask(flat)
+
+
 def rsi_default(close, n: int = 14) -> pd.Series:
     """RSI dùng thống nhất: Wilder (§10b). Công tắc legacy ⇒ Cutler ĐÚNG như code cũ —
     cửa sổ không phiên giảm ra NaN (không phải 100).
@@ -109,9 +117,7 @@ def rsi_default(close, n: int = 14) -> pd.Series:
     thanh khoản kẹt trong quá mua/quá bán và lọt vào đếm độ rộng (review P1 đợt 2, 04/11).
     Cutler cũ ra NaN ở đúng cửa sổ đó ⇒ giữ nguyên nghĩa "đứng giá = không tín hiệu"."""
     if not indicator_legacy():
-        c = _series(close)
-        flat = c.diff().abs().rolling(n).sum() == 0
-        return rsi_wilder(c, n).mask(flat)
+        return rsi_wilder_unfrozen(close, n)
     r = rsi_cutler(close, n)
     return r.where(r < 100)
 
