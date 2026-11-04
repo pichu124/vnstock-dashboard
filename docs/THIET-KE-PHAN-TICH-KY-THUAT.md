@@ -325,3 +325,25 @@ lại. Cách tốt nhất là chia việc theo đúng sở trường đó:
 - `compute_scores(df, index_returns=…)` trong brief sau công tắc `VNSTOCK_BRIEF_SECTOR_ALPHA` (mặc định tắt tới khi
   duyệt cùng đợt chạy lại lịch sử) — mở lại alpha vs VN-Index + xoay vòng ngành.
 - Sửa comment sai `vnstock_brief.py:3342`.
+
+## 15. Mốc nền P0 — kho thật (💻 laptop, 04/11, `run.py ta-score`)
+
+Brief chiều: 463 dòng → 199 sau khử trùng → 167 được chấm (87 phiên, 28/04 → 02/11).
+
+| Đo | Kết quả | Mốc | Đọc |
+|---|---|---|---|
+| T1 hỗ trợ VN-Index "chạm thì giữ" | 39% [27–53] n=51 | mức giả 46% | KHÔNG hơn ngẫu nhiên |
+| T1 kháng cự VN-Index | 53% [39–67] n=47 | 38% | có thể hơn, mẫu nhỏ |
+| T5 hỗ trợ / kháng cự từng mã | 33% / 38,5% | 35% / 35% | KHÔNG hơn ngẫu nhiên |
+| T2 vượt R1 → chạm R2 (5 phiên) | 76,5% n=34 | 81% | KHÔNG có lợi thế |
+| T2 thủng S1 → chạm S2 | 91% [76–97] n=33 | 69% [66–73] | **CÓ**: thủng hỗ trợ ⇒ đà giảm tiếp |
+| T3 Stance T+1, nhãn model tự chọn (trước 3 khung) | 23% n=83 | trung tính 23,5% · lặp hôm qua 32% | thua mốc ngây thơ |
+| T3 Stance T+1, từ 3 khung | 36% n=11 (11/11 phiên nhãn do code) | lặp hôm qua 45% | chưa đủ mẫu; nhãn KHÔNG còn là của model |
+| T4 trung hạn TĂNG → T+20 | TB ≈ 0%, tăng 49,5% (5 đoạn) | mọi phiên +1,4% / 61% | nhãn TĂNG chưa có lợi thế (2024–2026) |
+| T4 ngắn hạn "nhịp chỉnh" → T+20 (backfill 506 phiên) | +3,8%, tăng 80% (10 đoạn) | +1,5% / 62% | mua lúc chỉnh có lời — ít đoạn, MỘT giai đoạn |
+
+Hệ quả cho P2:
+1. S/R pivot 60 phiên không mang thông tin ⇒ P2 thay cách tìm S/R (số lần chạm, vùng KL, ATR) và **phải** thắng mốc ở T1/T5.
+2. Thông điệp đáng tin duy nhất đo được: đóng cửa thủng S1 ⇒ nguy cơ về S2 cao (91% vs 69%) ⇒ thẻ kỹ thuật in rõ khi giá đã thủng hỗ trợ.
+3. Chấm "model nào giỏi Stance" không còn ý nghĩa từ 14/10 (nhãn do code); đòn bẩy là luật code + dữ kiện thẻ, không phải đổi model.
+4. Phát sinh đã sửa: cờ `stance_pinned` lây giữa agent (sửa `a5557da`, dữ liệu cũ không sửa ngược được); brief sáng nhãn "**Bias:**" không đọc được (`5bdaec7`).
