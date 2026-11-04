@@ -893,6 +893,7 @@ def cmd_test(args) -> int:
             "tests/test_strategy_tiers.py",
             "tests/test_div_check.py",
             "tests/test_indicators_shared.py",  # PTKT P1: RSI Wilder/Cutler, ngưỡng canon, alpha ngành
+            "tests/test_compare_indicator_quality.py",  # PTKT P1: chất lượng tín hiệu + mẫu số độ rộng
         ]
     else:
         test_paths = ["tests/"]
