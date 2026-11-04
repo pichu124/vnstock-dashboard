@@ -855,6 +855,7 @@ def cmd_test(args) -> int:
             "tests/test_horizons_state.py",  # brief 3 khung chạy bóng (P1a)
             "tests/test_ta_score.py",     # thước đo nhận định kỹ thuật + cờ briefs.sent (P0 PTKT)
             "tests/test_ta_score_readability.py",  # thước đo PTKT: nhóm 3 khung, mốc T2, phễu
+            "tests/test_ta_card.py",      # thẻ kỹ thuật 3 khung (P2a PTKT)
             "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
