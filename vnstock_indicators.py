@@ -31,12 +31,14 @@ unit-break ×200 (bẫy per-bar normalization mã penny — mirror
 Chỉ báo nền dùng chung (PTKT P1, `docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §14b):
 ``rsi_wilder`` · ``rsi_cutler`` · ``sma`` · ``ema`` · ``atr`` trả pandas.Series
 CÙNG chiều + index với input, NaN ở các bar khởi động (chart cần whitespace,
-không được bỏ bar).
+không được bỏ bar). Đợt 2: screener/độ rộng/chart gọi ``rsi_default`` + ``trend_ma``
+(Wilder + SMA; ``VNSTOCK_INDICATOR_LEGACY=1`` ⇒ Cutler + EMA như cũ).
 """
 
 from __future__ import annotations
 
 import math
+import os
 from typing import Optional
 
 import numpy as np
@@ -87,6 +89,29 @@ def ema(x, n: int) -> pd.Series:
     """EMA ``span=n, adjust=False`` (đúng EMA của screener/runner); ``n − 1`` bar đầu = NaN.
     Gieo ở bar đầu của chuỗi đưa vào ⇒ cửa sổ khác nhau cho số khác nhau."""
     return _series(x).ewm(span=n, adjust=False, min_periods=n).mean()
+
+
+LEGACY_ENV = "VNSTOCK_INDICATOR_LEGACY"
+
+
+def indicator_legacy() -> bool:
+    """``VNSTOCK_INDICATOR_LEGACY=1`` (1/true/yes/on) ⇒ RSI Cutler + EMA200 như trước PTKT P1
+    đợt 2 ở screener/độ rộng/chart. Đọc lúc gọi, mặc định TẮT."""
+    return os.environ.get(LEGACY_ENV, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def rsi_default(close, n: int = 14) -> pd.Series:
+    """RSI dùng thống nhất: Wilder (§10b). Công tắc legacy ⇒ Cutler ĐÚNG như code cũ —
+    cửa sổ không phiên giảm ra NaN (không phải 100)."""
+    if not indicator_legacy():
+        return rsi_wilder(close, n)
+    r = rsi_cutler(close, n)
+    return r.where(r < 100)
+
+
+def trend_ma(x, n: int) -> pd.Series:
+    """Chữ "MA<n>" của độ rộng và preset xu hướng: SMA (§10b). Công tắc legacy ⇒ EMA như cũ."""
+    return ema(x, n) if indicator_legacy() else sma(x, n)
 
 
 def atr(high, low, close, n: int = 14) -> pd.Series:

@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 import vnstock_horizons as hz
+from vnstock_indicators import indicator_legacy, rsi_wilder, sma
 from vnstock_price_units import normalize_price_units
 
 _REPO = Path(__file__).resolve().parent
@@ -98,13 +99,10 @@ def load_vnindex(warehouse: Path = _WAREHOUSE) -> tuple[list[date], list[float]]
 def tech_frame(dates: list[date], closes: list[float]) -> pd.DataFrame:
     """Kỹ thuật VNINDEX từng phiên — cùng công thức `_vnindex_technicals`."""
     c = pd.Series(closes, index=pd.to_datetime(dates), dtype=float)
-    d = c.diff(1)
-    up = d.clip(lower=0).ewm(com=13, adjust=False).mean()
-    dn = (-d).clip(lower=0).ewm(com=13, adjust=False).mean()
     return pd.DataFrame({
         "close": c, "ma20": c.rolling(20).mean(), "ma50": c.rolling(50).mean(),
         "ma200": c.rolling(200).mean(),
-        "rsi14": 100.0 - 100.0 / (1.0 + up / dn.replace(0, np.nan)),
+        "rsi14": rsi_wilder(c),
         "chg": (c / c.shift(1) - 1.0) * 100,
     })
 
@@ -125,11 +123,13 @@ def load_nn(warehouse: Path = _WAREHOUSE) -> dict[str, float]:
 
 
 def breadth_history(warehouse: Path, targets: list[date]) -> dict[date, dict]:
-    """% mã trên EMA200 + A/D cho TỪNG phiên, đếm như `compute_market_overview`:
-    mã ≥5 bar trong 400 ngày lùi vào mẫu số; EMA200 (adjust=False) bắt đầu ở bar
-    đầu cửa sổ, chỉ tính khi ≥200 bar; A/D = bar cuối so bar liền trước.
-    EMA cửa sổ = EMA toàn chuỗi − (1−α)^k·(F[lo] − x[lo]) — O(1) mỗi phiên.
-    Đối chiếu ctx đã in 58 phiên 06–10/2026: lệch TB 0.8 điểm %."""
+    """% mã trên MA200 + A/D cho TỪNG phiên, đếm như `compute_market_overview`:
+    mã ≥5 bar trong 400 ngày lùi vào mẫu số; MA200 chỉ tính khi ≥200 bar trong cửa sổ;
+    A/D = bar cuối so bar liền trước. MA200 = SMA200 (PTKT P1 đợt 2) — 200 bar cuối luôn
+    nằm trong cửa sổ nên SMA toàn chuỗi = SMA cửa sổ. `VNSTOCK_INDICATOR_LEGACY=1` ⇒
+    EMA200 (adjust=False) gieo ở bar đầu cửa sổ như runner cũ: EMA cửa sổ = EMA toàn chuỗi
+    − (1−α)^k·(F[lo] − x[lo]) — O(1) mỗi phiên (đối chiếu ctx 58 phiên 06–10/2026: lệch TB
+    0.8 điểm %)."""
     if not targets:
         return {}
     tgt = np.array([np.datetime64(d) for d in targets])
@@ -138,6 +138,7 @@ def breadth_history(warehouse: Path, targets: list[date]) -> dict[date, dict]:
     total = np.zeros(n_t, int); above = np.zeros(n_t, int)
     adv = np.zeros(n_t, int); dec = np.zeros(n_t, int)
     min_year = targets[0].year - 2
+    legacy = indicator_legacy()
     for td in sorted((warehouse / "prices").glob("ticker=*")):
         tk = td.name.split("=", 1)[1]
         if len(tk) > 5 or not tk.isalpha():
@@ -149,7 +150,8 @@ def breadth_history(warehouse: Path, targets: list[date]) -> dict[date, dict]:
         # (HLB, VNZ) không bị chia 1000.
         x = normalize_price_units(df)["close"].astype(float).to_numpy()
         t = df["time"].to_numpy().astype("datetime64[D]")
-        f = pd.Series(x).ewm(alpha=_EMA_ALPHA, adjust=False).mean().to_numpy()
+        f = (pd.Series(x).ewm(alpha=_EMA_ALPHA, adjust=False).mean() if legacy
+             else sma(x, 200)).to_numpy()
         hi = np.searchsorted(t, tgt, side="right") - 1
         lo = np.searchsorted(t, cut, side="left")
         n = hi - lo + 1
@@ -158,8 +160,8 @@ def breadth_history(warehouse: Path, targets: list[date]) -> dict[date, dict]:
         has200 = ok & (n >= 200)
         if has200.any():
             h, l_ = hi[has200], lo[has200]
-            ema = f[h] - (1 - _EMA_ALPHA) ** (h - l_) * (f[l_] - x[l_])
-            above[np.where(has200)[0][x[h] > ema]] += 1
+            ma = f[h] - (1 - _EMA_ALPHA) ** (h - l_) * (f[l_] - x[l_]) if legacy else f[h]
+            above[np.where(has200)[0][x[h] > ma]] += 1
         two = ok & (n >= 2)
         if two.any():
             h = hi[two]

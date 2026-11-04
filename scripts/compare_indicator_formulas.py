@@ -1,10 +1,12 @@
-"""So công thức chỉ báo hiện hành với công thức đích trên KHO THẬT — CHỈ ĐỌC (PTKT P1 đợt 1, §14b).
+"""So công thức chỉ báo CŨ (Cutler/EMA200) với công thức đang chạy (Wilder/SMA200) trên KHO THẬT
+— CHỈ ĐỌC (PTKT P1, §14b).
 
-`docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §10b chốt RSI Wilder + SMA200. Đổi công thức làm
-ngưỡng cũ lệch ⇒ trước khi đổi screener/độ rộng/chart (đợt 2) phải có số:
+`docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §10b chốt RSI Wilder + SMA200; đợt 2 đã chuyển screener/
+độ rộng/chart (giữ ngưỡng 30/70/40). Bản CŨ tái tạo ngay trong script (không đọc từ production,
+không phụ thuộc `VNSTOCK_INDICATOR_LEGACY`) để vẫn so được:
 
-1. RSI(14) Cutler (SMA 14, hiện hành) vs Wilder: số mã RSI<30 / >70 mỗi phiên + số mã đổi nhóm;
-2. % mã trên EMA200 (hiện hành) vs SMA200 — đúng tập mã + cửa sổ 400 ngày của
+1. RSI(14) Cutler (SMA 14, cũ) vs Wilder: số mã RSI<30 / >70 mỗi phiên + số mã đổi nhóm;
+2. % mã trên EMA200 (cũ) vs SMA200 — đúng tập mã + cửa sổ 400 ngày của
    `vnstock_runner.build_market_overview`;
 3. số phiên phiếu độ rộng của `vnstock_regime` (>55% / <35%) đổi khi thay EMA200 → SMA200;
 4. preset screener đọc RSI / MA200 (dò từ `vnstock_screener.PRESETS`): mã vào/ra ở phiên cuối;
@@ -84,7 +86,7 @@ def ticker_day_flags(time, close, days: pd.DatetimeIndex) -> pd.DataFrame:
         return out
 
     rc = rsi_cutler(x, RSI_N).to_numpy()
-    rc = np.where(rc < 100, rc, np.nan)          # code hiện hành: loss = 0 ⇒ NaN ⇒ không đếm
+    rc = np.where(rc < 100, rc, np.nan)          # code cũ: loss = 0 ⇒ NaN ⇒ không đếm
     rw = rsi_wilder(x, RSI_N).to_numpy()
     has_rsi = counted & (n >= RSI_N + 1)
     out["rsi_c"] = np.where(has_rsi, rc[h], np.nan)
@@ -162,7 +164,8 @@ def affected_presets() -> list[str]:
 
 
 def screener_variant(ind: dict, df: pd.DataFrame) -> dict:
-    """Bản SAO chỉ báo screener với RSI Wilder + SMA200 (cùng làm tròn như `_calc_indicators`)."""
+    """Bản SAO chỉ báo screener với RSI Wilder + SMA200 (cùng làm tròn như `_calc_indicators`) —
+    biến thể đã đo và đợt 2 ship nguyên văn (test canh `_calc_indicators` == bản này)."""
     c = df["close"].astype(float)
     new = dict(ind)
     if len(c) >= RSI_N + 1:
@@ -174,6 +177,22 @@ def screener_variant(ind: dict, df: pd.DataFrame) -> dict:
         new["above_ma200"] = bool(new["last_close"] > s200)
         new["long_trend"] = "BULL" if s50 > s200 else "BEAR"
     return new
+
+
+def screener_legacy(ind: dict, df: pd.DataFrame) -> dict:
+    """Bản SAO chỉ báo screener với công thức CŨ (trước đợt 2): RSI Cutler — cửa sổ không phiên
+    giảm ⇒ None — và EMA50/EMA200 cho ``long_trend`` / ``above_ma200``."""
+    c = df["close"].astype(float)
+    old = dict(ind)
+    if len(c) >= RSI_N + 1:
+        v = rsi_cutler(c, RSI_N).iloc[-1]
+        old["rsi_14"] = round(float(v), 1) if v < 100 else None      # NaN < 100 cũng False
+    if len(c) >= MA_LONG:
+        e200 = round(float(c.ewm(span=MA_LONG, adjust=False).mean().iloc[-1]), 2)
+        e50 = round(float(c.ewm(span=50, adjust=False).mean().iloc[-1]), 2)
+        old["above_ma200"] = bool(old["last_close"] > e200)
+        old["long_trend"] = "BULL" if e50 > e200 else "BEAR"
+    return old
 
 
 def _match(fn, row: dict) -> bool:
@@ -314,7 +333,7 @@ def signal_variants(suggested: dict) -> list[tuple[str, str, str, float]]:
     out = []
     for sig in ("oversold", "overbought", "reversal"):
         old, new = _OLD_THR[sig], suggested[sig]
-        out += [(sig, f"Cutler {old:g} (hiện hành)", "rsi_c", old),
+        out += [(sig, f"Cutler {old:g} (cũ)", "rsi_c", old),
                 (sig, f"Wilder {old:g}", "rsi_w", old),
                 (sig, f"Wilder {new:g} (gợi ý)", "rsi_w", new)]
     return out
@@ -474,7 +493,7 @@ def _hose_tickers(wh: Path) -> "set | None":
 
 
 def _screener_rows(wh: Path) -> tuple[dict, dict, str]:
-    """Chỉ báo screener hiện hành (đúng `MarketScreener`) + bản đổi công thức, phiên cuối."""
+    """Chỉ báo screener phiên cuối (đúng `MarketScreener`): bản cũ tái tạo + bản Wilder/SMA200."""
     from vnstock_screener import MarketScreener, _calc_indicators, stale_lag
     scr = MarketScreener(str(wh))
     old, new, last = {}, {}, None
@@ -487,17 +506,17 @@ def _screener_rows(wh: Path) -> tuple[dict, dict, str]:
         ind = _calc_indicators(df)
         if not ind:
             continue
-        old[t], new[t] = ind, screener_variant(ind, df)
+        old[t], new[t] = screener_legacy(ind, df), screener_variant(ind, df)
         last = max(last, df["time"].iloc[-1]) if last is not None else df["time"].iloc[-1]
     return old, new, (pd.Timestamp(last).date().isoformat() if last is not None else "")
 
 
 # ── In ───────────────────────────────────────────────────────────────────────
 
-_ROWS = [("RSI<30 Cutler (hiện hành)", "rsi_ov_cutler"), ("RSI<30 Wilder", "rsi_ov_wilder"),
-         ("RSI>70 Cutler (hiện hành)", "rsi_ob_cutler"), ("RSI>70 Wilder", "rsi_ob_wilder"),
+_ROWS = [("RSI<30 Cutler (cũ)", "rsi_ov_cutler"), ("RSI<30 Wilder", "rsi_ov_wilder"),
+         ("RSI>70 Cutler (cũ)", "rsi_ob_cutler"), ("RSI>70 Wilder", "rsi_ob_wilder"),
          ("Mã đổi nhóm RSI", "rsi_zone_changed"),
-         ("% trên EMA200 (hiện hành)", "pct_ema200"), ("% trên SMA200", "pct_sma200")]
+         ("% trên EMA200 (cũ)", "pct_ema200"), ("% trên SMA200", "pct_sma200")]
 
 
 def _pct_table(daily: pd.DataFrame) -> list[str]:

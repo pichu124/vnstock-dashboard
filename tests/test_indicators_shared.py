@@ -427,12 +427,16 @@ def test_screener_variant_and_preset_diff(cif):
     df = pd.DataFrame({"time": pd.date_range("2025-01-02", periods=n, freq="B"),
                        "open": c, "high": c * 1.01, "low": c * 0.99, "close": c,
                        "volume": 1e5})
-    old = _calc_indicators(df)
+    # Đợt 2: production đã là Wilder/SMA200 ⇒ bản "cũ" do script tự tái tạo (Cutler/EMA200).
+    prod = _calc_indicators(df)
+    old = cif.screener_legacy(prod, df)
     new = cif.screener_variant(old, df)
+    assert new == prod
     assert new["rsi_14"] == round(float(rsi_wilder(c).iloc[-1]), 1)
     assert new["above_ma200"] is bool(c.iloc[-1] > c.rolling(200).mean().iloc[-1])
     assert old["rsi_14"] == round(float(_screener_rsi_ref(c).iloc[-1]), 1)
-    assert "rsi_14" in old and old is not new
+    assert old["above_ma200"] is bool(c.iloc[-1] > c.ewm(span=200, adjust=False).mean().iloc[-1])
+    assert "rsi_14" in old and old is not new and old is not prod
 
     rows_old = {"AAA": {"rsi_14": 28.0}, "BBB": {"rsi_14": 31.0}, "CCC": {"rsi_14": 50.0}}
     rows_new = {"AAA": {"rsi_14": 31.0}, "BBB": {"rsi_14": 29.0}, "CCC": {"rsi_14": 29.5}}
@@ -484,3 +488,193 @@ def test_vnindex_loader_drops_duplicate_sessions_from_conflicted_copy(tmp_path, 
     out = vb._load_vnindex_df(augment=False)
     assert len(out) == 40 and out["time"].is_unique
     assert list(out["close"].tail(3)) == [1237.0, 1238.0, 1239.0]
+
+
+# ── PTKT P1 đợt 2: mọi chỗ về RSI Wilder + SMA200, `VNSTOCK_INDICATOR_LEGACY=1` quay lại ──
+# Số đo kho thật (scripts/compare_indicator_formulas.py, 120 phiên): chênh chất lượng tín hiệu
+# Cutler/Wilder không đủ lớn để bỏ chuẩn ngành ⇒ Wilder, GIỮ ngưỡng 30/70/40, "MA200" = SMA200.
+
+@pytest.fixture
+def legacy_env(monkeypatch):
+    for k in [k for k in __import__("os").environ if k.startswith("VNSTOCK_INDICATOR_LEGACY")]:
+        monkeypatch.delenv(k)
+    return monkeypatch
+
+
+def _ma_split_close() -> np.ndarray:
+    """Phẳng 150 · lên 100 → 150 · rơi về 116: đóng cửa TRÊN SMA200 (≈114,1) mà DƯỚI EMA200 (≈119,7)."""
+    return np.r_[np.full(150, 100.0), np.linspace(100, 150, 100), np.linspace(148, 116, 10)]
+
+
+def _rsi_split_close() -> np.ndarray:
+    """Lên đều 240 phiên rồi giảm: Cutler (cửa sổ 14) ≈ 13 < 30, Wilder (nhớ dài) ≈ 47."""
+    r = np.r_[np.tile([0.02, -0.01], 120), np.full(8, -0.005), np.tile([0.003, -0.006], 3)]
+    return 50 * np.exp(np.cumsum(r))
+
+
+def _old_screener_fields(df: pd.DataFrame) -> dict:
+    """vnstock_screener._calc_indicators TRƯỚC đợt 2 (a9e6930) — chép nguyên văn 3 trường đổi."""
+    c = df["close"].astype(float)
+    out = {}
+    if len(c) >= 15:
+        rsi = _screener_rsi_ref(c).iloc[-1]
+        out["rsi_14"] = round(float(rsi), 1) if not np.isnan(rsi) else None
+    e50 = round(float(c.ewm(span=50, adjust=False).mean().iloc[-1]), 2) if len(c) >= 50 else None
+    e200 = round(float(c.ewm(span=200, adjust=False).mean().iloc[-1]), 2) if len(c) >= 200 else None
+    if e50 and e200:
+        out["long_trend"] = "BULL" if e50 > e200 else "BEAR"
+    if e200:
+        out["above_ma200"] = round(float(c.iloc[-1]), 2) > e200
+    return out
+
+
+def _ohlcv(close) -> pd.DataFrame:
+    c = pd.Series(np.asarray(close, dtype=float))
+    return pd.DataFrame({"time": pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=len(c)),
+                         "open": c, "high": c * 1.01, "low": c * 0.99, "close": c, "volume": 1e5})
+
+
+@pytest.mark.parametrize("val, on", [("", False), ("0", False), ("1", True), ("true", True),
+                                     ("on", True), ("off", False)])
+def test_legacy_switch_parsing(legacy_env, val, on):
+    import vnstock_indicators as vi
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", val)
+    assert vi.indicator_legacy() is on
+
+
+def test_legacy_switch_read_at_call_time(legacy_env):
+    import vnstock_indicators as vi
+    c = _walk(seed=9)
+    new = vi.rsi_default(c).iloc[-1]
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    old = vi.rsi_default(c).iloc[-1]
+    legacy_env.delenv("VNSTOCK_INDICATOR_LEGACY")
+    assert new == rsi_wilder(c).iloc[-1] and old == _screener_rsi_ref(c).iloc[-1] and new != old
+    assert vi.rsi_default(c).iloc[-1] == new
+
+
+def test_rsi_default_wilder_and_legacy_is_old_cutler_with_nan(legacy_env):
+    import vnstock_indicators as vi
+    c = pd.Series(np.r_[np.linspace(10, 9, 10), np.linspace(9, 12, 20)])   # 14 phiên cuối không giảm
+    pd.testing.assert_series_equal(vi.rsi_default(c), rsi_wilder(c))
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    old = vi.rsi_default(c)
+    np.testing.assert_array_equal(old.to_numpy(), _screener_rsi_ref(c).to_numpy())
+    assert np.isnan(old.iloc[-1])                     # code cũ: không phiên giảm ⇒ NaN ⇒ None
+
+
+def test_trend_ma_sma_and_legacy_ema(legacy_env):
+    import vnstock_indicators as vi
+    c = _walk(300)
+    pd.testing.assert_series_equal(vi.trend_ma(c, 200), sma(c, 200))
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    ref = c.ewm(span=200, adjust=False).mean()
+    np.testing.assert_allclose(vi.trend_ma(c, 200).iloc[199:], ref.iloc[199:], rtol=0, atol=1e-9)
+
+
+def test_legacy_switch_listed_in_claude_md():
+    assert "VNSTOCK_INDICATOR_LEGACY" in (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+
+# screener
+
+def test_screener_ships_exactly_the_measured_variant(legacy_env, cif):
+    from vnstock_screener import _calc_indicators
+    df = _ohlcv(_ma_split_close())
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    old = _calc_indicators(df)
+    legacy_env.delenv("VNSTOCK_INDICATOR_LEGACY")
+    new = _calc_indicators(df)
+    assert new == cif.screener_variant(old, df)       # đúng biến thể đã đo, không hơn không kém
+    assert (old["above_ma200"], new["above_ma200"]) == (False, True)
+    assert new["ema_200"] == old["ema_200"]            # cột EMA200 (chart/bảng) giữ nguyên
+
+
+def test_screener_legacy_reproduces_old_code(legacy_env, cif):
+    from vnstock_screener import _calc_indicators
+    for close in (_ma_split_close(), _rsi_split_close(), _walk(320, seed=4, start=20.0),
+                  np.r_[np.linspace(10, 9, 200), np.linspace(9, 12, 20)]):
+        df = _ohlcv(close)
+        new = _calc_indicators(df)
+        old = cif.screener_legacy(new, df)               # script tự tái tạo bản cũ
+        assert {k: old.get(k) for k in ("rsi_14", "long_trend", "above_ma200")} == _old_screener_fields(df)
+        legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+        assert _calc_indicators(df) == old
+        legacy_env.delenv("VNSTOCK_INDICATOR_LEGACY")
+
+
+def test_screener_rsi_wilder_on_split_series(legacy_env):
+    from vnstock_screener import PRESETS, _calc_indicators
+    df = _ohlcv(_rsi_split_close())
+    new = _calc_indicators(df)
+    assert new["rsi_14"] == round(float(rsi_wilder(df["close"]).iloc[-1]), 1) > 40
+    assert not PRESETS["oversold"]["filter"](new)
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    assert PRESETS["oversold"]["filter"](_calc_indicators(df))
+
+
+def test_screener_flat_stock_has_no_rsi_and_is_not_overbought(legacy_env, cif):
+    """Mã đứng giá từ đầu: Wilder cũng như Cutler cũ — gain = loss = 0 ⇒ None, không vào overbought."""
+    from vnstock_screener import PRESETS, _calc_indicators
+    r = _calc_indicators(_ohlcv(np.full(80, 12.5)))
+    assert r["rsi_14"] is None
+    assert not cif._match(PRESETS["overbought"]["filter"], r)   # như scan(): filter ném ⇒ không khớp
+
+
+# runner (độ rộng)
+
+def _runner_wh(root: Path, series: dict) -> Path:
+    for tk, close in series.items():
+        df = _ohlcv(close)
+        for y, g in df.groupby(df["time"].dt.year):
+            d = root / "prices" / f"ticker={tk}" / f"year={y}"
+            d.mkdir(parents=True)
+            g.to_parquet(d / "prices.parquet", index=False)
+    (root / "_meta").mkdir(parents=True)
+    pd.DataFrame({"ticker": list(series), "primary_industry": ["Ngân hàng"] * len(series)}
+                 ).to_parquet(root / "_meta" / "industry_classification.parquet", index=False)
+    return root
+
+
+@pytest.mark.parametrize("legacy, above, oversold", [(False, 2, 1), (True, 1, 2)])
+def test_runner_breadth_sma200_wilder_and_legacy(legacy_env, tmp_path, legacy, above, oversold):
+    pytest.importorskip("pyarrow")
+    import vnstock_runner as vr
+    wh = _runner_wh(tmp_path, {"AAA": _ma_split_close(), "BBB": _rsi_split_close()})
+    if legacy:
+        legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    b = vr.build_market_overview(str(wh))["breadth"]
+    # AAA: trên SMA200 / dưới EMA200, RSI < 30 cả hai công thức; BBB: trên cả hai MA, chỉ Cutler < 30
+    assert (b["total"], b["above_ma200"], b["rsi_oversold"]) == (2, above, oversold)
+
+
+# horizons_state + strategy: vốn là Wilder ⇒ số KHÔNG đổi (hồi quy)
+
+def test_horizons_tech_frame_rsi_unchanged(legacy_env):
+    import vnstock_horizons_state as hs
+    c = _walk(300, seed=21)
+    dates = list(pd.bdate_range("2025-01-02", periods=len(c)).date)
+    rsi = hs.tech_frame(dates, c.tolist())["rsi14"].to_numpy()
+    ref = _brief_rsi_ref(c).to_numpy()
+    np.testing.assert_allclose(rsi[14:], ref[14:], rtol=0, atol=1e-12)
+    assert np.isnan(rsi[:14]).all()                   # warmup như rsi_wilder / _vnindex_technicals
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    np.testing.assert_array_equal(hs.tech_frame(dates, c.tolist())["rsi14"].to_numpy(), rsi)
+
+
+def test_strategy_ticker_indicators_rsi_unchanged(legacy_env):
+    import vnstock_strategy as vs
+    for seed in (1, 2, 3):
+        c = _walk(120, seed=seed, start=30.0)
+        got = vs._ticker_indicators(pd.DataFrame({"close": c, "volume": 1e5}))["rsi"]
+        assert got == float(_brief_rsi_ref(c).iloc[-1])
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    assert vs._ticker_indicators(pd.DataFrame({"close": c, "volume": 1e5}))["rsi"] == got
+
+
+def test_strategy_prompt_rsi_example_is_wilder():
+    """Mẫu code trong prompt sinh chiến lược: `ewm(com=13)` mặc định adjust=True ≠ Wilder ở các bar
+    đầu ⇒ mẫu ghi rõ adjust=False (cùng công thức rsi_wilder; sandbox không import được module)."""
+    src = (ROOT / "vnstock_strategy.py").read_text(encoding="utf-8")
+    assert "ewm(com=13).mean()" not in src
+    assert src.count("ewm(com=13, adjust=False).mean()") >= 2

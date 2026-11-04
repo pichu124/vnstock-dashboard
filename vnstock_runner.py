@@ -27,6 +27,7 @@ warnings.filterwarnings("ignore")
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
 from vnstock_screener import MarketScreener, PRESETS, stale_limit
+from vnstock_indicators import rsi_default, trend_ma
 
 from rich.console import Console
 from rich.progress import (
@@ -399,18 +400,12 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
             if _tv:
                 _gtgd_by_ticker[ticker] = _tv
 
-            # Breadth
+            # Breadth — SMA200 + RSI Wilder (§10b); VNSTOCK_INDICATOR_LEGACY=1 ⇒ EMA200 + Cutler
             b_total += 1
-            if len(c) >= 200:
-                ema200 = c.ewm(span=200, adjust=False).mean().iloc[-1]
-                if last > ema200:
-                    b_ma200 += 1
+            if len(c) >= 200 and last > trend_ma(c, 200).iloc[-1]:
+                b_ma200 += 1
 
-            delta = c.diff()
-            gain = delta.clip(lower=0).rolling(14).mean()
-            loss = (-delta.clip(upper=0)).rolling(14).mean()
-            rs = gain / loss.replace(0, np.nan)
-            rsi_val = (100 - (100 / (1 + rs))).iloc[-1]
+            rsi_val = rsi_default(c).iloc[-1]
             if not np.isnan(rsi_val):
                 if rsi_val < 30: b_rsi_ov += 1
                 elif rsi_val > 70: b_rsi_ob += 1

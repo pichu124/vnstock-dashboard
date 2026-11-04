@@ -1,7 +1,7 @@
 """scripts/replay_horizons.py — P0 brief 3 khung, chỉ đọc kho.
 
-Chỗ dễ sai nhất là breadth tái dựng THEO NGÀY: nó dùng mẹo EMA cửa sổ O(1)
-thay cho việc tính lại EMA200 cho từng (mã, phiên). Test so với cách đếm
+Chỗ dễ sai nhất là breadth tái dựng THEO NGÀY: SMA200 (mặc định) hoặc mẹo EMA cửa sổ O(1)
+(legacy) thay cho việc tính lại MA200 cho từng (mã, phiên). Test so với cách đếm
 nguyên bản của `vnstock_runner.compute_market_overview` làm tay từng phiên.
 """
 from __future__ import annotations
@@ -60,7 +60,9 @@ def warehouse(tmp_path):
     return tmp_path, days
 
 
-def _brute_breadth(wh: Path, d: date) -> dict:
+def _brute_breadth(wh: Path, d: date, legacy: bool = False) -> dict:
+    """Runner đếm tay từng phiên. MA200 = SMA200 từ PTKT P1 đợt 2 (trước đó EMA200 gieo ở đầu
+    cửa sổ — nay chỉ còn sau `VNSTOCK_INDICATOR_LEGACY=1`)."""
     total = above = adv = dec = 0
     for td in sorted((wh / "prices").glob("ticker=*")):
         tk = td.name.split("=", 1)[1]
@@ -74,7 +76,8 @@ def _brute_breadth(wh: Path, d: date) -> dict:
         c = df.close.astype(float)
         c = c.where(c <= 500, c / 1000)
         total += 1
-        if len(c) >= 200 and c.iloc[-1] > c.ewm(span=200, adjust=False).mean().iloc[-1]:
+        ma = c.ewm(span=200, adjust=False).mean() if legacy else c.rolling(200).mean()
+        if len(c) >= 200 and c.iloc[-1] > ma.iloc[-1]:
             above += 1
         chg = c.iloc[-1] - c.iloc[-2]
         adv += chg > 0
@@ -82,12 +85,17 @@ def _brute_breadth(wh: Path, d: date) -> dict:
     return {"total": total, "above": above, "adv": adv, "dec": dec}
 
 
-def test_breadth_history_matches_runner_counting(warehouse):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_breadth_history_matches_runner_counting(warehouse, monkeypatch, legacy):
+    for k in [k for k in __import__("os").environ if k.startswith("VNSTOCK_INDICATOR_LEGACY")]:
+        monkeypatch.delenv(k)
+    if legacy:
+        monkeypatch.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
     wh, days = warehouse
     targets = days[-60:]
     got = rh.breadth_history(wh, targets)
     for d in targets[::7] + [targets[-1]]:
-        exp = _brute_breadth(wh, d)
+        exp = _brute_breadth(wh, d, legacy)
         g = got[d]
         assert g["total"] == exp["total"]
         assert round(g["above_ma200_pct"] * g["total"] / 100) == exp["above"]

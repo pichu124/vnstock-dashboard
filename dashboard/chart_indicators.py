@@ -15,6 +15,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from vnstock_indicators import rsi_default
+
 RSI_PERIOD = 14
 BB_PERIOD = 20
 VOL_MA_PERIOD = 20
@@ -31,15 +33,12 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     c = df["close"].astype(float)
 
-    # RSI 14 — khi loss = 0 (chuỗi toàn tăng) ép RSI=100 thay vì NaN.
-    # `loss.replace(0, NaN)` ngây thơ để lại lỗ hổng ở CUỐI chuỗi, khiến panel
-    # RSI auto-fit ngắn hơn panel nến.
-    delta = c.diff()
-    gain = delta.clip(lower=0).rolling(RSI_PERIOD).mean()
-    loss = (-delta.clip(upper=0)).rolling(RSI_PERIOD).mean()
-    rs = gain / loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
-    df["rsi"] = rsi.where(loss != 0, 100.0)
+    # RSI 14 Wilder (VNSTOCK_INDICATOR_LEGACY=1 ⇒ Cutler cũ). Trung bình giảm = 0 ⇒ 100,
+    # kể cả đứng giá (luật chart cũ): NaN chỉ ở warmup ĐẦU chuỗi, không bao giờ ở đuôi —
+    # lỗ hổng ở CUỐI khiến panel RSI auto-fit ngắn hơn panel nến.
+    rsi = rsi_default(c, RSI_PERIOD)
+    rsi.iloc[RSI_PERIOD:] = rsi.iloc[RSI_PERIOD:].fillna(100.0)
+    df["rsi"] = rsi
 
     # EMA — chỉ tính khi đủ data (tránh EMA chưa hội tụ trên chuỗi ngắn)
     for span in EMA_SPANS:
