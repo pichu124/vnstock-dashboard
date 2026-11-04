@@ -461,7 +461,8 @@ def render_market_tab() -> None:
                 f'<div class="metric-card">'
                 f'<div class="label">Trên MA200</div>'
                 f'<div class="value" style="color:{ma200_color}">{pct_ma200:.1f}%</div>'
-                f'<div class="sub">{breadth["above_ma200"]}/{breadth["total"]} mã</div>'
+                # mẫu số = tập mã ĐANG dùng cho % (VNSTOCK_BREADTH_UNIVERSE), không phải tổng mã
+                f'<div class="sub">{breadth["above_ma200"]}/{breadth.get("breadth_n") or breadth["total"]} mã</div>'
                 f'</div>', unsafe_allow_html=True)
 
         with b2:

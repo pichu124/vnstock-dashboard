@@ -509,7 +509,8 @@ def _horizon_medium_line(view: dict, ctx: dict) -> str:
             f"từ {_hz_ddmm(snap.get('medium_since'))} ({_hz_weeks(view)})")
     b, b4 = view.get("breadth_pct"), view.get("breadth_pct_4w")
     if isinstance(b, (int, float)):
-        line += f"; {b:.0f}% mã trên MA200"
+        from vnstock_breadth_universe import label_suffix
+        line += f"; {b:.0f}% mã trên MA200{label_suffix(view)}"
         if isinstance(b4, (int, float)):
             line += f" (4 tuần trước {b4:.0f}%)"
     return line + "." + _horizon_macro_snippet(ctx)
