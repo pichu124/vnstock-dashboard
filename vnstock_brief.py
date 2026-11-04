@@ -3158,6 +3158,9 @@ def _augment_with_live_vnindex(
         return df
 
 
+_VNINDEX_PRICES_DIR = Path(__file__).parent / "data_warehouse" / "prices"
+
+
 def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
     """Read VNINDEX price history directly from parquet — no Streamlit cache.
 
@@ -3176,7 +3179,7 @@ def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
     except ImportError:
         return pd.DataFrame()
 
-    prices_dir = Path(__file__).parent / "data_warehouse" / "prices"
+    prices_dir = _VNINDEX_PRICES_DIR
 
     df = pd.DataFrame()
     for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
@@ -3205,7 +3208,10 @@ def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
             continue
 
         _df["time"] = pd.to_datetime(_df["time"])
-        _df = _df.sort_values("time").reset_index(drop=True)
+        # Dropbox "(conflicted copy).parquet" trong year-dir ⇒ mỗi phiên 2 dòng ⇒ MA/RSI/
+        # lợi suất N phiên lùi sai số phiên (review PTKT P1, 04/11). Khử trùng theo ngày.
+        _df = (_df.sort_values("time").drop_duplicates("time", keep="last")
+               .reset_index(drop=True))
 
         if "close" not in _df.columns:
             continue

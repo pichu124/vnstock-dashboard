@@ -463,3 +463,24 @@ def test_main_writes_json_and_prints_vietnamese(cif, tmp_path, capsys, monkeypat
     assert set(data["nguong_goi_y"]) >= {"rsi_qua_ban_30", "rsi_qua_mua_70", "do_rong_55", "do_rong_35"}
     text = capsys.readouterr().out
     assert "RSI<30" in text and "SMA200" in text and "Phiếu độ rộng" in text
+
+
+def test_vnindex_loader_drops_duplicate_sessions_from_conflicted_copy(tmp_path, monkeypatch):
+    """Dropbox đẻ `(conflicted copy).parquet` cạnh file năm ⇒ mỗi phiên 2 dòng. Không khử trùng thì
+    MA/RSI/lợi suất N phiên của VN-Index lùi sai số phiên (review PTKT P1, 04/11)."""
+    import pandas as pd
+    pytest.importorskip("pyarrow")
+    import vnstock_brief as vb
+
+    ydir = tmp_path / "ticker=VNINDEX" / "year=2026"
+    ydir.mkdir(parents=True)
+    days = pd.bdate_range("2026-01-02", periods=40)
+    df = pd.DataFrame({"time": days, "open": 1200.0, "high": 1210.0, "low": 1190.0,
+                       "close": [1200.0 + i for i in range(40)]})
+    df.to_parquet(ydir / "2026.parquet", index=False)
+    df.tail(10).to_parquet(ydir / "2026 (conflicted copy).parquet", index=False)
+    monkeypatch.setattr(vb, "_VNINDEX_PRICES_DIR", tmp_path)
+
+    out = vb._load_vnindex_df(augment=False)
+    assert len(out) == 40 and out["time"].is_unique
+    assert list(out["close"].tail(3)) == [1237.0, 1238.0, 1239.0]
