@@ -81,6 +81,9 @@ def breadth_lines(breadth_data) -> list:
         return []
 
     pct200 = breadth_data["above_ma200_pct"]
+    # tập mã của số % (VNSTOCK_BREADTH_UNIVERSE=investable ⇒ " (N mã thanh khoản)"; all ⇒ "")
+    from vnstock_breadth_universe import label_suffix
+    _u = label_suffix(breadth_data)
     ad = breadth_data["ad_ratio"]
     ov = breadth_data["rsi_oversold"]
     ob = breadth_data["rsi_overbought"]
@@ -88,11 +91,11 @@ def breadth_lines(breadth_data) -> list:
 
     lines = ["", "**🌡️ Sức khỏe thị trường**"]
     if pct200 > _MA200_BROAD_UPTREND:
-        lines.append(f"- 🟢 {pct200:.0f}% mã trên MA200 — thị trường trong xu hướng tăng rộng")
+        lines.append(f"- 🟢 {pct200:.0f}% mã trên MA200{_u} — thị trường trong xu hướng tăng rộng")
     elif pct200 > _MA200_MIXED:
-        lines.append(f"- 🟡 {pct200:.0f}% mã trên MA200 — thị trường phân hóa, chọn lọc")
+        lines.append(f"- 🟡 {pct200:.0f}% mã trên MA200{_u} — thị trường phân hóa, chọn lọc")
     else:
-        lines.append(f"- 🔴 Chỉ {pct200:.0f}% mã trên MA200 — đa số cổ phiếu trong xu hướng giảm")
+        lines.append(f"- 🔴 Chỉ {pct200:.0f}% mã trên MA200{_u} — đa số cổ phiếu trong xu hướng giảm")
 
     if ad > _AD_DEMAND:
         lines.append(f"- A/D ratio {ad:.2f} — lực cầu chiếm ưu thế")

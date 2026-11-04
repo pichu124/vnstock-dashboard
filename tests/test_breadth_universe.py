@@ -428,3 +428,14 @@ def test_market_tab_ma200_card_uses_universe_denominator():
     from pathlib import Path
     src = (Path(__file__).resolve().parent.parent / "dashboard" / "market_tab.py").read_text(encoding="utf-8")
     assert 'breadth.get("breadth_n") or breadth["total"]' in src
+
+
+def test_market_commentary_breadth_line_names_the_universe():
+    """Bật investable mà commentary vẫn in "X% mã trên MA200" trần ⇒ đọc như số cũ (review 04/11)."""
+    from dashboard.market_commentary import breadth_lines
+    base = {"above_ma200_pct": 30.0, "ad_ratio": 1.0, "rsi_oversold": 10, "rsi_overbought": 5,
+            "net_new_highs": 0}
+    old = "\n".join(breadth_lines(base))
+    assert "30% mã trên MA200 —" in old                                   # tập all: chữ y nguyên
+    inv = "\n".join(breadth_lines({**base, "breadth_universe": "investable", "breadth_n": 269}))
+    assert "30% mã trên MA200 (269 mã thanh khoản) —" in inv

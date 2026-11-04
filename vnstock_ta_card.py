@@ -230,7 +230,7 @@ def find_conflicts(card: Mapping) -> list[str]:
     """Tín hiệu lệch nhau, đúng thứ tự cố định:
       - hôm nay đóng cửa vượt lên MA20 (hôm qua ≤ MA20) mà KL < 1,2× TB20;
       - ngắn hạn TĂNG mà trung hạn GIẢM (và ngược lại);
-      - RSI đà mạnh (≥70) mà giá dưới SMA200;
+      - RSI đà mạnh (>70) mà giá dưới SMA200;
       - MACD mới cắt lên (≤3 phiên) mà giá dưới MA20; mới cắt xuống mà giá trên MA20.
     Thiếu dữ kiện của luật nào ⇒ luật đó không phát."""
     sh, md, lg = card.get("short") or {}, card.get("medium") or {}, card.get("long") or {}
