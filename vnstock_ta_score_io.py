@@ -58,12 +58,13 @@ def load_briefs(db_path: Path) -> list[dict]:
 
 
 def dedupe_briefs(briefs: list[dict]) -> list[dict]:
-    """Một bản cho mỗi (loại, phiên, agent): chạy lại cùng phiên chỉ giữ bản ĐÃ GỬI,
-    không có thì bản tạo sau cùng — chạy tay nhiều lần không được nhân phiếu agent."""
+    """Một bản cho mỗi (loại, phiên, agent): chạy lại cùng phiên chỉ giữ bản ĐÃ GỬI, rồi
+    bản KHÔNG lỗi, rồi bản tạo sau cùng — chạy tay nhiều lần không được nhân phiếu agent, và
+    bản chạy lại bị lỗi không chiếm chỗ bản hợp lệ cũ hơn (vết stance_track 15/07)."""
     best: dict = {}
     for b in briefs:
         k = (b.get("brief_type"), str(b.get("brief_date"))[:10], b.get("agent_name"))
-        rank = (bool(b.get("sent")), str(b.get("created_at") or ""))
+        rank = (bool(b.get("sent")), not b.get("error"), str(b.get("created_at") or ""))
         if k not in best or rank > best[k][0]:
             best[k] = (rank, b)
     return [v[1] for v in best.values()]

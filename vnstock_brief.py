@@ -4455,6 +4455,14 @@ def _agent_outcome_line(name: str, elapsed_s: float, text: str,
     return f"[brief] ⏱ {name}: {elapsed_s:,.0f}s · ❌ {(err or 'không rõ')[:160]}"
 
 
+def _ctx_for_agent(ctx_small: dict, pinned: dict, name: str) -> dict:
+    """ctx lưu cho MỘT agent: chỉ mang `stance_pinned` của chính nó."""
+    out = {k: v for k, v in ctx_small.items() if k != "stance_pinned"}
+    if name in pinned:
+        out["stance_pinned"] = pinned[name]
+    return out
+
+
 def generate_brief(
     brief_type: str = "morning",
     agents: list[BriefAgent] | None = None,
@@ -4673,12 +4681,20 @@ def generate_brief(
     # list when the model claims "Không có sự kiện đáng chú ý" despite the data,
     # and re-attach the land-bank context when a BĐS ticker is cited for weak
     # Op.CF without it.
+    # `stance_pinned` (enforce_stance_horizon ghi khi code đổi nhãn) phải là cờ CỦA TỪNG agent:
+    # ctx dùng chung ⇒ không xoá thì cờ agent trước lây sang agent sau + ctx lưu chung ⇒ sổ
+    # Stance tính cả phiên là "code" (PTKT 04/11). Xoá trước mỗi lượt, cất riêng.
+    pinned_by_agent: dict = {}
     for agent in available:
         text, _err = results.get(agent.name, ("", None))
         if text:
+            ctx.pop("stance_pinned", None)
             fixed = apply_brief_guards(text, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
+            if ctx.get("stance_pinned"):
+                pinned_by_agent[agent.name] = ctx["stance_pinned"]
+    ctx.pop("stance_pinned", None)
 
     # Defensive layer: scan each agent's output for hallucinated VNINDEX
     # numbers. Stored in results["_warnings"] so the UI can surface them.
@@ -4707,7 +4723,7 @@ def generate_brief(
                 prompt=prompt,
                 output=text,
                 error=err,
-                context=ctx_small,
+                context=_ctx_for_agent(ctx_small, pinned_by_agent, agent.name),
                 auto_score=score,
             )
             brief_ids[agent.name] = bid

@@ -252,3 +252,35 @@ def test_t3_table_prints_groups_paired_and_agent_date_range():
     assert "so cùng phiên" in t3 and f"{d[300]} → {d[329]}" in t3
     paired = t3.split("so cùng phiên")[1].split("brief")[0]
     assert "Gemini" in paired and "Groq" not in paired                # Groq không chung phiên
+
+
+# ── stance_pinned không lây giữa các agent (04/11) ─────────────────────────
+
+def test_stance_pinned_is_recorded_per_agent_not_shared():
+    """ctx dùng chung giữa các agent: agent bị code ép nhãn không được làm agent khác cùng
+    phiên bị sổ Stance tính là "code" (vnstock_stance_track._stance_source đọc cờ này)."""
+    import inspect
+
+    import vnstock_brief as vb
+
+    src = inspect.getsource(vb.generate_brief)
+    loop = src[src.index("pinned_by_agent: dict = {}"):src.index("validate_brief_factuality(")]
+    # xoá cờ TRƯỚC lượt guard của từng agent, cất riêng sau lượt, dọn sau vòng
+    assert loop.index('ctx.pop("stance_pinned", None)') < loop.index("apply_brief_guards(text, ctx)")
+    assert "pinned_by_agent[agent.name] = ctx[\"stance_pinned\"]" in loop
+    assert "_ctx_for_agent(ctx_small, pinned_by_agent, agent.name)" in src
+    pinned = {"A": {"agent": "TĂNG", "code": "GIẢM"}}
+    ctx_small = {"date": "2026-11-03", "stance_pinned": {"lây": 1}}
+    assert vb._ctx_for_agent(ctx_small, pinned, "A")["stance_pinned"] == pinned["A"]
+    assert "stance_pinned" not in vb._ctx_for_agent(ctx_small, pinned, "B")
+    assert ctx_small["stance_pinned"] == {"lây": 1}                 # không đổi dict gốc
+
+
+def test_dedupe_drops_errored_rerun_before_choosing():
+    """Bản chạy lại sau mà LỖI không được chiếm chỗ bản hợp lệ cũ hơn cùng (loại, phiên, agent)."""
+    import vnstock_ta_score_io as tio
+    good = {"id": 1, "brief_date": "2026-10-01", "brief_type": "afternoon", "agent_name": "A",
+            "created_at": "2026-10-01T18:30:00", "error": None, "sent": None, "output": "x"}
+    bad = {**good, "id": 2, "created_at": "2026-10-01T21:00:00", "error": "timeout"}
+    kept = tio.dedupe_briefs([good, bad])
+    assert [b["id"] for b in kept] == [1]
