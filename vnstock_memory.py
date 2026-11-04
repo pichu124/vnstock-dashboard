@@ -158,6 +158,11 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE strategies ADD COLUMN tier TEXT NOT NULL DEFAULT 'short'")
     # Indexes that depend on migrated columns
     c.execute("CREATE INDEX IF NOT EXISTS ix_strats_family ON strategies(family_id)")
+    # P0 PTKT (04/11): bản nào THẬT SỰ đi Telegram — một phiên có nhiều agent, chấm
+    # "bản đã gửi" cần cờ này. NULL = không biết (mọi brief trước khi có cột).
+    bcols = {row["name"] for row in c.execute("PRAGMA table_info(briefs)")}
+    if "sent" not in bcols:
+        c.execute("ALTER TABLE briefs ADD COLUMN sent INTEGER")
 
 
 def init_db() -> None:
@@ -194,6 +199,23 @@ def save_brief(
              auto_score),
         )
         return int(cur.lastrowid)
+
+
+def mark_sent(brief_id: Optional[int] = None, *, brief_date: Optional[str] = None,
+              brief_type: Optional[str] = None, agent_name: Optional[str] = None) -> int:
+    """Đánh dấu brief đã gửi Telegram (`sent=1`), theo id hoặc đủ bộ
+    (brief_date, brief_type, agent_name). Trả số dòng đã đổi."""
+    if brief_id is None and not (brief_date and brief_type and agent_name):
+        raise ValueError("mark_sent cần brief_id hoặc đủ brief_date + brief_type + agent_name")
+    init_db()
+    with _conn() as c:
+        if brief_id is not None:
+            cur = c.execute("UPDATE briefs SET sent=1 WHERE id=?", (int(brief_id),))
+        else:
+            cur = c.execute(
+                "UPDATE briefs SET sent=1 WHERE brief_date=? AND brief_type=? AND agent_name=?",
+                (brief_date, brief_type, agent_name))
+        return int(cur.rowcount)
 
 
 def update_rating(brief_id: int, rating: int, feedback: str = "") -> None:

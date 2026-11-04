@@ -1759,6 +1759,30 @@ def check_brief_watch() -> dict:
         "chặn không? Tắt sổ: VNSTOCK_BRIEF_WATCH=0")
 
 
+def check_ta_score() -> dict:
+    """Thước đo nhận định kỹ thuật (P0 PTKT) — Stance T+1 brief chiều so mốc ngây thơ.
+
+    Đọc `_meta/ta_score.json` (do `run.py ta-score` ghi, chạy tay). Dưới sàn mẫu
+    `vnstock_ta_score.MIN_SAMPLES` luôn **ok kèm n=…** như `brief_watch`; đủ mẫu mà thua
+    mốc "luôn trung tính"/"lặp chiều hôm qua" ⇒ warn. Luật ở `badge_verdict` (thuần)."""
+    name = "Thước đo nhận định kỹ thuật"
+    p = _META / "ta_score.json"
+    if not p.exists():
+        return _result("ta_score", name, "off", "chưa chạy `python run.py ta-score`")
+    try:
+        import vnstock_ta_score as _ts
+        score = json.loads(p.read_text(encoding="utf-8"))
+        status, msg = _ts.badge_verdict(score)
+    except Exception as e:
+        return _result("ta_score", name, "error",
+                       f"không đọc được ta_score.json ({type(e).__name__}: {e})", "")
+    when = str(score.get("computed_at") or "?")[:10]
+    fix = ("soi bảng `python run.py ta-score --show` (○): Stance thua mốc ngây thơ ⇒ nhận "
+           "định chưa thêm thông tin; đừng chỉnh prompt bằng mắt — xem §3 "
+           "docs/THIET-KE-PHAN-TICH-KY-THUAT.md") if status == "warn" else ""
+    return _result("ta_score", name, status, f"{msg} (tính {when})", fix)
+
+
 def check_exdiv_source() -> dict:
     """Bộ chặn cờ "phân phối" GIẢ có data để chặn không, hay đang chạy chay?
 
@@ -1940,7 +1964,7 @@ OFFLINE_CHECKS = [
     check_dir_shapes, check_unit_normalizations, check_kill_switches,
     check_basis_drift, check_ohlc_repairs, check_vn30_basket,
     check_autoheal_yield,
-    check_brief_watch,
+    check_brief_watch, check_ta_score,
     check_exdiv_source,
     check_pipeline_reach, check_brief_engine, check_news_alert,
     check_warehouse, check_market_overview, check_gtgd_coverage, check_screener_stale,

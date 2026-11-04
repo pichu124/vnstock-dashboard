@@ -853,6 +853,7 @@ def cmd_test(args) -> int:
             "tests/test_doctor_env_duplicates.py",  # khoá trùng .env (05/10)
             "tests/test_horizons.py",     # lõi brief 3 khung (P0, 05/10)
             "tests/test_horizons_state.py",  # brief 3 khung chạy bóng (P1a)
+            "tests/test_ta_score.py",     # thước đo nhận định kỹ thuật + cờ briefs.sent (P0 PTKT)
             "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
@@ -1054,6 +1055,18 @@ def cmd_horizons(args) -> int:
     if getattr(args, "force", False):
         cmd.append("--force")
     return 1 if _run(cmd) != 0 else 0
+
+
+def cmd_ta_score(args) -> int:
+    """Thước đo nhận định kỹ thuật (P0 PTKT, docs/THIET-KE-PHAN-TICH-KY-THUAT.md §14a):
+    chấm S1/R1, trigger, Stance, trạng thái horizons, S/R từng mã từ brief_memory.db +
+    kho giá ⇒ `_meta/ta_score.json` + bảng. Chạy tay (○, ngoài giờ pipeline); KHÔNG nằm
+    trong `all`. `--show` in bản đã ghi; `--backfill` dựng lại ngắn hạn horizons toàn
+    lịch sử (đọc mọi mã)."""
+    import vnstock_ta_score_io as _io
+    argv = ["--warehouse", str(REPO_ROOT / getattr(args, "warehouse", "data_warehouse"))]
+    argv += [f for f in ("--show", "--backfill") if getattr(args, f[2:], False)]
+    return _io.main(argv)
 
 
 def cmd_mcp_enrich(args) -> int:
@@ -1265,6 +1278,7 @@ def cmd_telegram(args) -> int:
             _write_close_marker(args, engine=engine,
                                 agent=getattr(args, "brief_agent", None),
                                 note=getattr(args, "claude_error", None))
+            _mark_brief_sent(args)
         elif action == "screener":
             resp = _tg.push_screener_alerts()
             print(f"[telegram] screener sent — message_id={resp.get('result',{}).get('message_id')}")
@@ -1635,7 +1649,25 @@ def cmd_brief(args) -> int:
     _write_close_marker(args, engine=engine,
                         agent=getattr(args, "brief_agent", None),
                         note=getattr(args, "claude_error", None))
+    _mark_brief_sent(args)
     return 0
+
+
+def _mark_brief_sent(args) -> None:
+    """Đánh dấu `briefs.sent` cho bản vừa gửi (`args.brief_id`, do `_send_close_brief`
+    gắn) — thước đo P0 PTKT chấm riêng "bản đã gửi". Gọi SAU khi gửi + ghi marker;
+    lỗi ghi sổ chỉ in cảnh báo, không bao giờ chặn đường gửi. Sổ chưa có ⇒ bỏ (không
+    để sqlite đẻ DB rỗng)."""
+    bid = getattr(args, "brief_id", None)
+    if not bid:
+        return
+    try:
+        import vnstock_memory as _mem
+        if Path(_mem.DB_PATH).exists():
+            _mem.mark_sent(int(bid))
+    except Exception as e:
+        print(f"[brief] ⚠️ không ghi được cờ đã gửi cho brief #{bid}: "
+              f"{type(e).__name__}: {str(e)[:120]}")
 
 
 def _brief_engine(args) -> str:
@@ -1663,6 +1695,7 @@ def _send_close_brief(args) -> "tuple[dict, str]":
         print("[brief] ↩ rơi về ladder agent free")
     resp = _tg.push_close_brief()
     args.brief_agent = getattr(_tg, "LAST_BRIEF_AGENT", None)
+    args.brief_id = getattr(_tg, "LAST_BRIEF_ID", None)
     return resp, "ladder"
 
 
@@ -1699,6 +1732,7 @@ def _close_brief_via_claude(args) -> "dict | None":
         return None
     _bp.write_final(fin["text"], wh)              # gửi lại bằng --from-file nếu Telegram lỗi
     args.brief_agent = label
+    args.brief_id = fin.get("brief_id")
     return _tg.push_close_brief(ai_block=fin["text"], engine=label)
 
 
@@ -1723,6 +1757,7 @@ def _close_brief_from_file(args, path: str) -> "tuple[dict, str]":
     if not fin.get("text"):
         raise RuntimeError(f"file {path} không có thân brief sau guard")
     args.brief_agent = _bp.engine_label(model) + " (file)"
+    args.brief_id = fin.get("brief_id")
     return _tg.push_close_brief(ai_block=fin["text"],
                                 engine=_bp.engine_label(model)), "claude-file"
 
@@ -2201,6 +2236,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("weekend",
                    help="Gộp 3 việc cuối tuần: rates-weekly → vietstock corp "
                         "actions → fundamentals --force (task 09:00 T7)")
+    tsp = sub.add_parser("ta-score",
+                         help="Thước đo nhận định kỹ thuật (P0 PTKT): chấm lịch sử brief + "
+                              "kho giá ⇒ _meta/ta_score.json (--show / --backfill)")
+    tsp.add_argument("--show", action="store_true", help="in bảng đã ghi, không chấm lại")
+    tsp.add_argument("--backfill", action="store_true",
+                     help="dựng lại ngắn hạn horizons toàn lịch sử (đọc mọi mã, chậm)")
     sub.add_parser("allocation",
                    help="Refresh asset-allocation band B0-B4 + scorecard")
     sub.add_parser("gold",
@@ -2362,6 +2403,7 @@ _DISPATCH = {
     "gold": cmd_gold,
     "horizons": cmd_horizons,
     "mcp-enrich": cmd_mcp_enrich,
+    "ta-score": cmd_ta_score,
     "assets": cmd_assets,
     "assets-mcp": cmd_assets_mcp,
     "futures-foreign": cmd_futures_foreign,

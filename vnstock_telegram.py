@@ -329,6 +329,8 @@ def _regime_block() -> str:
 # Telegram in `🤖 <agent>` cho MỌI bản, không chỉ bản Claude (giám khảo 30/09:
 # người đọc phải biết ai viết, kể cả đêm rơi về ladder).
 LAST_BRIEF_AGENT: "str | None" = None
+# id dòng `briefs` của bản vừa chọn — `run.py` đánh dấu `sent` sau khi gửi xong (P0 PTKT).
+LAST_BRIEF_ID: "int | None" = None
 _FALLBACK_PREFIX_RE = re.compile(r"^_\(fallback:\s*([^)]+)\)_$")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 
@@ -361,8 +363,8 @@ def _snippet_from_text(text: str) -> str:
 
 def _brief_snippet(brief_type: str) -> str:
     """Return first meaningful paragraph (~350 chars) from the best agent brief."""
-    global LAST_BRIEF_AGENT
-    LAST_BRIEF_AGENT = None
+    global LAST_BRIEF_AGENT, LAST_BRIEF_ID
+    LAST_BRIEF_AGENT = LAST_BRIEF_ID = None
     try:
         from vnstock_brief import generate_brief
         results = generate_brief(brief_type=brief_type, force=True)
@@ -374,6 +376,7 @@ def _brief_snippet(brief_type: str) -> str:
                 continue
             fb = _fallback_model_of(text)
             LAST_BRIEF_AGENT = f"{key} (fallback: {fb})" if fb else key
+            LAST_BRIEF_ID = (results.get("_brief_ids") or {}).get(key)
             return _snippet_from_text(text)
         # Check sentinel keys (timing / no-agent / no-available)
         for _sentinel in ("_timing", "_no_agent", "_no_available"):
