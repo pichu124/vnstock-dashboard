@@ -191,6 +191,7 @@ def test_eval_series_scores_with_ta_score_rules(esm):
     assert row["support"]["that"]["pierced"] == 1            # đóng cửa 89 < 95×0,995
     assert row["trigger_support"]["that"] == ts.rate(1, 1)   # thủng 95 ở 94 ⇒ chạm 90
     assert row["trigger_support"]["gia"]["n"] == ts.FAKE_PER_LEVEL
+    assert row["trigger_support"]["gia_cung_pct"]["n"] == ts.FAKE_PER_LEVEL
     assert row["resistance"]["phu"] == 0.0
     assert s["first_half"]["fixed"]["mau"] == 1 and s["second_half"]["fixed"]["mau"] == 0
 
@@ -226,6 +227,125 @@ def test_main_on_fake_warehouse(esm, tmp_path, capsys):
     assert rn["gia"]["n"] == 5 * rn["that"]["n"]
     text = capsys.readouterr().out
     assert "CHỒNG CỬA SỔ" in text and "CÙNG mã" not in text and "Thủng S1 ⇒ chạm S2" in text and "touch_cluster" in text
+
+
+# ── Mốc khớp biến động (vết review 04/11) ────────────────────────────────────
+
+def test_vol_matched_equals_same_pct_when_atr_constant(esm):
+    """ATR% hằng 2% ⇒ 1,5 bội ATR = 3% ở mọi ngày: cùng seed phải bốc đúng ngày và ra đúng
+    kết cục như mốc P0 cùng %."""
+    df = _noisy(300, seed=5)
+    ap = np.full(len(df), 2.0)
+    for side in ("support", "resistance"):
+        got = esm.vol_matched_level_outcomes(df, 1.5, side, ap, seed=77, exclude=[250])
+        assert got == ts.fake_level_outcomes(df, 3.0, side, seed=77, exclude=[250])
+        assert len(got) == ts.FAKE_PER_LEVEL
+        for mult in (1.5, -0.5):                      # âm = phiên trigger đã qua mức 2
+            got = esm.vol_matched_trigger_outcomes(df, mult, side, ap, seed=78,
+                                                   exclude={10, 250})
+            assert got == ts.fake_trigger_outcomes(df, 2.0 * mult, side, seed=78,
+                                                   exclude={10, 250})
+
+
+def _flat_dips(n: int = 12) -> pd.DataFrame:
+    """Đóng cửa 100 mỗi phiên, râu 97–103 ⇒ mức trong ±3% luôn chạm, không bao giờ xuyên."""
+    return pd.DataFrame({"time": pd.bdate_range("2024-01-02", periods=n), "open": 100.0,
+                         "high": 103.0, "low": 97.0, "close": 100.0, "volume": 1e5})
+
+
+def test_vol_matched_distance_scales_with_atr_of_fake_day(esm):
+    df = _flat_dips()                                 # 12 bar, horizon 5 ⇒ ngày 0..6 bốc được
+    ap = np.array([np.nan, 1.0, 1.0, 1.0, 4.0, 4.0, 4.0] + [4.0] * 5)
+    # 1,5 bội: ATR% 1 ⇒ mức 98,5 / 101,5 (chạm, giữ); ATR% 4 ⇒ 94 / 106 (không chạm); ngày 0
+    # chưa có ATR ⇒ không bốc
+    want = [ts.HELD] * 3 + [ts.UNTOUCHED] * 3
+    for side in ("support", "resistance"):
+        assert esm.vol_matched_level_outcomes(df, 1.5, side, ap, k=50) == want
+        assert esm.vol_matched_trigger_outcomes(df, 1.5, side, ap, k=50) == [True] * 3 + [False] * 3
+        # mốc cùng % 1,5% chạm ở MỌI ngày — chính chỗ bias
+        assert ts.fake_level_outcomes(df, 1.5, side, k=50) == [ts.HELD] * 7
+    assert esm.vol_matched_level_outcomes(df, 1.5, "support", ap, k=50, exclude=[1, 4]) == \
+        [ts.HELD] * 2 + [ts.UNTOUCHED] * 2
+    assert esm.vol_matched_level_outcomes(df, 0.0, "support", ap) == []
+    assert esm.vol_matched_trigger_outcomes(df, float("nan"), "support", ap) == []
+
+
+def test_summarize_controls_against_atr_band(esm, capsys):
+    acc = esm.new_acc(["x", "atr_band"])
+    cell = acc["all"]
+    for m, real, vol, same in (("atr_band", (6, 4), (5, 5), (3, 7)),
+                               ("x", (8, 2), (5, 5), (2, 8))):
+        c = cell[m]
+        c["n"] = 10
+        c["support"]["has"] = 10
+        c["support"]["real"].update({ts.HELD: real[0], ts.PIERCED: real[1]})
+        c["support"]["fake_vol"].update({ts.HELD: vol[0], ts.PIERCED: vol[1]})
+        c["support"]["fake"].update({ts.HELD: same[0], ts.PIERCED: same[1]})
+    s = esm.summarize(acc)["all"]
+    assert s["atr_band"]["support"]["chenh_dpct"] == 10.0
+    assert s["atr_band"]["support"]["chenh_cung_pct"] == 30.0
+    assert s["atr_band"]["support"]["tru_atr_band"] == 0.0
+    assert s["x"]["support"]["chenh_dpct"] == 30.0
+    assert s["x"]["support"]["chenh_cung_pct"] == 60.0
+    assert s["x"]["support"]["tru_atr_band"] == 20.0
+    assert s["x"]["resistance"]["tru_atr_band"] is None      # chưa đo được ≠ 0
+    assert esm.summarize(esm.new_acc(["x"]))["all"]["x"]["support"]["tru_atr_band"] is None
+    text = esm.report("thử", esm.summarize(acc), {"mau": 10, "cat_nua": "2024-06-01"})
+    line = next(ln for ln in text.splitlines() if ln.strip().startswith("x "))
+    assert "+30.0 ·  +20.0 ‖" in line and line.rstrip().endswith("+60.0 · 100%")
+    assert "giả khớp ATR" in text and "giả cùng %" in text
+
+
+def _vol_regime_walk(rng, n: int) -> pd.DataFrame:
+    """Random walk KHÔNG drift (không có S/R thật), vol đổi chế độ 0,8% ↔ 3%/phiên mỗi 60 bar."""
+    reg = np.repeat(rng.choice([0.008, 0.03], size=n // 60 + 1), 60)[:n]
+    c = 50 * np.exp(np.cumsum(rng.standard_normal(n) * reg))
+    o = np.r_[c[0], c[:-1]]
+    hi = np.maximum(o, c) * (1 + np.abs(rng.standard_normal(n)) * reg * 0.5)
+    lo = np.minimum(o, c) * (1 - np.abs(rng.standard_normal(n)) * reg * 0.5)
+    return pd.DataFrame({"time": pd.bdate_range("2020-01-01", periods=n), "open": o, "high": hi,
+                         "low": lo, "close": c, "volume": rng.uniform(1e5, 1e6, n)})
+
+
+def test_vol_matched_baseline_removes_atr_bias_on_random_walk(esm):
+    """Vết review 04/11: mốc cùng % đặt mức giả sang ngày biến động KHÁC ⇒ trên random walk vol
+    cụm, atr_band (khoảng cách = 1,5·ATR(t)) "chạm thì giữ" CHÊNH ≈ +7–11 điểm %, trigger
+    ≈ −10–17 dù không có S/R nào. Mốc khớp biến động phải kéo MỌI phương pháp về ≈ 0.
+
+    Gộp S+R (null đối xứng, gấp đôi mẫu). Ngưỡng theo nhiễu: 12 chuỗi × 1.200 bar bước 5 ⇒
+    "chạm thì giữ" n ≈ 1.000–3.400/phương pháp (SE ≈ 0,9–1,5 điểm); round_number còn lệch âm
+    ~−1,5–2,7 có hệ thống (khoảng cách theo %, nhiễu ATR làm mốc khớp lệch ngược) ⇒ ngưỡng 3.
+    Trigger atr_band/volume_node chỉ ~260–400 sự kiện (SE ≈ 3) ⇒ ngưỡng 6."""
+    rng = np.random.default_rng(1)
+    acc = esm.new_acc(srm.METHODS)
+    for s in range(12):
+        df = _vol_regime_walk(rng, 1200)
+        esm.eval_series(df, esm.sample_positions(len(df), 5), srm.METHODS, acc,
+                        df["time"].iloc[600], seed=s, fake_k=5)
+
+    def hold(c, key):
+        x = ts.level_summary((c["support"][key] + c["resistance"][key]).elements())
+        return x["hold_if_touched"]["rate"] * 100
+
+    def trig(c, k, n):
+        return 100 * (sum(c[f"trigger_{s}"][k] for s in esm.SIDES)
+                      / sum(c[f"trigger_{s}"][n] for s in esm.SIDES))
+
+    vol, same = {}, {}
+    for m, c in acc["all"].items():
+        real_h, real_t = hold(c, "real"), trig(c, "k", "n")
+        vol[m] = (real_h - hold(c, "fake_vol"), real_t - trig(c, "vk", "vn"))
+        same[m] = (real_h - hold(c, "fake"), real_t - trig(c, "fk", "fn"))
+    for m, (h, t) in vol.items():
+        assert abs(h) <= 3.0, (m, "chạm thì giữ", round(h, 1))
+        assert abs(t) <= 6.0, (m, "trigger", round(t, 1))
+    # mốc cũ trên CÙNG dữ liệu: bias lớn — bỏ mốc mới thì các dòng trên đỏ
+    assert same["atr_band"][0] > 6.0 and same["atr_band"][1] < -8.0, same["atr_band"]
+
+
+def test_caveats_explain_vol_matched_baseline(esm):
+    text = "\n".join(esm.caveats(10))
+    assert "KHỚP BIẾN ĐỘNG" in text and "số bội ATR" in text and "−atr_band" in text
 
 
 def test_caveats_flag_same_ticker_overlap_only_below_trigger_span(esm):
