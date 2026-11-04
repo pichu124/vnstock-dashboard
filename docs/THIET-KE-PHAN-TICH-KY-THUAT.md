@@ -347,3 +347,19 @@ Hệ quả cho P2:
 2. Thông điệp đáng tin duy nhất đo được: đóng cửa thủng S1 ⇒ nguy cơ về S2 cao (91% vs 69%) ⇒ thẻ kỹ thuật in rõ khi giá đã thủng hỗ trợ.
 3. Chấm "model nào giỏi Stance" không còn ý nghĩa từ 14/10 (nhãn do code); đòn bẩy là luật code + dữ kiện thẻ, không phải đổi model.
 4. Phát sinh đã sửa: cờ `stance_pinned` lây giữa agent (sửa `a5557da`, dữ liệu cũ không sửa ngược được); brief sáng nhãn "**Bias:**" không đọc được (`5bdaec7`).
+
+## 16. P1 đợt 2 — chốt 04/11 (sau `compare_indicator_formulas.py --breadth-diag` trên kho thật)
+
+**RSI:** Wilder, GIỮ ngưỡng 30/70/40 (ngưỡng chỉnh theo phân vị đo ra TỆ hơn). Lợi suất vượt VN-Index T+20, mã
+GTGD ≥1 tỷ: quá bán Cutler30 −0,11% · Wilder30 −0,21% · Wilder35 −0,36% vs nền −0,97%; reversal Cutler40 −0,47 ·
+Wilder40 −0,81 · Wilder42,2 −0,91. Không công thức nào hơn hẳn ⇒ chọn chuẩn ngành (khớp app môi giới). "MA200" = SMA200.
+Công tắc quay lại `VNSTOCK_INDICATOR_LEGACY=1`.
+
+**RSI > 70 không phải tín hiệu cảnh báo** (giai đoạn 05–10/2026): mã RSI Wilder >70 vượt VN-Index +1,75% T+20
+(nền −0,97%). User chọn (a): thẻ kỹ thuật P2 viết "RSI cao — đà mạnh", bỏ hàm ý cảnh báo, kèm ghi chú số đo một giai đoạn.
+
+**Độ rộng — mẫu số** (trung vị % trên SMA200): runner hiện tại 11,2% (1.407 mã: ~635 mã < 200 bar + ~282 mã
+đứng giá/phiên bị tính "dưới") · bỏ mã đứng 13,5% · ≥200 bar 21,2% · ≥200 bar + GTGD ≥1 tỷ **30%** (269 mã) ·
+HOSE 19,9% · VN30 36,7%. User chọn (a): **tập mã đầu tư được** (≥200 bar trong 400 ngày + GTGD TB20 ≥1 tỷ + bar cuối
+không trễ >5 phiên) cho CẢ số in trong brief LẪN phiếu regime — sau công tắc, mặc định TẮT tới khi chạy lại lịch sử:
+số phiên trạng thái ngắn hạn/Stance đổi + T4 `ta-score` cũ vs mới ⇒ user xem số ⇒ bật.
