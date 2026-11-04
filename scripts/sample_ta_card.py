@@ -83,9 +83,7 @@ def build(prices: Path, until: date | None, top: int) -> list[str]:
     for tk in ranked:
         df = tickers[tk]
         card = tc.ta_card(df, sr=prior_sr(df), label=tk)
-        stale = (f" [bar cuối {card['as_of']}]"
-                 if idx_card["as_of"] and card["as_of"] != idx_card["as_of"] else "")
-        out.append(f"- {tc.card_line(card)}{stale}")
+        out.append(f"- {tc.card_line(card, market_as_of=idx_card['as_of'])}")
     missing = sorted(tk for tk, df in tickers.items() if df.empty)
     if missing:
         out.append(f"(không có dữ liệu trong kho: {', '.join(missing)})")

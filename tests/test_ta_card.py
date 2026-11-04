@@ -358,7 +358,8 @@ def test_index_lines_long_frame_is_context_without_label():
     long_line = next(ln for ln in lines if ln.startswith("- Dài hạn"))
     assert long_line.startswith("- Dài hạn (bối cảnh): trên SMA200 +")
     assert not any(w in long_line for w in (tc.DIR_UP, tc.DIR_FLAT, tc.DIR_DOWN))
-    assert lines[1].startswith(f"- Ngắn hạn: {tc.DIR_UP} — trên MA20 +")
+    # "Xu hướng MA20" (không "Ngắn hạn" — brief VN-Index đã có "Ngắn hạn" của 3 khung, bản mẫu 04/11)
+    assert lines[1].startswith(f"- Xu hướng MA20: {tc.DIR_UP} — trên MA20 +")
     assert lines[2].startswith(f"- Trung hạn: {tc.DIR_UP} — đóng tuần ")
 
 
@@ -367,7 +368,7 @@ def test_ticker_line_carries_three_labels_and_no_warning_words():
     line = tc.card_line(card)
     assert line.startswith(f"FPT {card['close']:,.2f}: ngắn {tc.DIR_UP} · tuần {tc.DIR_UP} · "
                            f"dài {tc.DIR_UP} (SMA200 +")
-    assert f"RSI {card['short']['rsi']:,.2f} đà mạnh" in line
+    assert f"RSI {card['short']['rsi']:.1f} đà mạnh" in line          # RSI 1 chữ số thập phân
     assert "quá mua" not in line and "cảnh báo" not in line
     assert "\n" not in line
 
@@ -403,3 +404,25 @@ def test_sample_script_reads_warehouse_and_cuts_at_date(tmp_path, capsys):
     assert [ln.split()[1] for ln in ticker_lines] == ["VCB", "HPG"]
     assert "không có dữ liệu trong kho:" in out and "FPT" not in out.split("không có")[1]
     assert sorted(p for p in tmp_path.rglob("*")) == before          # chỉ đọc
+
+
+# ── Sau bản mẫu kho thật 04/11 ──────────────────────────────────────────
+
+def test_level_already_crossed_reads_as_crossed_not_negative_atr():
+    """VN-Index đóng 1.733 trên R1 1.709 (mức công bố trước phiên) từng in "R1 (-0.92 ATR)"."""
+    lv = {"support_1": 95.0, "resistance_1": 99.0, "s1_atr": 1.5, "r1_atr": -0.92}
+    assert tc._level_txt(lv) == "S1 95.00 (1.50 ATR) · đã vượt R1 99.00 (0.92 ATR)"
+    lv = {"support_1": 101.0, "s1_atr": -0.4}
+    assert tc._level_txt(lv) == "đã thủng S1 101.00 (0.40 ATR)"
+    assert "-" not in tc._level_txt({"support_1": 95.0, "resistance_1": 99.0,
+                                     "s1_atr": -1.0, "r1_atr": -2.0})
+
+
+def test_ticker_line_flags_stale_data_against_market_session():
+    """TCB đứng 28/10 (GDKHQ chưa rebase) mà vẫn in như phiên hôm nay (bản mẫu 04/11)."""
+    card = tc.ta_card(_bars(_trend(320, 0.3)), label="TCB")
+    later = "2999-01-01"
+    assert tc.card_line(card, market_as_of=later).startswith(
+        f"⚠️ TCB (dữ liệu dừng từ {card['as_of']}, số dưới đây là của phiên đó)")
+    assert tc.card_line(card, market_as_of=card["as_of"]).startswith("TCB ")
+    assert tc.card_line(card).startswith("TCB ")

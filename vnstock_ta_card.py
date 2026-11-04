@@ -298,7 +298,7 @@ def _side(close: float | None, ma: float | None, name: str) -> str:
 
 
 def _rsi_txt(sh: Mapping) -> str:
-    return f"RSI {_f(sh['rsi'])} {sh['rsi_label']}" if sh.get("rsi") is not None \
+    return f"RSI {sh['rsi']:.1f} {sh['rsi_label']}" if sh.get("rsi") is not None \
         else f"RSI {NO_DATA}"
 
 
@@ -323,7 +323,9 @@ def _short_line(card: Mapping) -> str:
     head = sh.get("label") or NO_DATA
     slope = (f" (MA20 dốc {_sp(sh['ma20_slope_pct'])}/{SHORT_SLOPE_BARS} phiên)"
              if sh.get("ma20_slope_pct") is not None else "")
-    return (f"Ngắn hạn: {head} — {_side(card['close'], sh.get('ma20'), 'MA20')}{slope} · "
+    # "Xu hướng MA20", KHÔNG "Ngắn hạn": brief VN-Index đã có "Ngắn hạn: nhịp hồi/chưa rõ/nhịp
+    # chỉnh" của 3 khung (khái niệm khác) — hai chữ "Ngắn hạn" cạnh nhau là đọc lẫn.
+    return (f"Xu hướng MA20: {head} — {_side(card['close'], sh.get('ma20'), 'MA20')}{slope} · "
             f"{_rsi_txt(sh)} · {_macd_txt(sh)} · {_vol_txt(sh)}")
 
 
@@ -345,11 +347,19 @@ def _long_facts(card: Mapping) -> str:
 
 
 def _level_txt(lv: Mapping) -> str:
+    """S1/R1 kèm khoảng cách theo bội ATR. Mức công bố TRƯỚC phiên mà giá đã đi qua (bản mẫu
+    04/11: VN-Index đóng 1.733 trên R1 1.709 in thành "R1 (-0.92 ATR)") ⇒ ghi "đã vượt"/"đã
+    thủng" + bội ATR dương, không in khoảng cách âm khó đọc."""
     parts = []
-    for key, atr_key, name in (("support_1", "s1_atr", "S1"), ("resistance_1", "r1_atr", "R1")):
-        if lv.get(key) is not None:
-            dist = f" ({_f(lv[atr_key])} ATR)" if lv.get(atr_key) is not None else ""
-            parts.append(f"{name} {_f(lv[key])}{dist}")
+    for key, atr_key, name, past in (("support_1", "s1_atr", "S1", "đã thủng"),
+                                     ("resistance_1", "r1_atr", "R1", "đã vượt")):
+        if lv.get(key) is None:
+            continue
+        d = lv.get(atr_key)
+        if d is not None and d < 0:
+            parts.append(f"{past} {name} {_f(lv[key])} ({_f(-d)} ATR)")
+        else:
+            parts.append(f"{name} {_f(lv[key])}" + (f" ({_f(d)} ATR)" if d is not None else ""))
     return " · ".join(parts)
 
 
@@ -383,12 +393,18 @@ def card_lines(card: Mapping) -> list[str]:
     return lines
 
 
-def card_line(card: Mapping) -> str:
+def card_line(card: Mapping, market_as_of: str | None = None) -> str:
     """Một dòng nén cho từng mã: nhãn 3 khung (dài hạn kèm % cách SMA200) · RSI · KL · S1/R1
-    theo bội ATR · thủng hỗ trợ · tín hiệu lệch nhau."""
+    theo bội ATR · thủng hỗ trợ · tín hiệu lệch nhau.
+
+    `market_as_of` = phiên của thị trường (bar cuối VN-Index). Bar cuối của mã CŨ hơn ⇒ đầu dòng
+    cảnh báo dữ liệu dừng (bản mẫu 04/11: TCB đứng 28/10 vì GDKHQ chưa rebase mà vẫn in như
+    thường)."""
     name = card.get("label") or "?"
     if card.get("close") is None:
         return f"{name}: {NO_DATA}"
+    if market_as_of and card.get("as_of") and str(card["as_of"]) < str(market_as_of):
+        name = f"⚠️ {name} (dữ liệu dừng từ {card['as_of']}, số dưới đây là của phiên đó)"
     sh, md, lg = card["short"], card["medium"], card["long"]
     long_txt = lg.get("label") or NO_DATA
     if lg.get("sma200_dist_pct") is not None:
