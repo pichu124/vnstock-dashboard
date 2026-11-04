@@ -1,6 +1,6 @@
 # THIẾT KẾ — Nâng chất lượng nhận định phân tích kỹ thuật của bot
 
-> Trạng thái: **KẾ HOẠCH — user trả lời §8 ngày 04/11, chờ 4 câu ở §11** trước khi code. Chưa có dòng code nào.
+> Trạng thái: **KẾ HOẠCH — user trả lời §8 và §11 ngày 04/11, chờ 3 câu ở §13** trước khi code. Chưa có dòng code nào.
 > Phạm vi (chốt 04/11): brief sáng/chiều (Telegram) + các mã brief nhắc tới **và** chữ AI ở tab Phân tích mã.
 
 ## 1. Vấn đề — đo từ code, không phải cảm giác
@@ -252,3 +252,40 @@ lại. Cách tốt nhất là chia việc theo đúng sở trường đó:
    free như bây giờ?
 4. **Thông số thật từ kho** (○ máy nào cũng được, ngoài giờ pipeline) — chạy và dán kết quả để tôi chốt cỡ mẫu P0:
    `python -c "import sqlite3;c=sqlite3.connect('data_warehouse/_meta/brief_memory.db');print(c.execute('select brief_type,count(*),min(brief_date),max(brief_date) from briefs group by brief_type').fetchall())"`
+
+## 12. Chốt lần 2 (04/11)
+
+| Câu §11 | Trả lời | Hệ quả |
+|---|---|---|
+| 1 Dài hạn kỹ thuật | (b) | Mỗi mã có nhãn dài hạn kỹ thuật riêng (TĂNG / ĐI NGANG / GIẢM — từ vựng giá, KHÔNG dùng THUẬN/BẤT LỢI của vĩ mô để khỏi nhầm). VN-Index: nhãn dài hạn vẫn do 5 trụ vĩ mô; dòng MA200/52 tuần chỉ là bối cảnh |
+| 2 Khớp lệnh | Khuyến nghị ra sau phiên ⇒ (i) phiên này đã chạm trigger thì mua giá **mở cửa phiên sau**; (ii) chưa chạm thì mua **lúc giá chạm trigger** ở phiên sau. Phí 0,15%/chiều + 0,1% thuế bán, **có T+2,5** | Bộ chấm setup — chi tiết + mặc định ở §13 |
+| 3 Engine tab Phân tích mã | Claude | `analyze_ticker` qua `vnstock_claude_cli.complete`, ladder chỉ là đường rơi khi Claude lỗi; cache theo (mã, ngày dữ liệu) ⇒ bấm lại cùng ngày không tốn thêm lượt |
+| 4 Số liệu kho | afternoon 729 bản 28/04 → 03/11 · morning 200 bản 28/04 → 05/10 · allocation 12 | Xem dưới |
+
+**Đọc số liệu kho:**
+- Brief chiều ~130 phiên nhưng 729 bản ⇒ **nhiều agent mỗi phiên** (ladder + Claude). P0 chấm theo từng agent (như bảng xếp hạng
+  hiện có) VÀ riêng "bản đã gửi Telegram". Hiện `briefs` không có cờ "đã gửi" ⇒ P0 thêm cột `sent` từ nay; quá khứ suy theo
+  `agent_type=claude` / marker khi xác định được, không suy được thì chỉ chấm theo agent.
+- Brief sáng dừng lưu từ 05/10 là ĐÚNG (U11: brief sáng chỉ đọc lại state, chạy tay) ⇒ P0 chấm ngắn hạn chủ yếu trên brief chiều.
+- ~130 phiên đủ chấm ngắn hạn T+1/T+5 (tỉ lệ có khoảng tin cậy ~±9 điểm). Trung hạn (T+20/T+60) và dài hạn (T+120/T+250)
+  **không đủ** từ lịch sử brief ⇒ chỉ chấm bằng backtest luật trên kho giá 2017 → nay (đúng như §10c).
+
+## 13. Câu còn mở (04/11, lần 3 — chặn trước khi code)
+
+1. **Luật chấm setup — xác nhận các mặc định** (mua = phiên T):
+
+   | Điểm | Mặc định đề xuất |
+   |---|---|
+   | Chưa chạm trigger thì setup còn hiệu lực | ngắn hạn 3 phiên · trung hạn 10 · dài hạn 20. Hết hạn chưa chạm = "không vào lệnh": không tính thắng/thua, nhưng đếm vào tỉ lệ khớp |
+   | Mở cửa nhảy vượt trigger | mua giá mở cửa (xấu hơn trigger) |
+   | Mở cửa ở giá trần | coi như không mua được |
+   | T+2,5 | bán sớm nhất ở phiên T+2. Đã thủng cắt lỗ trước đó ⇒ bán giá mở cửa T+2 |
+   | Một phiên chạm cả chốt lời lẫn cắt lỗ | tính cắt lỗ (thận trọng) |
+   | Giữ tối đa, chưa chạm chốt lời/cắt lỗ | ngắn hạn 10 phiên · trung hạn 60 · dài hạn 250 ⇒ bán giá đóng cửa ngày hết hạn |
+   | Kết quả | % mỗi lệnh sau phí/thuế, mỗi setup một phần bằng nhau; so với mua-giữ VN-Index cùng thời gian |
+
+2. **Chi phí chạy bóng:** ≥10 phiên chạy song song bản cũ + bản mới ⇒ thêm khoảng một lượt Claude mỗi tối trong pipeline
+   18:00 (thêm vài phút, chi phí cỡ một brief chiều — số thật xem `python vnstock_llm_ledger.py --show`). Tab Phân tích mã: một lượt
+   mỗi (mã, ngày) khi bấm. Đồng ý?
+3. **Thứ tự:** làm đo (P0) + sửa nền (P1) trước — mấy ngày công đầu brief CHƯA đổi gì thấy được, chỉ có bảng số chấm điểm.
+   Rồi mới tới thẻ kỹ thuật (P2) chạy bóng. Đồng ý, hay muốn thấy thẻ kỹ thuật sớm hơn (P2 làm song song P0)?
