@@ -26,11 +26,12 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
-## 📈 Nâng nhận định phân tích kỹ thuật — KẾ HOẠCH 04/11 · CHỜ USER TRẢ LỜI 5 CÂU (`docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §8)
+## 📈 Nâng nhận định phân tích kỹ thuật — KẾ HOẠCH 04/11 · ĐÃ TRẢ LỜI 5 CÂU, CHỜ 4 CÂU §11 (`docs/THIET-KE-PHAN-TICH-KY-THUAT.md`)
 
 - Đo trước (P0: S/R, trigger, Stance T+1/T+5 chấm lại từ lịch sử brief) → sửa nền RSI/MA200/xoay vòng ngành (P1) →
   thẻ kỹ thuật do code dựng (P2) → guard chữ kỹ thuật (P3) → học từ kết quả (P4).
-- Việc của bạn bây giờ: trả lời 5 câu ở §8. Chưa có lệnh nào phải chạy.
+- Việc của bạn bây giờ: trả lời 4 câu ở §11 (dài hạn kỹ thuật · cách khớp lệnh + phí · engine LLM tab Phân tích mã ·
+  dán kết quả 1 lệnh đếm lịch sử brief — ○ máy nào cũng được, ngoài giờ pipeline).
 
 ## 🎨 Thiết kế lại giao diện — P0→P5 CODE XONG 31/10 · CHỜ USER MERGE + SOI MẮT (`docs/THIET-KE-GIAO-DIEN.md`)
 

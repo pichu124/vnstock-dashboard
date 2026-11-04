@@ -1,8 +1,7 @@
 # THIẾT KẾ — Nâng chất lượng nhận định phân tích kỹ thuật của bot
 
-> Trạng thái: **KẾ HOẠCH, chờ user trả lời §8** (04/11). Chưa có dòng code nào.
-> Phạm vi: brief sáng/chiều (Telegram) + các mã brief nhắc tới; phân tích AI từng mã ở tab Phân tích mã
-> nếu user chọn ở §8 câu 1.
+> Trạng thái: **KẾ HOẠCH — user trả lời §8 ngày 04/11, chờ 4 câu ở §11** trước khi code. Chưa có dòng code nào.
+> Phạm vi (chốt 04/11): brief sáng/chiều (Telegram) + các mã brief nhắc tới **và** chữ AI ở tab Phân tích mã.
 
 ## 1. Vấn đề — đo từ code, không phải cảm giác
 
@@ -177,3 +176,79 @@ Thêm vào `_guards_numbers` / `_guards_text`, nối vào `apply_brief_guards`, 
 | Duyệt bản mẫu, bật `VNSTOCK_TA_CARD` | user | 🖥️ DESKTOP (máy chạy task Daily đọc `.env` của nó) |
 | P3, P4 | Claude | cloud |
 | So số P0 sau ~20 và ~60 phiên | user + Claude | ○ |
+
+## 10. Quyết định sau khi user trả lời (04/11)
+
+### 10a. User đã trả lời
+
+| Câu | Trả lời | Hệ quả |
+|---|---|---|
+| 1 Phạm vi | Cả hai | `analyze_ticker` (tab Phân tích mã) đọc **cùng** thẻ kỹ thuật + **cùng** bộ guard với brief — một nguồn, hai chỗ hiện |
+| 2 Công thức | Chọn cái tốt hơn, dùng thống nhất | Xem §10b |
+| 3 Khung | Cả 3 khung ngắn / trung / dài hạn, như thiết kế 3 khung | Thẻ và thước đo có đủ 3 khung — §10c |
+| 4 Ai viết "📈 Mức kỹ thuật" | Claude đề xuất cách tốt nhất | §10d |
+| 5 Thêm 1 dòng thẻ mỗi mã | Có | Mỗi mã 1 dòng nén, có 3 khung |
+
+### 10b. Công thức: chọn RSI Wilder + SMA200
+
+- **RSI Wilder** (trung bình trượt mũ, `ewm(alpha=1/14)`) là định nghĩa gốc của RSI và là số mà TradingView, bảng
+  giá SSI/Vietstock hiển thị. RSI trung bình đơn (Cutler) chỉ có ở repo này. Dùng Wilder thì số trên dashboard khớp số
+  bạn thấy ở app môi giới; dùng Cutler thì lệch tới vài điểm ở vùng 30/70.
+- **SMA200** cho độ rộng "% mã trên MA200": chỉ số độ rộng chuẩn tính bằng SMA200, và MA của VN-Index trong brief
+  cũng là SMA ⇒ một nghĩa cho chữ "MA200" ở mọi chỗ.
+- **Làm sao cho an toàn**: đổi công thức làm ngưỡng cũ lệch (preset dùng RSI, phiếu độ rộng 55%/35%, đếm RSI<30/>70).
+  Trước khi đổi: chạy cả hai công thức trên lịch sử giá, in số mã preset thay đổi và số phiên phiếu regime đổi chiều.
+  Ngưỡng nào đổi kết quả nhiều thì hiệu chỉnh lại theo phân vị, không giữ nguyên số cũ. Lịch sử độ rộng (mới có từ
+  06/2026) **tính lại từ kho giá** để chuỗi liền mạch.
+
+### 10c. Ba khung trong phân tích kỹ thuật
+
+| Khung | Dữ kiện kỹ thuật (thẻ) | Chấm đúng/sai sau | Mẫu để chấm |
+|---|---|---|---|
+| Ngắn hạn (vài phiên) | giá vs MA20, RSI, MACD, KL xác nhận, S1/R1, nến | T+1, T+5 | lịch sử brief (`brief_memory.db`) + backtest giá |
+| Trung hạn (xu hướng tuần) | đóng tuần vs MA10w/MA40w (như horizons), độ dốc MA50, S/R tuần | T+20, T+60 | **backtest trên kho giá 2017 → nay** (lịch sử brief quá ngắn) |
+| Dài hạn (6–12 tháng) | giá vs MA200 + độ dốc, vị trí 52 tuần, đóng tháng — xem §11 câu 1 | T+120, T+250 | chỉ backtest kho giá |
+
+Hệ quả cho P0: tách hai phần — **(A) chấm nhận định ĐÃ PHÁT** từ lịch sử brief (chủ yếu ngắn hạn) và **(B) backtest
+luật kỹ thuật** trên kho giá nhiều năm (trung/dài hạn, và cả ngắn hạn để có đủ mẫu).
+
+### 10d. Đề xuất cho câu 4 — "code nói dữ kiện, model nói ý nghĩa, guard giữ ranh giới"
+
+LLM giỏi tổng hợp và giải thích tín hiệu mâu thuẫn, nhưng hay sai số học, nhầm chiều và tự đặt số. Code thì ngược
+lại. Cách tốt nhất là chia việc theo đúng sở trường đó:
+
+1. **Code dựng khối "📈 Kỹ thuật"** (giống 🔭 và ⚠️ Rủi ro):
+   - mỗi khung một dòng cho VN-Index, nhãn cố định:
+     `Ngắn hạn: tăng — trên MA20, RSI 58 (mạnh), KL 1,3× TB20 xác nhận`;
+   - dòng mức giá: `S1 1.245 (0,9 ATR) · R1 1.288 (1,4 ATR)`;
+   - **dòng "tín hiệu lệch nhau"** do code phát hiện (vd. giá vượt MA20 nhưng KL không xác nhận; ngắn hạn tăng
+     ngược trung hạn giảm) — đây là chỗ nhận định có giá trị nhất, và code thấy được một cách chắc chắn.
+2. **Model viết tối đa 3 câu "Nhận định"**, theo khung bắt buộc:
+   - ý chính, dựa trên các khung và dòng lệch nhau;
+   - kịch bản 2 chiều, mỗi chiều kèm điều kiện: mức nào, khối lượng ra sao;
+   - điều gì sẽ làm nhận định sai (mức huỷ).
+3. **Guard giữ ranh giới:**
+   - câu nhận định có số không nằm trong thẻ ⇒ bỏ câu đó;
+   - chữ xu hướng ngược nhãn thẻ ⇒ sửa theo thẻ;
+   - kịch bản "vượt/thủng" thiếu điều kiện khối lượng ⇒ code chèn điều kiện của thẻ;
+   - model trả rỗng hoặc hỏng ⇒ khối vẫn đủ phần dữ kiện của code (không bao giờ trống).
+4. **Chọn bằng số, không bằng cảm giác:**
+   - chạy bóng song song bản cũ và bản mới ≥10 phiên (bản mới không gửi);
+   - so 3 thứ: độ đúng của kịch bản (P0), số lần guard phải sửa, sao bạn chấm ở `/brief-review`;
+   - bật bản mới khi không thua ở cả 3.
+5. **Tab Phân tích mã** dùng y hệt: thẻ 3 khung hiện thành ô có màu, nút AI cho ra 3 câu nhận định qua cùng guard.
+
+## 11. Câu còn mở (04/11, chặn trước khi code)
+
+1. **Dài hạn kỹ thuật có tính vào đâu?** Thiết kế 3 khung (§3.6) cố ý để dài hạn của VN-Index là 5 trụ **phi giá**
+   (vĩ mô, định giá…) và BỎ độ dốc MA200 vì đếm trùng với trung hạn. Với thẻ kỹ thuật thì chọn:
+   (a) dòng dài hạn chỉ là **bối cảnh** (MA200, 52 tuần) — không ra nhãn, nhãn dài hạn vẫn do vĩ mô quyết;
+   (b) có nhãn dài hạn kỹ thuật **riêng cho từng mã** (vĩ mô không áp được cho từng mã), VN-Index vẫn theo vĩ mô;
+   (c) có nhãn dài hạn kỹ thuật cho cả VN-Index, đặt cạnh nhãn vĩ mô.
+2. **Setup bạn có giao dịch theo không, và khớp lệnh kiểu nào?** Để chấm setup watchlist/khuyến nghị cho sát thật:
+   vào lệnh giả định ở giá mở cửa phiên sau hay chạm đúng mức trigger; tính phí + thuế bao nhiêu (mặc định đề xuất
+   0,15% mỗi chiều + 0,1% thuế bán); có tính T+2,5 (không bán được trước khi hàng về) không.
+3. **Chi phí LLM ở tab Phân tích mã**: mỗi lần bấm AI là một lượt gọi. Dùng engine Claude (như brief) hay ladder
+   free như bây giờ?
+4. **Thông số thật từ kho** (○ máy nào cũng được, ngoài giờ pipeline) — chạy và dán kết quả để tôi chốt cỡ mẫu P0:
+   `python -c "import sqlite3;c=sqlite3.connect('data_warehouse/_meta/brief_memory.db');print(c.execute('select brief_type,count(*),min(brief_date),max(brief_date) from briefs group by brief_type').fetchall())"`
