@@ -221,7 +221,8 @@ def test_trigger_breakout_hits_r2_with_volume_split():
     after = [(100, 101.5, 100, 101.2)] + [(101, 101.8, 101, 101.5)] * 2 \
         + [(101.5, 102.1, 101, 102)] + _flat(5, 102)
     r = ts.score_trigger(_trigger_bars(after), 20, 101, 102, "resistance")
-    assert r == {"triggered": True, "trigger_pos": 21, "hit": True, "volume": "confirmed"}
+    assert r == {"triggered": True, "trigger_pos": 21, "hit": True, "volume": "confirmed",
+                 "gap_pct": pytest.approx((102 / 101.2 - 1) * 100)}  # R2 cách đóng cửa trigger
     r = ts.score_trigger(_trigger_bars(after, vol_trigger=110), 20, 101, 102, "resistance")
     assert r["volume"] == "unconfirmed"
     nov = _trigger_bars(after).drop(columns="volume")

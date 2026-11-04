@@ -4,8 +4,10 @@
 nguyên văn), §14a. Lớp đọc kho + CLI ở `vnstock_ta_score_io.py` (`run.py ta-score`).
 
   T1  S1/R1 VN-Index có giữ không        `score_levels` + mốc mức giả `fake_level_outcomes`
-  T2  đóng cửa vượt R1 ⇒ chạm R2 (S đối xứng) `score_trigger`, tách khối lượng xác nhận
+  T2  đóng cửa vượt R1 ⇒ chạm R2 (S đối xứng) `score_trigger`, tách khối lượng xác nhận,
+      mốc cùng khoảng cách `fake_trigger_outcomes`
   T3  Stance theo MỘT quy tắc              `stance_outcome` / `summarize_stances`
+      (tách giai đoạn 3 khung × nguồn nhãn; so model cùng phiên `paired_by_agent`)
   T4  trạng thái horizons ⇒ lợi suất sau    `forward_returns_by_state`
   T5  S/R từng mã                          như T1, trên bar của mã
   Setup watchlist (vào / cắt lỗ / chốt lời) `grade_setup`
@@ -29,6 +31,8 @@ VOL_MULT = 1.2                 # T2: KL phiên ≥ 1,2× TB20 là có xác nhậ
 FAKE_PER_LEVEL = 20            # T1/T5: số mức giả cho mỗi mức thật
 SEED = 20261104                # mốc ngẫu nhiên cố định — chạy lại ra cùng số
 MIN_SAMPLES = 20               # badge doctor: dưới sàn luôn ok n=…
+MIN_EPISODES = 5               # T4: trạng thái ít đoạn hơn ⇒ "chưa kết luận"
+PERIOD_PRE, PERIOD_HZ = "trước 3 khung", "từ 3 khung"   # T3: giai đoạn luật Stance
 
 # §13.1: (hiệu lực khi chưa chạm trigger, giữ tối đa) theo phiên
 FRAMES = {"short": (3, 10), "medium": (10, 60), "long": (20, 250)}
@@ -152,8 +156,11 @@ def score_trigger(bars: pd.DataFrame, base_idx: int, level1: float, level2: floa
     trigger không; support: đóng cửa < S1 ⇒ chạm S2 (low ≤ S2). Phiên trigger đóng cửa
     đã qua luôn R2/S2 ⇒ tính là chạm.
 
-    Trả {triggered, trigger_pos, hit, volume}. `hit` None = chưa đủ phiên để chấm."""
-    out = {"triggered": False, "trigger_pos": None, "hit": None, "volume": None}
+    Trả {triggered, trigger_pos, hit, volume, gap_pct}. `hit` None = chưa đủ phiên để
+    chấm; `gap_pct` = mức 2 cách đóng cửa phiên trigger bao nhiêu % (dương = còn phải đi
+    tiếp) — khoảng cách cho mốc `fake_trigger_outcomes`."""
+    out = {"triggered": False, "trigger_pos": None, "hit": None, "volume": None,
+           "gap_pct": None}
     if not level1 or not level2 or len(bars) <= base_idx + horizon:
         return out
     c = bars["close"].to_numpy(dtype=float)
@@ -163,7 +170,8 @@ def score_trigger(bars: pd.DataFrame, base_idx: int, level1: float, level2: floa
             break
     else:
         return out
-    out.update(triggered=True, trigger_pos=t, volume=_volume_confirmed(bars, t, vol_mult))
+    out.update(triggered=True, trigger_pos=t, volume=_volume_confirmed(bars, t, vol_mult),
+               gap_pct=float((level2 / c[t] - 1) * 100 if up else (1 - level2 / c[t]) * 100))
     if (c[t] >= level2) if up else (c[t] <= level2):
         out["hit"] = True
         return out
@@ -174,13 +182,54 @@ def score_trigger(bars: pd.DataFrame, base_idx: int, level1: float, level2: floa
     return out
 
 
+def fake_trigger_outcomes(bars: pd.DataFrame, gap_pct: float, side: str,
+                          k: int = FAKE_PER_LEVEL, seed: int = SEED, horizon: int = HORIZON,
+                          exclude: Iterable[int] = ()) -> list[bool]:
+    """Mốc so cho T2: ở `k` ngày ngẫu nhiên i (seed cố định, không bốc `exclude` = các
+    ngày trigger thật), giá có đi thêm `gap_pct`% từ đóng cửa ngày i trong `horizon` phiên
+    sau không (resistance: high ≥ close·(1+g); support: low ≤ close·(1−g); đóng cửa ngày i
+    đã qua đích ⇒ chạm, như `score_trigger`).
+
+    Vì sao: R2 thường sát R1 ⇒ "vượt R1 → chạm R2" cao chỉ vì đích gần. Cùng khoảng cách,
+    đổi ngày ⇒ phần chênh là phần trigger thêm vào."""
+    n_ok = len(bars) - horizon
+    if n_ok <= 0:
+        return []
+    pool = np.delete(np.arange(n_ok), sorted({e for e in exclude if 0 <= e < n_ok}))
+    if not len(pool):
+        return []
+    picks = np.random.default_rng(seed).choice(pool, size=min(k, len(pool)), replace=False)
+    hi, lo, cl = (bars[c].to_numpy(dtype=float) for c in ("high", "low", "close"))
+    up = side == "resistance"
+    out = []
+    for i in sorted(picks):
+        w = slice(i + 1, i + 1 + horizon)
+        if up:
+            tgt = cl[i] * (1 + gap_pct / 100)
+            out.append(bool(cl[i] >= tgt or (hi[w] >= tgt).any()))
+        else:
+            tgt = cl[i] * (1 - gap_pct / 100)
+            out.append(bool(cl[i] <= tgt or (lo[w] <= tgt).any()))
+    return out
+
+
+_VOLUMES = ("confirmed", "unconfirmed", "unmeasurable")
+
+
 def trigger_summary(rows: Iterable[dict]) -> dict:
-    """P(chạm mức 2 | trigger) — chung và tách theo khối lượng."""
+    """P(chạm mức 2 | trigger) — chung và tách theo khối lượng. Dòng có `fake` (kết quả
+    `fake_trigger_outcomes` của chính sự kiện đó) ⇒ `baseline` cùng cách tách."""
     rs = [r for r in rows if r.get("triggered") and r.get("hit") is not None]
     out = {"all": rate(sum(r["hit"] for r in rs), len(rs))}
-    for v in ("confirmed", "unconfirmed", "unmeasurable"):
+    for v in _VOLUMES:
         sub = [r for r in rs if r.get("volume") == v]
         out[v] = rate(sum(r["hit"] for r in sub), len(sub))
+
+    def _fk(sub):
+        xs = [x for r in sub for x in r.get("fake") or ()]
+        return rate(sum(xs), len(xs))
+    out["baseline"] = {"all": _fk(rs), **{v: _fk([r for r in rs if r.get("volume") == v])
+                                          for v in _VOLUMES}}
     return out
 
 
@@ -250,9 +299,49 @@ def _tally(rows: list[dict], key: str = "match") -> dict:
     return rate(sum(bool(r[key]) for r in xs), len(xs))
 
 
+def _group(ev: list[dict]) -> dict:
+    """Độ đúng của một nhóm brief + mốc ngây thơ trên ĐÚNG tập phiên của nhóm (mỗi phiên
+    một lần) + khoảng ngày."""
+    sess = list({e["date"]: e for e in ev}.values())
+    dates = sorted(e["date"] for e in ev)
+    return {"all": _tally(ev), "baseline_neutral": _tally(sess, "base_neutral"),
+            "baseline_repeat": _tally(sess, "base_repeat"), "n_sessions": len(sess),
+            "first": dates[0] if dates else None, "last": dates[-1] if dates else None}
+
+
+def _split(ev: list[dict], key: str) -> dict[str, list[dict]]:
+    return {v: [e for e in ev if e.get(key) == v]
+            for v in sorted({e[key] for e in ev if e.get(key) is not None})}
+
+
+def paired_by_agent(ev: list[dict]) -> dict:
+    """So model CÙNG PHIÊN: với mỗi agent A, trên các phiên mà A và ≥1 agent khác cùng có
+    stance chấm được — độ đúng của A vs trung bình (mỗi phiên một trọng số) độ đúng các
+    agent khác trên chính phiên đó. Agent chạy ở giai đoạn khác nhau không còn so lệch mẫu."""
+    by_date: dict[str, dict[str, bool]] = {}
+    for e in ev:
+        if e.get("match") is not None:
+            by_date.setdefault(e["date"], {})[e["agent"]] = bool(e["match"])
+    out = {}
+    for a in sorted({a for m in by_date.values() for a in m}):
+        own, others = [], []
+        for m in by_date.values():
+            if a in m and len(m) > 1:
+                own.append(m[a])
+                rest = [v for x, v in m.items() if x != a]
+                others.append(sum(rest) / len(rest))
+        if own:
+            acc, o = rate(sum(own), len(own)), sum(others) / len(others)
+            out[a] = {"n_sessions": len(own), "acc": acc, "others_rate": round(o, 4),
+                      "diff_pp": round((acc["rate"] - o) * 100, 1)}
+    return out
+
+
 def summarize_stances(records: list[dict], horizons: Sequence[int] = (1, 5)) -> dict:
-    """records: {brief_type, brief_date, agent_name, sent, stance, h1, h5…} (h = kết quả
-    `stance_outcome`). Mốc so tính MỖI PHIÊN một lần (không nhân theo số agent)."""
+    """records: {brief_type, brief_date, agent_name, sent, stance, period, source, h1, h5…}
+    (h = kết quả `stance_outcome`; period = PERIOD_PRE|PERIOD_HZ, source = code|agent).
+    Mốc so tính MỖI PHIÊN một lần (không nhân theo số agent), và tính lại trên tập phiên
+    của từng nhóm `by_period` / `by_source`."""
     out: dict = {}
     for bt in sorted({r["brief_type"] for r in records}):
         rs = [r for r in records if r["brief_type"] == bt]
@@ -261,17 +350,24 @@ def summarize_stances(records: list[dict], horizons: Sequence[int] = (1, 5)) -> 
             blk["stance_dist"][r["stance"]] = blk["stance_dist"].get(r["stance"], 0) + 1
         for h in horizons:
             hk = f"h{h}"
-            ev = [dict(r[hk], agent=r["agent_name"], sent=r.get("sent"), date=r["brief_date"])
+            ev = [dict(r[hk], agent=r["agent_name"], sent=r.get("sent"), date=r["brief_date"],
+                       period=r.get("period"), source=r.get("source"))
                   for r in rs if r.get(hk)]
             sess = {e["date"]: e for e in ev}.values()
             sent_sess = [e for e in sess if any(x.get("sent") and x["date"] == e["date"]
                                                 for x in ev)]
             agents = {}
-            for a in sorted({e["agent"] for e in ev}):
-                agents[a] = _tally([e for e in ev if e["agent"] == a])
+            for a, mine in _split(ev, "agent").items():
+                agents[a] = {**_tally(mine), "first": min(e["date"] for e in mine),
+                             "last": max(e["date"] for e in mine)}
             blk[hk] = {"all": _tally(ev),
                        "sent": _tally([e for e in ev if e.get("sent")]),
                        "by_agent": agents,
+                       "paired": paired_by_agent(ev),
+                       "by_period": {p: {**_group(sub), "by_source": {
+                           s: _group(x) for s, x in _split(sub, "source").items()}}
+                           for p, sub in _split(ev, "period").items()},
+                       "by_source": {s: _group(x) for s, x in _split(ev, "source").items()},
                        "baseline_neutral": _tally(list(sess), "base_neutral"),
                        "baseline_repeat": _tally(list(sess), "base_repeat"),
                        # mốc trên ĐÚNG tập phiên có bản gửi — so "sent" với mốc mọi phiên là
@@ -460,22 +556,32 @@ def grade_setup(bars: pd.DataFrame, setup: Mapping, frame: str = "short",
 # ── Badge doctor ─────────────────────────────────────────────────────────
 
 def badge_verdict(score: Mapping | None, min_samples: int = MIN_SAMPLES) -> tuple[str, str]:
-    """(status, message) cho badge `ta_score`. Đọc Stance T+1 brief chiều: bản đã gửi
-    nếu có ≥ sàn mẫu, không thì mọi bản. Dưới sàn ⇒ LUÔN ok kèm n=… (chưa đo được
-    không phải đo ra xấu). Đủ mẫu mà thua mốc ngây thơ tốt hơn ⇒ warn."""
+    """(status, message) cho badge `ta_score`. Đọc Stance T+1 brief chiều: nhóm "từ 3
+    khung × nhãn agent tự chọn" (luật hiện hành, phần model thật sự quyết) nếu đủ sàn
+    mẫu; không thì bản đã gửi nếu có ≥ sàn mẫu, không nữa thì mọi bản. Mốc so luôn trên
+    ĐÚNG tập phiên của nhóm được chấm. Dưới sàn ⇒ LUÔN ok kèm n=… (chưa đo được không
+    phải đo ra xấu). Đủ mẫu mà thua mốc ngây thơ tốt hơn ⇒ warn."""
     if not score:
         return "off", "chưa chạy `run.py ta-score`"
     h1 = (((score.get("t3") or {}).get("afternoon") or {}).get("h1")) or {}
-    sent, allb = h1.get("sent") or {}, h1.get("all") or {}
-    use_sent = (sent.get("n") or 0) >= min_samples
-    pick, tag = (sent, "bản đã gửi") if use_sent else (allb, "mọi bản")
-    sfx = "_sent" if use_sent else ""
+    hz = ((((h1.get("by_period") or {}).get(PERIOD_HZ) or {}).get("by_source") or {})
+          .get("agent") or {})
+    sent = h1.get("sent") or {}
+    if ((hz.get("all") or {}).get("n") or 0) >= min_samples:
+        pick, tag = hz["all"], f"{PERIOD_HZ} · nhãn agent tự chọn"
+        bn, br = hz.get("baseline_neutral"), hz.get("baseline_repeat")
+    elif (sent.get("n") or 0) >= min_samples:
+        pick, tag = sent, "bản đã gửi"
+        bn, br = h1.get("baseline_neutral_sent"), h1.get("baseline_repeat_sent")
+    else:
+        pick, tag = h1.get("all") or {}, "mọi bản"
+        bn, br = h1.get("baseline_neutral"), h1.get("baseline_repeat")
     n = int(pick.get("n") or 0)
     if n < min_samples:
         return "ok", f"Stance T+1 brief chiều n={n} — chưa đủ mẫu (cần ≥{min_samples})"
     acc = pick.get("rate") or 0.0
-    bases = {"luôn trung tính": (h1.get(f"baseline_neutral{sfx}") or {}).get("rate"),
-             "lặp chiều hôm qua": (h1.get(f"baseline_repeat{sfx}") or {}).get("rate")}
+    bases = {"luôn trung tính": (bn or {}).get("rate"),
+             "lặp chiều hôm qua": (br or {}).get("rate")}
     name, best = max(((k, v) for k, v in bases.items() if v is not None),
                      key=lambda kv: kv[1], default=(None, None))
     msg = f"Stance T+1 brief chiều ({tag}) đúng {acc:.0%} n={n}"

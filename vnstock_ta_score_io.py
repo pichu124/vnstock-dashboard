@@ -186,6 +186,12 @@ def score_index(sessions: dict[str, dict], bars: pd.DataFrame) -> tuple[dict, di
                 row[f"trigger_{side}"] = {"hit": r["hit"], "volume": r["volume"]}
         detail.append(row)
     t1 = {**_close_acc(acc), "detail": detail}
+    for j, (side, rows) in enumerate(trig.items()):
+        days = {r["trigger_pos"] for r in rows if r["triggered"]}
+        for k, r in enumerate(rows):
+            if r["triggered"] and r["hit"] is not None:
+                r["fake"] = ts.fake_trigger_outcomes(bars, r["gap_pct"], side,
+                                                     seed=ts.SEED + 100_000 * j + k, exclude=days)
     t2 = {s: ts.trigger_summary(rows) for s, rows in trig.items()}
     return t1, t2
 
@@ -242,25 +248,62 @@ def _num(v) -> float | None:
     return f if f > 0 else None
 
 
-def score_stances(briefs: list[dict], bars: pd.DataFrame) -> dict:
-    """T3: mỗi brief (đã khử trùng) → stance → T+1/T+5 so gốc theo loại brief."""
+_STANCE_TYPES = ("morning", "afternoon")
+_DROPS = ("error", "no_bar", "unknown", "pending", "scored")   # phễu: mỗi brief đúng một ô
+
+
+def stance_period(ctx: dict) -> str:
+    """Giai đoạn luật Stance của MỘT brief, đọc từ ctx đã lưu (không từ ngày cứng): có
+    luật bảng 3 khung dùng được (đúng điều kiện `_apply_horizon_stance`/
+    `enforce_stance_horizon`) ⇒ "từ 3 khung", không thì "trước 3 khung"."""
+    view = ctx.get("horizons")
+    snap = view.get("snap") if isinstance(view, dict) and not view.get("stale") else None
+    rule = (snap.get("stance") if isinstance(snap, dict) else None) or {}
+    return ts.PERIOD_HZ if rule.get("forced") or rule.get("allowed") else ts.PERIOD_PRE
+
+
+def stance_records(briefs: list[dict], bars: pd.DataFrame) -> tuple[list[dict], dict]:
+    """T3: mỗi brief (đã khử trùng) → stance → T+1/T+5 so gốc theo loại brief.
+    Trả (records, phễu {loại: {error, no_bar, unknown, pending, scored}}) — mỗi brief rơi
+    vào đúng một ô. Nguồn nhãn code|agent = `vnstock_stance_track._stance_source`."""
+    from vnstock_stance_track import _stance_source
     pos, closes = ts.date_positions(bars["time"]), bars["close"].tolist()
-    recs = []
+    recs, funnel = [], {bt: dict.fromkeys(_DROPS, 0) for bt in _STANCE_TYPES}
     for b in briefs:
-        if b.get("error") or b.get("brief_type") not in ("morning", "afternoon"):
+        bt = b.get("brief_type")
+        if bt not in _STANCE_TYPES:
+            continue
+        if b.get("error"):
+            funnel[bt]["error"] += 1
             continue
         stance = ts.brief_stance(b.get("output") or "")
-        vt = _ctx(b).get("vnindex_tech") or {}
+        ctx = _ctx(b)
+        vt = ctx.get("vnindex_tech") or {}
         intraday = bool(vt.get("intraday"))
-        base = ts.base_index(pos, b["brief_date"], b["brief_type"], intraday)
-        live = _num(vt.get("close")) if intraday and b["brief_type"] == "morning" else None
-        recs.append({"brief_type": b["brief_type"], "brief_date": str(b["brief_date"])[:10],
-                     "agent_name": b.get("agent_name") or "?", "sent": b.get("sent"),
-                     "stance": stance,
-                     **{f"h{h}": (ts.stance_outcome(stance, closes, base, h, base_close=live)
-                                  if base is not None and stance != "unknown" else None)
-                        for h in (1, 5)}})
-    return ts.summarize_stances(recs)
+        base = ts.base_index(pos, b["brief_date"], bt, intraday)
+        live = _num(vt.get("close")) if intraday and bt == "morning" else None
+        rec = {"brief_type": bt, "brief_date": str(b["brief_date"])[:10],
+               "agent_name": b.get("agent_name") or "?", "sent": b.get("sent"),
+               "stance": stance, "period": stance_period(ctx),
+               "source": _stance_source(b, stance),
+               **{f"h{h}": (ts.stance_outcome(stance, closes, base, h, base_close=live)
+                            if base is not None and stance != "unknown" else None)
+                  for h in (1, 5)}}
+        recs.append(rec)
+        funnel[bt]["no_bar" if base is None else "unknown" if stance == "unknown"
+                   else "pending" if rec["h1"] is None else "scored"] += 1
+    return recs, funnel
+
+
+def brief_funnel(raw: list[dict], uniq: list[dict], drops: dict) -> dict:
+    """Phễu cỡ mẫu theo loại brief: dòng có chữ trong DB → sau khử trùng → bỏ → chấm."""
+    out = {}
+    for bt in _STANCE_TYPES:
+        n_db = sum(b.get("brief_type") == bt for b in raw)
+        if n_db:
+            out[bt] = {"db": n_db, "dedup": sum(b.get("brief_type") == bt for b in uniq),
+                       **drops[bt]}
+    return out
 
 
 def score_horizons(bars: pd.DataFrame, short_states: dict[str, int] | None) -> dict:
@@ -291,6 +334,7 @@ def compute(briefs: list[dict], index_bars: pd.DataFrame,
     uniq = dedupe_briefs(briefs)
     sessions = _sessions(uniq)
     t1, t2 = score_index(sessions, bars)
+    recs, drops = stance_records(uniq, bars)
     return {
         "version": VERSION, "computed_at": datetime.now().isoformat(timespec="seconds"),
         "machine": os.environ.get("COMPUTERNAME") or platform.node() or "?",
@@ -299,7 +343,8 @@ def compute(briefs: list[dict], index_bars: pd.DataFrame,
         "rules": {"horizon": ts.HORIZON, "pierce_pct": ts.PIERCE_PCT, "flat_pct": ts.FLAT_PCT,
                   "vol_mult": ts.VOL_MULT, "fake_per_level": ts.FAKE_PER_LEVEL,
                   "seed": ts.SEED},
-        "t1": t1, "t2": t2, "t3": score_stances(uniq, bars),
+        "funnel": brief_funnel(briefs, uniq, drops),
+        "t1": t1, "t2": t2, "t3": ts.summarize_stances(recs),
         "t4": {**score_horizons(bars, short_states), "short_source": short_source},
         "t5": score_tickers(sessions, load_ticker),
     }
@@ -361,39 +406,92 @@ def _level_lines(blk: dict, name: str) -> list[str]:
     return out
 
 
-def format_table(score: dict | None) -> str:
-    if not score:
-        return "[ta-score] chưa có _meta/ta_score.json — chạy `python run.py ta-score`"
-    L = [f"📏 Thước đo nhận định kỹ thuật — tính {score.get('computed_at')} trên "
-         f"{score.get('machine')} · {score.get('n_briefs_dedup', 0):,} brief "
-         f"({score.get('n_sessions_afternoon', 0):,} phiên chiều)",
-         "  (tỉ lệ kèm khoảng Wilson 95%; n nhỏ ⇒ khoảng rộng, đừng đọc thành kết luận)", "",
-         "T1 · S1/R1 VN-Index, 5 phiên sau brief chiều (xuyên = đóng cửa vượt quá 0,5%)"]
-    L += _level_lines(score.get("t1") or {}, "VN-Index")
-    L += ["", "T2 · Trigger (đóng cửa vượt mức 1 ⇒ chạm mức 2 trong 5 phiên)"]
+_BT_VI = (("afternoon", "chiều"), ("morning", "sáng"))
+_SRC_VI = {"code": "nhãn code ép", "agent": "nhãn agent tự chọn"}
+
+
+def _funnel_lines(funnel: dict) -> list[str]:
+    if not funnel:
+        return []
+    L = ["Phễu brief (dòng có chữ trong DB → khử trùng loại×phiên×agent → bỏ → chấm T+1)"]
+    for bt, vi in _BT_VI:
+        f = funnel.get(bt)
+        if f:
+            L.append(f"  {vi}: {f['db']:,} dòng → {f['dedup']:,} sau khử trùng → bỏ: lỗi "
+                     f"{f['error']:,} · không có bar đúng ngày {f['no_bar']:,} · stance không "
+                     f"đọc được {f['unknown']:,} · chưa tới T+1 {f['pending']:,} → chấm "
+                     f"{f['scored']:,}")
+    return [*L, ""]
+
+
+def _t2_lines(t2: dict) -> list[str]:
+    L = ["T2 · Trigger (đóng cửa vượt mức 1 ⇒ chạm mức 2 trong 5 phiên; mốc = ngày ngẫu "
+         "nhiên, đích cách đóng cửa đúng bằng mức 2 cách phiên trigger)"]
     for side, vi in (("resistance", "vượt R1 → R2"), ("support", "thủng S1 → S2")):
-        t = (score.get("t2") or {}).get(side) or {}
+        t = t2.get(side) or {}
+        fk = t.get("baseline") or {}
         L.append(f"  {vi}: {_pct(t.get('all'))}")
+        L.append(f"      mốc cùng khoảng cách: {_pct(fk.get('all'))}")
         L.append(f"      KL xác nhận {_pct(t.get('confirmed'))} · không xác nhận "
                  f"{_pct(t.get('unconfirmed'))} · không đo được KL n="
                  f"{(t.get('unmeasurable') or {}).get('n', 0):,}")
-    L += ["", f"T3 · Stance (phẳng = |Δ| < {ts.FLAT_PCT}%)"]
-    for bt, vi in (("afternoon", "chiều"), ("morning", "sáng")):
-        blk = (score.get("t3") or {}).get(bt)
+        L.append(f"      mốc cùng khoảng cách: KL xác nhận {_pct(fk.get('confirmed'))} · "
+                 f"không xác nhận {_pct(fk.get('unconfirmed'))}")
+    return L
+
+
+def _group_line(name: str, g: dict, indent: str) -> str:
+    span = f" · {g['first']} → {g['last']}" if g.get("first") else ""
+    return (f"{indent}{name:<22} {_pct(g.get('all'))} · mốc trung tính "
+            f"{_pct(g.get('baseline_neutral'))} · lặp {_pct(g.get('baseline_repeat'))} · "
+            f"{g.get('n_sessions', 0):,} phiên{span}")
+
+
+def _t3_block(x: dict) -> list[str]:
+    L = [f"      mốc luôn trung tính {_pct(x.get('baseline_neutral'))} · "
+         f"lặp chiều hôm qua {_pct(x.get('baseline_repeat'))}"]
+    if x.get("by_period"):
+        L.append("      theo giai đoạn (mốc tính trên đúng phiên của nhóm):")
+        for p, g in x["by_period"].items():
+            L.append(_group_line(p, g, "        "))
+            for s, gs in (g.get("by_source") or {}).items():
+                L.append(_group_line(f"↳ {_SRC_VI.get(s, s)}", gs, "          "))
+    if x.get("by_source"):
+        L.append("      theo nguồn nhãn:")
+        L += [_group_line(_SRC_VI.get(s, s), g, "        ") for s, g in x["by_source"].items()]
+    if x.get("by_agent"):
+        L.append("      theo agent (mỗi agent một khoảng ngày — so thẳng là so hai giai đoạn):")
+    for a, r in sorted((x.get("by_agent") or {}).items(),
+                       key=lambda kv: -(kv[1].get("n") or 0))[:8]:
+        span = f" · {r['first']} → {r['last']}" if r.get("first") else ""
+        L.append(f"        {a[:36]:<36} {_pct(r)}{span}")
+    if x.get("paired"):
+        L.append("      so cùng phiên (agent vs TB các agent khác trên đúng các phiên chung):")
+    for a, r in sorted((x.get("paired") or {}).items(),
+                       key=lambda kv: -kv[1]["n_sessions"])[:8]:
+        L.append(f"        {a[:36]:<36} {_pct(r['acc'])} vs khác {r['others_rate'] * 100:,.1f}%"
+                 f" · chênh {r['diff_pp']:+,.1f} điểm % · {r['n_sessions']:,} phiên chung")
+    return L
+
+
+def _t3_lines(t3: dict) -> list[str]:
+    L = [f"T3 · Stance (phẳng = |Δ| < {ts.FLAT_PCT}%)"]
+    for bt, vi in _BT_VI:
+        blk = t3.get(bt)
         if not blk:
             continue
         for h in (1, 5):
             x = blk.get(f"h{h}") or {}
             L.append(f"  brief {vi} T+{h}: mọi bản {_pct(x.get('all'))} · đã gửi "
                      f"{_pct(x.get('sent'))}")
-            L.append(f"      mốc luôn trung tính {_pct(x.get('baseline_neutral'))} · "
-                     f"lặp chiều hôm qua {_pct(x.get('baseline_repeat'))}")
-            for a, r in sorted((x.get("by_agent") or {}).items(),
-                               key=lambda kv: -(kv[1].get("n") or 0))[:8]:
-                L.append(f"      {a[:38]:<38} {_pct(r)}")
-    t4 = score.get("t4") or {}
-    L += ["", f"T4 · VN-Index sau trạng thái horizons ({' → '.join(t4.get('period') or [])}; "
-              "phiên chồng cửa sổ ⇒ đọc kèm số đoạn)"]
+            L += _t3_block(x)
+    return L
+
+
+def _t4_lines(t4: dict) -> list[str]:
+    p = t4.get("period") or []
+    L = [f"T4 · VN-Index sau trạng thái horizons (dữ liệu VN-Index từ {' → '.join(p) or '—'}; "
+         f"phiên chồng cửa sổ ⇒ đọc kèm số đoạn, < {ts.MIN_EPISODES} đoạn ⇒ chưa kết luận)"]
     for frame, vi in (("medium", "trung hạn"), ("short", "ngắn hạn")):
         blk = t4.get(frame)
         if not blk:
@@ -405,9 +503,27 @@ def format_table(score: dict | None) -> str:
         for h in ("t5", "t20", "t60"):
             for lab, r in (blk.get(h) or {}).items():
                 ep = f" · {r['episodes']} đoạn" if r.get("episodes") else ""
+                if r.get("episodes") and r["episodes"] < ts.MIN_EPISODES:
+                    ep += " · ít đoạn — chưa kết luận"
                 mean = f"{r['mean_pct']:+,.2f}%" if r.get("mean_pct") is not None else "—"
                 L.append(f"      {h.upper():<4} {('mọi phiên' if lab == '_all' else lab):<10} "
                          f"TB {mean} · tỉ lệ tăng {_pct(r)}{ep}")
+    return L
+
+
+def format_table(score: dict | None) -> str:
+    if not score:
+        return "[ta-score] chưa có _meta/ta_score.json — chạy `python run.py ta-score`"
+    L = [f"📏 Thước đo nhận định kỹ thuật — tính {score.get('computed_at')} trên "
+         f"{score.get('machine')} · {score.get('n_briefs_dedup', 0):,} brief "
+         f"({score.get('n_sessions_afternoon', 0):,} phiên chiều)",
+         "  (tỉ lệ kèm khoảng Wilson 95%; n nhỏ ⇒ khoảng rộng, đừng đọc thành kết luận)", ""]
+    L += _funnel_lines(score.get("funnel") or {})
+    L += ["T1 · S1/R1 VN-Index, 5 phiên sau brief chiều (xuyên = đóng cửa vượt quá 0,5%)"]
+    L += _level_lines(score.get("t1") or {}, "VN-Index")
+    L += ["", *_t2_lines(score.get("t2") or {})]
+    L += ["", *_t3_lines(score.get("t3") or {})]
+    L += ["", *_t4_lines(score.get("t4") or {})]
     t5 = score.get("t5") or {}
     L += ["", f"T5 · S/R từng mã ({t5.get('n_tickers', 0):,} mã; chỉnh cơ sở "
               f"{t5.get('rescaled', 0):,} · bỏ vì lệch cơ sở {t5.get('basis_skipped', 0):,})"]
