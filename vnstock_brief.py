@@ -3864,14 +3864,25 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         # A/D 0.90 wrongly called "tích cực" — 0.90 < 1.0 is NEGATIVE breadth).
         _bl = "tích cực" if _ad > 1.05 else "tiêu cực" if _ad < 0.95 else "cân bằng"
         _sign = ">" if _ad > 1 else "<" if _ad < 1 else "≈"
-        _weak = " · ít mã trên MA200 → thị trường yếu" if _ma200 < 30 else ""
-        from vnstock_breadth_universe import label_suffix
+        from vnstock_breadth_universe import display_split, label_suffix
+        # VNSTOCK_BREADTH_DISPLAY=investable (PTKT §18): IN tập thanh khoản làm số chính, nhãn
+        # ĐỘ RỘNG + câu "ít mã … yếu" vẫn theo _ma200 (toàn thị trường) — chỉ đổi chữ.
+        _disp = display_split(b)
+        _weak = (f" · ít mã trên MA200{' toàn thị trường' if _disp else ''} → thị trường yếu"
+                 if _ma200 < 30 else "")
         _set = label_suffix(b)          # tập thanh khoản (PTKT §16); tập mọi mã ⇒ ""
         _set_note = (f"\n→ % trên MA200 chỉ tính {_set.strip()[1:-1]} (≥200 phiên, GTGD TB20 ≥1 tỷ, "
                      f"có giao dịch gần đây) — nêu số này PHẢI ghi kèm \"{_set.strip()}\"."
                      if _set else "")
+        _ma200_txt = f"Trên MA200{_set}: {_ma200:.0f}%"
+        if _disp:
+            _ma200_txt = (f"Trên MA200{_disp['label']}: {_disp['pct']:.0f}% · "
+                          f"toàn thị trường {_ma200:.0f}%")
+            _set_note = (f"\n→ Số chính % trên MA200 chỉ tính {_disp['label'].strip()[1:-1]} (≥200 "
+                         f"phiên, GTGD TB20 ≥1 tỷ, có giao dịch gần đây) — nêu số này PHẢI ghi kèm "
+                         f"\"{_disp['label'].strip()}\"; số {_ma200:.0f}% PHẢI ghi \"toàn thị trường\".")
         lines.append(f"\n## Market Breadth\n"
-                     f"Trên MA200{_set}: {_ma200:.0f}% | "
+                     f"{_ma200_txt} | "
                      f"A/D ratio: {_ad:.2f} | "
                      f"Net new highs: {b.get('net_new_highs',0):+d} | "
                      f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã"

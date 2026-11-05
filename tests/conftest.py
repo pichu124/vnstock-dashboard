@@ -211,13 +211,14 @@ def _futures_foreign_hermetic(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_indicator_legacy_from_dotenv(monkeypatch):
-    """`VNSTOCK_INDICATOR_LEGACY=1` / `VNSTOCK_BREADTH_UNIVERSE=investable` trong `.env` (công tắc PTKT) lọt
+    """`VNSTOCK_INDICATOR_LEGACY=1` / `VNSTOCK_BREADTH_UNIVERSE|_DISPLAY=investable` trong `.env` (công tắc PTKT) lọt
     vào pytest như mọi biến `.env` ⇒ test ghim công thức mặc định đỏ ⇒ `run.py all` dừng ở
     bước test, MẤT brief (lớp U65; review PTKT P1 đợt 2, 04/11). Xoá theo TIỀN TỐ; test cần
     chế độ legacy tự setenv."""
     import os
     for k in list(os.environ):
-        if k.startswith(("VNSTOCK_INDICATOR_LEGACY", "VNSTOCK_BREADTH_UNIVERSE")):
+        if k.startswith(("VNSTOCK_INDICATOR_LEGACY", "VNSTOCK_BREADTH_UNIVERSE",
+                          "VNSTOCK_BREADTH_DISPLAY")):
             monkeypatch.delenv(k, raising=False)
 
 @pytest.fixture(autouse=True)

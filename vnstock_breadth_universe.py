@@ -12,6 +12,10 @@ Công tắc ``VNSTOCK_BREADTH_UNIVERSE`` = ``all`` (mặc định, số y nguyê
 ``vnstock_runner.build_market_overview`` và ``vnstock_horizons_state.breadth_history`` cùng
 gọi ``investable_mask`` + ``breadth_fields`` ⇒ cùng phiên ra cùng số. Luôn ghi CẢ HAI số
 (``above_ma200_pct_all`` / ``_investable`` + mẫu số) để so; ``above_ma200_pct`` = tập đang bật.
+
+Công tắc HIỂN THỊ ``VNSTOCK_BREADTH_DISPLAY`` = ``all`` (mặc định) | ``investable`` (PTKT §18):
+chỉ đổi số IN RA (brief + dashboard) — xem ``display_split``. Mọi quyết định (phiếu regime,
+sentiment, allocation, guard ngưỡng, màu) vẫn đọc ``above_ma200_pct``.
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 UNIVERSE_ENV = "VNSTOCK_BREADTH_UNIVERSE"
+DISPLAY_ENV = "VNSTOCK_BREADTH_DISPLAY"
 ALL, INVESTABLE = "all", "investable"
 MIN_BARS = 200                  # MA200 cần 200 bar trong cửa sổ
 LOOKBACK_DAYS = 400             # vnstock_runner: cutoff = phiên − 400 ngày
@@ -28,10 +33,19 @@ MIN_GTGD_BN = 1.0               # tỷ VND
 GTGD_N = 20
 
 
+def _env_set(name: str) -> str:
+    raw = (os.environ.get(name) or "").strip().lower()
+    return INVESTABLE if raw == INVESTABLE else ALL
+
+
 def breadth_universe() -> str:
     """Tập đang bật theo env; giá trị lạ ⇒ ``all`` (không đổi số khi gõ nhầm)."""
-    raw = (os.environ.get(UNIVERSE_ENV) or "").strip().lower()
-    return INVESTABLE if raw == INVESTABLE else ALL
+    return _env_set(UNIVERSE_ENV)
+
+
+def breadth_display() -> str:
+    """Tập IN RA theo ``VNSTOCK_BREADTH_DISPLAY``; giá trị lạ ⇒ ``all``."""
+    return _env_set(DISPLAY_ENV)
 
 
 def _days(x) -> np.ndarray:
@@ -140,10 +154,38 @@ def with_universe(rec: dict, universe: str) -> dict:
                                     rec.get("above_ma200_investable"), universe)}
 
 
+def _set_label(n) -> str:
+    return f" ({int(n):,} mã thanh khoản)"
+
+
 def label_suffix(breadth: dict | None) -> str:
     """Hậu tố nhãn khi độ rộng đo trên tập đầu tư được: `` (269 mã thanh khoản)``; tập ``all``
     hay thiếu dữ liệu ⇒ chuỗi rỗng (chữ brief y nguyên)."""
     b = breadth or {}
     if b.get("breadth_universe") != INVESTABLE or not b.get("breadth_n"):
         return ""
-    return f" ({int(b['breadth_n']):,} mã thanh khoản)"
+    return _set_label(b["breadth_n"])
+
+
+def _num(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def display_split(breadth: dict | None) -> dict | None:
+    """Hai số để IN khi ``VNSTOCK_BREADTH_DISPLAY=investable``: ``pct`` (tập thanh khoản, số
+    chính), ``n``, ``label`` (`` (317 mã thanh khoản)``), ``all_pct`` (toàn thị trường, cũng là
+    số mọi quyết định đọc). None ⇒ chỗ in giữ đường hiện tại, khi:
+      • công tắc tắt (mặc định);
+      • market_overview cũ / máy chưa pull — thiếu ``above_ma200_pct_investable`` /
+        ``ma200_n_investable`` / ``above_ma200_pct_all``;
+      • ``VNSTOCK_BREADTH_UNIVERSE=investable`` đang bật — ``above_ma200_pct`` đã là tập thanh
+        khoản và ``label_suffix`` đã gắn nhãn, in thêm là in trùng."""
+    b = breadth or {}
+    if breadth_display() != INVESTABLE or b.get("breadth_universe") == INVESTABLE:
+        return None
+    pct, n, all_pct = (b.get("above_ma200_pct_investable"), b.get("ma200_n_investable"),
+                       b.get("above_ma200_pct_all"))
+    if not (_num(pct) and _num(all_pct) and _num(n) and n > 0):
+        return None
+    return {"pct": float(pct), "n": int(n), "label": _set_label(n), "all_pct": float(all_pct),
+            "above": b.get("above_ma200_investable")}

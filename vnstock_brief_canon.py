@@ -509,8 +509,15 @@ def _horizon_medium_line(view: dict, ctx: dict) -> str:
             f"từ {_hz_ddmm(snap.get('medium_since'))} ({_hz_weeks(view)})")
     b, b4 = view.get("breadth_pct"), view.get("breadth_pct_4w")
     if isinstance(b, (int, float)):
-        from vnstock_breadth_universe import label_suffix
-        line += f"; {b:.0f}% mã trên MA200{label_suffix(view)}"
+        from vnstock_breadth_universe import display_split, label_suffix
+        # VNSTOCK_BREADTH_DISPLAY (PTKT §18): state 🔭 chỉ lưu số quyết định (toàn thị trường) ⇒
+        # số tập thanh khoản lấy từ ctx["breadth"], CHỈ khi cùng phép đo (số toàn thị trường
+        # khớp — state và market_overview cùng phiên); "4 tuần trước" là số toàn thị trường.
+        disp = display_split(ctx.get("breadth")) if not label_suffix(view) else None
+        if disp and abs(disp["all_pct"] - b) < 0.05:
+            line += f"; {disp['pct']:.0f}% mã trên MA200{disp['label']} · toàn thị trường {b:.0f}%"
+        else:
+            line += f"; {b:.0f}% mã trên MA200{label_suffix(view)}"
         if isinstance(b4, (int, float)):
             line += f" (4 tuần trước {b4:.0f}%)"
     return line + "." + _horizon_macro_snippet(ctx)

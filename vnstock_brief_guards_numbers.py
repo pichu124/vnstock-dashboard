@@ -837,22 +837,35 @@ def enforce_breadth_label(text: str, ctx: dict) -> str:
     advancing). When a "<N>% mã [cổ phiếu] tăng giá/điểm" matches above_ma200_pct,
     relabel it "trên MA200". Gated on the value match so a genuine figure isn't
     touched; idempotent; no-op without breadth data.
+
+    ``VNSTOCK_BREADTH_DISPLAY=investable`` (PTKT §18, `display_split`): brief in HAI số —
+    tập thanh khoản (gắn "(N mã thanh khoản)") và toàn thị trường (để trơn). Số khớp tập
+    thanh khoản thì gắn nhãn; khớp cả hai (cách ≤1 điểm) thì không gắn — không biết số nào.
     """
     b = ctx.get("breadth") or {}
     pct = b.get("above_ma200_pct")
     if not text or not isinstance(pct, (int, float)):
         return text
-    from vnstock_breadth_universe import label_suffix
-    suffix = label_suffix(b)        # tập thanh khoản (PTKT §16) ⇒ " (N mã thanh khoản)", không thì ""
+    from vnstock_breadth_universe import display_split, label_suffix
+    disp = display_split(b)
+    # tập thanh khoản (PTKT §16) ⇒ " (N mã thanh khoản)", không thì ""
+    suffix = disp["label"] if disp else label_suffix(b)
+    tag_pct = disp["pct"] if disp else pct
 
-    def _same(raw: str) -> bool:
+    def _near(raw: str, v: float) -> bool:
         n = _parse_vn_number(raw)
-        return n is not None and abs(n - pct) <= 1   # only the above-MA200 figure
+        return n is not None and abs(n - v) <= 1
+
+    def _same(raw: str) -> bool:                     # only the above-MA200 figure(s)
+        return _near(raw, pct) or (disp is not None and _near(raw, tag_pct))
+
+    def _tag(raw: str) -> bool:                      # the figure that carries the set label
+        return _near(raw, tag_pct) and not (disp is not None and _near(raw, pct))
 
     def _fix(m: "_re.Match") -> str:
         if not _same(m.group(1)):
             return m.group(0)
-        return f"{m.group(1)}% {m.group(2)} trên MA200{suffix}"
+        return f"{m.group(1)}% {m.group(2)} trên MA200{suffix if _tag(m.group(1)) else ''}"
 
     # "số mã cổ phiếu" (cả hai tiền tố ghép lại) — thấy thật close 14/07:
     # "chỉ 13% số mã cổ phiếu tăng giá" lọt qua vì regex cũ chỉ có từng nhánh lẻ.
@@ -867,10 +880,12 @@ def enforce_breadth_label(text: str, ctx: dict) -> str:
     out = _re.sub(
         r"(\d[\d.,]*)(\s*%\s*(?:số\s+)?(?:mã\s+)?(?:cổ phiếu\s+)?(?:đang\s+)?(?:nằm\s+)?"
         r"trên\s+(?:đường\s+)?MA\s?200)" + _tagged,
-        lambda m: m.group(0) + suffix if _same(m.group(1)) else m.group(0), out)
+        lambda m: m.group(0) + suffix if _tag(m.group(1)) else m.group(0), out)
+    # "Trên MA200: 48.6% (317 mã thanh khoản)" — nhãn đứng SAU số cũng là đã gắn.
     return _re.sub(
-        r"([Tt]rên\s+MA\s?200)" + _tagged + r"(\s*:\s*)(\d[\d.,]*)(?=\s*%)",
-        lambda m: m.group(1) + suffix + m.group(2) + m.group(3) if _same(m.group(3)) else m.group(0),
+        r"([Tt]rên\s+MA\s?200)" + _tagged + r"(\s*:\s*)(\d[\d.,]*)(?=\s*%)"
+        r"(?!\s*%\s*\(\s*[\d.,]+\s+mã thanh khoản)",
+        lambda m: m.group(1) + suffix + m.group(2) + m.group(3) if _tag(m.group(3)) else m.group(0),
         out)
 
 

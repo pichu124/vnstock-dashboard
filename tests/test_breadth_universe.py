@@ -439,3 +439,185 @@ def test_market_commentary_breadth_line_names_the_universe():
     assert "30% mã trên MA200 —" in old                                   # tập all: chữ y nguyên
     inv = "\n".join(breadth_lines({**base, "breadth_universe": "investable", "breadth_n": 269}))
     assert "30% mã trên MA200 (269 mã thanh khoản) —" in inv
+
+
+# ── Công tắc HIỂN THỊ (PTKT §18): chỉ đổi số in ra, không đổi quyết định ─────
+
+_DISPLAY = "VNSTOCK_BREADTH_DISPLAY"
+# toàn thị trường 518/1407 = 36.8% · tập thanh khoản 154/317 = 48.6%
+_B_DISP = {**_BREADTH_OLD, **bu.breadth_fields(1407, 518, 317, 154, "all")}
+# toàn thị trường 157/1407 = 11.2% (yếu) · tập thanh khoản 81/269 = 30.1%
+_B_WEAK = {**_BREADTH_OLD, **bu.breadth_fields(1407, 157, 269, 81, "all")}
+
+
+def test_display_split_only_when_switch_on_and_keys_present(monkeypatch):
+    assert bu.display_split(_B_DISP) is None                                  # mặc định tắt
+    monkeypatch.setenv(_DISPLAY, "Investable ")
+    assert bu.display_split(_B_DISP) == {"pct": 48.6, "n": 317, "label": " (317 mã thanh khoản)",
+                                         "all_pct": 36.8, "above": 154}
+    assert bu.display_split(_BREADTH_OLD) is None                             # overview cũ
+    assert bu.display_split({**_B_DISP, "ma200_n_investable": None}) is None  # không có lịch phiên
+    assert bu.display_split(None) is None
+    inv = {**_BREADTH_OLD, **bu.breadth_fields(1407, 518, 317, 154, "investable")}
+    assert bu.display_split(inv) is None              # UNIVERSE=investable: số chính đã là tập này
+    monkeypatch.setenv(_DISPLAY, "yes")
+    assert bu.display_split(_B_DISP) is None                                  # gõ nhầm ⇒ tắt
+
+
+def _prompt(breadth: dict) -> str:
+    import vnstock_brief as vb
+    return vb.build_prompt({**_MIN_CTX, "breadth": dict(breadth)}, brief_type="close")
+
+
+def test_prompt_unchanged_when_display_off_or_overview_old(monkeypatch):
+    off_new, off_old = _prompt(_B_WEAK), _prompt(_BREADTH_OLD)
+    assert "toàn thị trường" not in _breadth_block(off_new)
+    assert _breadth_block(off_new).startswith("## Market Breadth\nTrên MA200: 11% | A/D ratio: 0.83")
+    monkeypatch.setenv(_DISPLAY, "investable")
+    assert _prompt(_BREADTH_OLD) == off_old                   # bật mà overview cũ ⇒ y nguyên
+    inv = {**_BREADTH_OLD, **bu.breadth_fields(1407, 157, 269, 81, "investable")}
+    monkeypatch.delenv(_DISPLAY)
+    off_inv = _prompt(inv)
+    monkeypatch.setenv(_DISPLAY, "investable")
+    assert _prompt(inv) == off_inv                            # UNIVERSE=investable: không in trùng
+
+
+def test_prompt_display_puts_liquid_set_first(monkeypatch):
+    monkeypatch.setenv(_DISPLAY, "investable")
+    blk = _breadth_block(_prompt(_B_WEAK))
+    assert blk.startswith(
+        "## Market Breadth\nTrên MA200 (269 mã thanh khoản): 30% · toàn thị trường 11% | "
+        "A/D ratio: 0.83 | Net new highs: -7 | RSI oversold: 40 mã | RSI overbought: 12 mã\n"
+        "→ ĐỘ RỘNG: TIÊU CỰC (A/D < 1.0 · ít mã trên MA200 toàn thị trường → thị trường yếu)")
+    assert 'PHẢI ghi kèm "(269 mã thanh khoản)"' in blk
+    assert 'số 11% PHẢI ghi "toàn thị trường"' in blk
+    # câu "ít mã … yếu" theo số toàn thị trường: 36.8% ⇒ không có (tập thanh khoản 48.6% không quyết)
+    blk2 = _breadth_block(_prompt(_B_DISP))
+    assert blk2.startswith("## Market Breadth\nTrên MA200 (317 mã thanh khoản): 49% · toàn thị trường 37% | ")
+    assert "thị trường yếu" not in blk2
+
+
+_CTX_DISP = {"breadth": dict(_B_DISP)}
+
+
+@pytest.mark.parametrize("text, expect", [
+    ("chỉ 49% mã cổ phiếu tăng giá, A/D 0.9",
+     "chỉ 49% mã cổ phiếu trên MA200 (317 mã thanh khoản), A/D 0.9"),
+    ("chỉ 37% mã tăng giá", "chỉ 37% mã trên MA200"),                   # số toàn thị trường
+    ("Có 48,6% mã trên MA200 hôm nay.", "Có 48,6% mã trên MA200 (317 mã thanh khoản) hôm nay."),
+    ("Trên MA200: 49% · toàn thị trường 37%",
+     "Trên MA200 (317 mã thanh khoản): 49% · toàn thị trường 37%"),
+    ("Trên MA200 (317 mã thanh khoản): 49% · toàn thị trường 37%",
+     "Trên MA200 (317 mã thanh khoản): 49% · toàn thị trường 37%"),
+    ("% mã trên MA200: 48.6% (317 mã thanh khoản) · toàn thị trường 36.8%",
+     "% mã trên MA200: 48.6% (317 mã thanh khoản) · toàn thị trường 36.8%"),
+    ("37% mã trên MA200", "37% mã trên MA200"),                         # toàn thị trường: giữ
+    ("12% mã trên MA200 tuần trước", "12% mã trên MA200 tuần trước"),
+])
+def test_breadth_label_guard_display_format(monkeypatch, text, expect):
+    from vnstock_brief_guards_numbers import enforce_breadth_label
+    monkeypatch.setenv(_DISPLAY, "investable")
+    out = enforce_breadth_label(text, _CTX_DISP)
+    assert out == expect
+    assert enforce_breadth_label(out, _CTX_DISP) == out
+
+
+def test_breadth_label_guard_display_ambiguous_number_not_tagged(monkeypatch):
+    """Hai số cách nhau ≤1 điểm ⇒ không biết model nói số nào ⇒ không gắn tập (gắn sai tệ hơn)."""
+    from vnstock_brief_guards_numbers import enforce_breadth_label
+    monkeypatch.setenv(_DISPLAY, "investable")
+    ctx = {"breadth": {**_BREADTH_OLD, **bu.breadth_fields(1000, 300, 200, 61, "all")}}  # 30.0 · 30.5
+    assert enforce_breadth_label("30% mã tăng giá; 30% mã trên MA200", ctx) \
+        == "30% mã trên MA200; 30% mã trên MA200"
+
+
+def test_breadth_label_guard_unchanged_when_display_off():
+    from vnstock_brief_guards_numbers import enforce_breadth_label
+    t = "chỉ 49% mã tăng giá; Trên MA200: 49%; 37% mã tăng giá"
+    assert enforce_breadth_label(t, _CTX_DISP) == "chỉ 49% mã tăng giá; Trên MA200: 49%; 37% mã trên MA200"
+
+
+def _hz_view(b_pct: float) -> dict:
+    return {"snap": {"medium": "tang", "medium_since": "2026-10-01"}, "medium_weeks": 3,
+            "breadth_pct": b_pct, "breadth_pct_4w": 30.0}
+
+
+def test_horizon_line_display(monkeypatch):
+    from vnstock_brief_canon import _horizon_medium_line
+    ctx = {"breadth": dict(_B_DISP)}
+    off = _horizon_medium_line(_hz_view(36.8), ctx)
+    off_other = _horizon_medium_line(_hz_view(35.0), ctx)
+    assert "; 37% mã trên MA200 (4 tuần trước 30%)." in off
+    monkeypatch.setenv(_DISPLAY, "investable")
+    assert _horizon_medium_line(_hz_view(36.8), ctx) == off.replace(
+        "; 37% mã trên MA200 (4 tuần trước 30%)",
+        "; 49% mã trên MA200 (317 mã thanh khoản) · toàn thị trường 37% (4 tuần trước 30%)")
+    # state 🔭 và market_overview khác phiên (số toàn thị trường không khớp) ⇒ đường cũ
+    assert _horizon_medium_line(_hz_view(35.0), ctx) == off_other
+    assert _horizon_medium_line(_hz_view(36.8), {}) == off
+
+
+def test_market_commentary_display(monkeypatch):
+    from dashboard.market_commentary import breadth_lines
+    base = {"ad_ratio": 1.0, "rsi_oversold": 10, "rsi_overbought": 5, "net_new_highs": 0}
+    weak = {**base, **bu.breadth_fields(1407, 157, 269, 81, "all")}         # 11.2 · 30.1
+    mid = {**base, **bu.breadth_fields(1407, 518, 317, 170, "all")}         # 36.8 · 53.6
+    old = {**base, "above_ma200_pct": 37.0}                                 # overview cũ
+    off = ["\n".join(breadth_lines(b)) for b in (weak, mid, old)]
+    assert "🔴 Chỉ 11% mã trên MA200 — đa số cổ phiếu trong xu hướng giảm" in off[0]
+    assert "🟡 37% mã trên MA200 — thị trường phân hóa, chọn lọc" in off[1]
+    monkeypatch.setenv(_DISPLAY, "investable")
+    on = ["\n".join(breadth_lines(b)) for b in (weak, mid, old)]
+    assert ("🔴 30% mã trên MA200 (269 mã thanh khoản) · toàn thị trường chỉ 11% — "
+            "đa số cổ phiếu toàn thị trường trong xu hướng giảm") in on[0]
+    # 53.6% tập thanh khoản > 50 nhưng tông theo 36.8% toàn thị trường ⇒ 🟡, không 🟢
+    assert ("🟡 54% mã trên MA200 (317 mã thanh khoản) · toàn thị trường 37% — "
+            "toàn thị trường phân hóa, chọn lọc") in on[1]
+    assert on[2] == off[2]
+
+
+def test_market_tab_ma200_card_display(monkeypatch):
+    from dashboard.market_tab import ma200_card
+    b = {**_BREADTH_OLD, **bu.breadth_fields(1407, 518, 317, 170, "all")}
+    off = ma200_card(b)
+    assert off == {"value": "36.8%", "sub": "518/1407 mã", "tone_pct": 36.8,
+                   "bar": 36.8, "caption": "% Trên MA200"}
+    monkeypatch.setenv(_DISPLAY, "investable")
+    assert ma200_card(b) == {"value": "53.6%", "sub": "170/317 mã thanh khoản · toàn thị trường 36.8%",
+                             "tone_pct": 36.8, "bar": 53.6,
+                             "caption": "% Trên MA200 (317 mã thanh khoản)"}
+    assert ma200_card(dict(_BREADTH_OLD))["value"] == "11.2%"                # overview cũ
+
+
+def test_display_switch_does_not_change_decisions(monkeypatch):
+    """Bật hiển thị KHÔNG đổi phiếu regime / sentiment / allocation / guard ngưỡng."""
+    import vnstock_allocation as va
+    from vnstock_brief_guards_numbers import enforce_breadth_quality
+    from vnstock_market_sentiment import compute_market_sentiment
+    from vnstock_regime import classify_regime
+    tech = {"close": 1250.0, "ma20": 1240.0, "ma50": 1230.0, "ma200": 1200.0, "rsi14": 55.0,
+            "day_change_pct": 0.4}
+    text = "Độ rộng tích cực với A/D 1.33, 30% mã trên MA200."
+    monkeypatch.setattr(va, "_load_overview",
+                        lambda: {"data_date": "2026-11-03", "breadth": dict(_B_WEAK)})
+
+    def _offline(*a, **k):
+        raise RuntimeError("offline")
+    for mod, name in (("vnstock_regime", "load_regime"),
+                      ("vnstock_market_sentiment", "load_market_sentiment"),
+                      ("vnstock_macro", "load_macro")):
+        monkeypatch.setattr(importlib.import_module(mod), name, _offline)
+
+    def run():
+        b = dict(_B_WEAK)
+        reg = classify_regime(tech, b, 50.0)
+        inputs = va.collect_inputs("2026-11-03")[1]
+        return (reg["score"], reg["label"], compute_market_sentiment(b, 50.0, tech),
+                inputs, va.compute_score(inputs),
+                enforce_breadth_quality(text, {"breadth": b, "market_sentiment": {"momentum": 10}}))
+
+    off = run()
+    monkeypatch.setenv(_DISPLAY, "investable")
+    assert run() == off
+    assert off[3]["breadth"]["above_ma200_pct"] == 11.2
+    assert "trái chiều" in off[5]                    # guard ngưỡng chạy trên 11.2, không phải 30.1
