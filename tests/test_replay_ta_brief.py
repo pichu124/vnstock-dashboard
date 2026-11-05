@@ -463,3 +463,17 @@ def test_stored_ctx_pins_today_to_session_date():
 def test_hermetic_cli_pin_survives_env_wipe():
     import vnstock_brief_pack as vbp
     assert vbp.cli_executable() is None
+
+
+@needs("pyarrow")
+def test_rerun_after_guard_change_reuses_all_paid_text_without_asking(warehouse, tmp_path):
+    out = tmp_path / "out"
+    assert rt.main(_args(warehouse, out, "--run", "--yes"),
+                   engine=lambda p: (NEW_RAW, None, {"model": "claude-opus-5-5"})) == 0
+
+    def _boom(*a, **k):
+        raise AssertionError("mọi phiên đã có bản thô — không được gọi engine / hỏi xác nhận")
+    assert rt.main(_args(warehouse, out, "--run"), engine=_boom, ask=_boom) == 0
+    rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert rep["meta"]["estimate"]["calls"] == 0 and rep["meta"]["estimate"]["reused"] == 2
+    assert rep["summary"]["ran"] == 2

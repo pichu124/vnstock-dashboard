@@ -588,15 +588,22 @@ def main(argv: list[str] | None = None, *, engine: Engine | None = None,
             "db": str(db), "limit": a.limit}
     print(f"{len(rows)} phiên: {rows[0]['session']} → {rows[-1]['session']} · "
           f"lỗi dựng: {sum(1 for r in rows if r.get('error'))}")
+    out_dir = a.out or _default_out(not a.run)
     if a.run:
-        est = estimate(rows, model)
+        # Phiên đã có `new/<phiên>.raw.md` dùng lại bản đó (0 lượt gọi) ⇒ không tính vào ước tính:
+        # sửa guard rồi chạy lại đúng lệnh là chấm lại 20 bản đã trả tiền MIỄN PHÍ.
+        def _cached(r: dict) -> bool:
+            p = _raw_path(out_dir, r["session"])
+            return p.is_file() and bool(p.read_text(encoding="utf-8").strip())
+        est = estimate([r for r in rows if not _cached(r)], model)
+        est["reused"] = sum(1 for r in rows if not r.get("error") and _cached(r))
         meta["estimate"] = est
-        print(estimate_line(est))
+        print(estimate_line(est) + (f" · dùng lại {est['reused']} bản đã có (0 lượt gọi)"
+                                    if est["reused"] else ""))
         if est["calls"] and not a.yes and ask(f"Gọi {est['calls']} lượt? [y/N] ").strip().lower() \
                 not in ("y", "yes", "c", "có"):
             print("Huỷ — không gọi model.")
             return 1
-    out_dir = a.out or _default_out(not a.run)
     if a.run:
         eng = engine or vbp.run_claude_cli
         streak = 0

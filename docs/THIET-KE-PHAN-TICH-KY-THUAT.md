@@ -396,3 +396,15 @@ Hai nửa thời gian cho cùng kết luận. Phần VN-Index chỉ 51 ngày ch�
 | S/R (§17) | (a) | pivot60 giữ làm **mốc tham chiếu** + dòng "biên 1 ATR" (close ± ATR14); guard chặn câu coi mức là lợi thế ("hỗ trợ sẽ giữ", "chắc chắn bật", "thủng là về S2") |
 | Độ rộng (§16 replay) | (1) chỉ đổi SỐ HIỂN THỊ | brief + dashboard in `% trên MA200 (N mã thanh khoản)` + số toàn thị trường; phiếu regime, sentiment, allocation, guard `enforce_breadth_quality`, màu dashboard vẫn đọc `above_ma200_pct` (tập all). Công tắc `VNSTOCK_BREADTH_DISPLAY` (mặc định tắt tới khi duyệt bản mẫu cùng thẻ). Replay 507 phiên: đổi phiếu sang tập thanh khoản với ngưỡng cũ làm 44 phiên "chưa rõ→nhịp hồi" (T20 nhịp hồi +1,13%→+0,68%), +38 phiên ép TĂNG, lớp bảo vệ yếu đi 34 phiên ⇒ KHÔNG đổi phiếu |
 | Nội dung thẻ | theo đề xuất Claude | thẻ MÔ TẢ, không dự báo. VN-Index trong brief: Xu hướng MA20 · RSI · KL; mức tham chiếu S1/R1 + biên 1 ATR; tín hiệu lệch nhau — KHÔNG lặp trung/dài hạn (đã ở 🔭). Từng mã (≤ ~10 mã brief nhắc): MA20 · tuần · dài (SMA200 %) · RSI · KL · S1/R1 · lệch. Bỏ khỏi brief: MACD, vị trí 52 tuần, ATR% (giữ ở tab Phân tích mã). Nhãn thẻ lưu vào ctx để `ta-score` chấm từng nhãn sau ~60 phiên ⇒ cắt nhãn không có giá trị |
+
+## 19. Replay 20 phiên brief chiều có thẻ (🖥️ desktop 05/11, `scripts/replay_ta_brief.py`)
+
+20 phiên 05/10→04/11, Opus, prompt = `build_prompt(ctx)` + thẻ dựng trên bar CẮT tới phiên.
+
+| | Bản CŨ (DB) | Bản MỚI trước guard | Sau guard |
+|---|---|---|---|
+| Vi phạm 5 luật | 26 (số ngoài thẻ 6 · vượt/thủng thiếu KL 20) | 1 (số ngoài thẻ 1) | 0 |
+
+- Vi phạm bản cũ = dòng điền khuôn prompt cũ (`Trigger ngày mai` không KL; `Vs MA` bắt in MA50/MA200), KHÔNG phải model sai.
+- Bản mới: 0 xu hướng ngược thẻ · 0 RSI sai vùng · 0 hứa hẹn mức · 0 thiếu KL.
+- **Lỗi tìm ra:** trần 3 câu cắt theo VỊ TRÍ, guard bỏ 29 câu. Model viết ý chính + mỗi chiều kịch bản 1 câu + mức huỷ (4–5 câu), nên mất mức huỷ 17/20 phiên và mất HẲN chiều tăng ở 7 phiên (kịch bản thành một chiều, nghiêng giảm). Sửa: `ta_pick_insight` chọn theo VAI (câu đầu = ý chính · hai câu một chiều nối "a; b" · câu mức huỷ), ≤3 câu thì giữ nguyên; mảnh đánh số "2." bị bỏ; prompt dặn gộp hai chiều trong một câu. Chạy lại đúng lệnh `--run` = chấm lại 20 bản đã trả tiền, 0 lượt gọi.

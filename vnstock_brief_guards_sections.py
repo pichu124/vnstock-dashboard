@@ -2799,6 +2799,64 @@ _TA_FACT_LINE_RE = _re.compile(
     r"hỗ trợ gần\s*:|kháng cự gần\s*:|vị trí[^:]{0,25}:|vs ma\s*:)", _re.IGNORECASE)
 _TA_LABEL_RE = _re.compile(r"^\*\*[^*\n]{1,40}?(?:\*\*\s*[:：]|[:：]\s*\*\*)\s*")   # "**Nhãn:**"
 _TA_BULLET_RE = _re.compile(r"^\s*(?:[-•>]|\*(?=\s))\s*")
+# Model đánh số "1. … 2. … 3. …" trong dòng nhận định ⇒ bộ tách câu cắt ra mảnh "2." làm một câu
+# (replay 05/10: 8 "câu", 2 trong đó là "2." và "3.") ⇒ mảnh chỉ có số bị bỏ, số đầu câu bị gọt.
+_TA_LIST_MARK_RE = _re.compile(r"^\(?\d{1,2}[.)]\s*")
+# Vai của câu nhận định — trần 3 câu chọn theo VAI, không theo vị trí. Replay 20 phiên 05/10→04/11:
+# model viết ý chính + mỗi chiều kịch bản một câu + mức huỷ (4–5 câu); cắt 3 câu ĐẦU làm mất mức
+# huỷ ở 17/20 phiên và mất HẲN chiều tăng ở 7 phiên (brief thành kịch bản một chiều, nghiêng giảm).
+_TA_INV_RE = _re.compile(r"\bsai\s+(?:nếu|khi)\b|\bh(?:ủy|uỷ)\s+(?:nếu|khi)\b|\bmức h(?:ủy|uỷ)\b|"
+                         r"\bvô hiệu\b", _re.IGNORECASE)
+_TA_UP_RE = _re.compile(r"\bvượt\b|\bđóng(?: cửa)? trên\b|\bchiều (?:tăng|hồi)\b|"
+                        r"\bkịch bản (?:tăng|hồi)\b", _re.IGNORECASE)
+_TA_DOWN_RE = _re.compile(r"\bthủng\b|\bđóng(?: cửa)? dưới\b|\bchiều giảm\b|\bkịch bản giảm\b|"
+                          r"\bmất (?:mốc|mức|hỗ trợ)\b", _re.IGNORECASE)
+
+
+def _ta_role(s: str) -> str:
+    if _TA_INV_RE.search(s):
+        return "inv"
+    up, down = bool(_TA_UP_RE.search(s)), bool(_TA_DOWN_RE.search(s))
+    return "both" if up and down else "up" if up else "down" if down else "other"
+
+
+def _ta_join_sides(a: str, b: str) -> str:
+    """Hai câu kịch bản (mỗi chiều một câu) ⇒ MỘT câu "a; b" — nối, không đổi chữ."""
+    if b[:1].isupper() and b[1:2].islower():            # "Chiều giảm" → "chiều giảm"; "VN-Index" giữ
+        b = b[0].lower() + b[1:]
+    return f"{a.rstrip(' .!…')}; {b}"
+
+
+def ta_pick_insight(sents: "list[str]", cap: int = TA_INSIGHT_MAX_SENTENCES) -> "list[str]":
+    """≤ ``cap`` câu theo khung prompt: (1) ý chính = câu đầu; (2) kịch bản HAI chiều — hai câu
+    một chiều ⇒ nối thành một; (3) mức huỷ. Thiếu vai nào thì lấp bằng câu còn lại theo thứ tự gốc.
+    Đủ ``cap`` câu trở xuống ⇒ giữ nguyên (không đảo thứ tự chữ model)."""
+    if len(sents) <= cap:
+        return list(sents)
+    first, rest = sents[0], sents[1:]
+    roles = [(_ta_role(s), s) for s in rest]
+
+    def _first(role: str) -> "str | None":
+        return next((s for r, s in roles if r == role), None)
+    up, down, both, inv = _first("up"), _first("down"), _first("both"), _first("inv")
+    used: list[str] = []
+    if both:
+        scen, used = both, [both]
+    elif up and down:
+        a, b = (up, down) if rest.index(up) < rest.index(down) else (down, up)
+        scen, used = _ta_join_sides(a, b), [up, down]
+    else:
+        scen = up or down
+        used = [scen] if scen else []
+    picked = [first] + ([scen] if scen else [])
+    tail = [inv] if inv else []
+    used += tail
+    for s in rest:
+        if len(picked) + len(tail) >= cap:
+            break
+        if s not in used:
+            picked.append(s)
+    return (picked + tail)[:cap]
 
 
 def _ta_agent_sentences(agent_lines: "list[str]", card: "list[str]") -> "list[str]":
@@ -2815,7 +2873,8 @@ def _ta_agent_sentences(agent_lines: "list[str]", card: "list[str]") -> "list[st
                 continue
             lab = _TA_LABEL_RE.match(core)
             body = core[lab.end():] if lab else core
-        sents = ta_split_sentences(body)
+        sents = [_TA_LIST_MARK_RE.sub("", x).strip() for x in ta_split_sentences(body)]
+        sents = [x for x in sents if x]
         if sents and not sents[-1].endswith((".", "!", "?", "…")):
             sents[-1] += "."
         out += sents
@@ -2841,7 +2900,7 @@ def enforce_ta_card_block(text: str, ctx: dict) -> str:
             title, at = lines[s].strip(), s
         agent += lines[s + 1:e]
         del lines[s:e]
-    sents = _ta_agent_sentences(agent, card)[:TA_INSIGHT_MAX_SENTENCES]
+    sents = ta_pick_insight(_ta_agent_sentences(agent, card))
     block = [title or TA_SECTION_TITLES[ctx.get("brief_type") or "afternoon"]] + card
     if sents:
         block.append(f"{TA_INSIGHT_LABEL} {' '.join(sents)}")

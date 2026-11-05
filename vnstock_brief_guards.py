@@ -190,6 +190,13 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     _TA_LABEL_RE,
     _TA_BULLET_RE,
     _ta_agent_sentences,
+    _TA_LIST_MARK_RE,
+    _TA_INV_RE,
+    _TA_UP_RE,
+    _TA_DOWN_RE,
+    _ta_role,
+    _ta_join_sides,
+    ta_pick_insight,
 )
 
 from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)

@@ -3728,8 +3728,9 @@ _TA_SECTION_TEMPLATE = (
     "[hệ thống tự chèn các dòng \"Thẻ kỹ thuật VN-Index\" ở block \"## VNINDEX kỹ thuật\" vào "
     "đây — KHÔNG chép, KHÔNG viết lại số]\n"
     "**Nhận định:** [TỐI ĐA 3 câu, CHỈ dùng số có trong thẻ: (1) ý chính từ thẻ + dòng \"Tín "
-    "hiệu lệch nhau\" nếu có; (2) kịch bản HAI chiều, MỖI chiều có điều kiện mức (S1/R1 của "
-    "thẻ) + khối lượng (KL so TB20, xác nhận khi ≥ {vol_mult:.2f}× TB20); (3) mức huỷ — điều gì "
+    "hiệu lệch nhau\" nếu có; (2) kịch bản HAI chiều GỘP TRONG MỘT câu (chiều tăng; chiều giảm), "
+    "MỖI chiều có điều kiện mức (S1/R1 của thẻ) + khối lượng (KL so TB20, xác nhận khi "
+    "≥ {vol_mult:.2f}× TB20); (3) mức huỷ — điều gì "
     "làm nhận định sai. S/R và biên 1 ATR là MỐC THAM CHIẾU, KHÔNG phải lợi thế: TUYỆT ĐỐI KHÔNG "
     "viết {promises}. RSI > 70 = \"đà mạnh\", KHÔNG gọi là quá mua/cảnh báo.]\n")
 
@@ -4627,6 +4628,13 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _TA_LABEL_RE,
     _TA_BULLET_RE,
     _ta_agent_sentences,
+    _TA_LIST_MARK_RE,
+    _TA_INV_RE,
+    _TA_UP_RE,
+    _TA_DOWN_RE,
+    _ta_role,
+    _ta_join_sides,
+    ta_pick_insight,
     _TA_BREAK_RE,
     _TA_DATE_RE,
     _TA_GLUED_RE,

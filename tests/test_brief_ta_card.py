@@ -211,8 +211,11 @@ RAW_ON = RAW.replace(
 GUARDED_SECTION = [
     "## 📈 Mức kỹ thuật chốt phiên (VNINDEX)",
     *CARD_LINES,
-    # câu 1 (xu hướng + RSI ngược thẻ) và câu 2 (số bịa) bị BỎ; câu 3 mất hai mệnh đề hứa hẹn
-    "**Nhận định:** Vượt R1 1,748.80 (cần KL ≥ 1.2× TB20) thì mức kế tiếp R2 1,765.40.",
+    # câu 1 (xu hướng + RSI ngược thẻ) và câu 2 (số bịa) bị BỎ; câu 3 mất hai mệnh đề hứa hẹn;
+    # câu 4 = MỨC HUỶ được GIỮ (trần 3 câu chọn theo vai — replay 05/10→04/11: cắt theo vị trí làm
+    # mất mức huỷ 17/20 phiên)
+    "**Nhận định:** Vượt R1 1,748.80 (cần KL ≥ 1.2× TB20) thì mức kế tiếp R2 1,765.40. "
+    "Mức huỷ là đóng cửa dưới S2 1,690.25.",
 ]
 
 
@@ -229,7 +232,7 @@ def test_simulated_brief_comes_out_right_after_full_chain():
     out = vb.apply_brief_guards(RAW_ON, _ta_ctx())
     assert _ta_section(out) == GUARDED_SECTION
     assert "1,812" not in out and "1,800.50" not in out      # câu số bịa bị bỏ (không ghim số khác)
-    assert "Mức huỷ" not in out                              # câu thứ 4 bị cắt (≤3 câu)
+    assert "Mức huỷ là đóng cửa dưới S2 1,690.25." in out   # vai "mức huỷ" giữ dù là câu thứ 4
 
 
 @pytest.mark.parametrize("bt", ["afternoon", "morning"])
@@ -786,3 +789,42 @@ def test_switch_values(monkeypatch, val, on):
     import vnstock_ta_card as tc
     monkeypatch.setenv("VNSTOCK_TA_CARD", val)
     assert tc.ta_card_enabled() is on
+
+
+# ── Trần 3 câu chọn theo VAI (replay 20 phiên 05/10→04/11) ────────────────────
+
+def test_pick_insight_keeps_both_sides_and_invalidation_from_replay_1006():
+    from vnstock_brief_guards_sections import ta_pick_insight
+    sents = ["Chỉ số dưới MA20 và RSI yếu, xu hướng ngắn hạn giảm.",
+             "Chiều giảm: thủng S1 1,744.31 với KL ≥ 1.20× TB20 thì về vùng S2.",
+             "Biên 1 ATR là mốc tham chiếu.",
+             "Chiều tăng: đóng trên R1 1,768.05 với KL ≥ 1.20× TB20 thì nhịp hồi mở rộng.",
+             "Nhận định giảm sai nếu chỉ số đứng vững trên R1 1,768.05 kèm KL xác nhận."]
+    out = ta_pick_insight(sents)
+    assert out == [sents[0],
+                   "Chiều giảm: thủng S1 1,744.31 với KL ≥ 1.20× TB20 thì về vùng S2; chiều tăng: "
+                   "đóng trên R1 1,768.05 với KL ≥ 1.20× TB20 thì nhịp hồi mở rộng.",
+                   sents[4]]
+
+
+def test_pick_insight_four_sentences_keeps_invalidation_not_cut_by_position():
+    from vnstock_brief_guards_sections import ta_pick_insight
+    sents = ["Ý chính.", "Thủng S1 1,675.19 kèm KL thì giảm tiếp.",
+             "Vượt R1 1,734.39 kèm KL thì hồi.",
+             "Nhận định giảm sai nếu chỉ số đóng cửa trên R1 1,734.39 kèm KL xác nhận."]
+    out = ta_pick_insight(sents)
+    assert len(out) == 3 and out[-1] == sents[3]
+    assert out[1] == "Thủng S1 1,675.19 kèm KL thì giảm tiếp; vượt R1 1,734.39 kèm KL thì hồi."
+
+
+def test_pick_insight_without_roles_falls_back_to_order():
+    from vnstock_brief_guards_sections import ta_pick_insight
+    assert ta_pick_insight(["A.", "B.", "C.", "D."]) == ["A.", "B.", "C."]
+    three = ["Vượt R1 thì hồi.", "Ý.", "Sai nếu thủng S1."]
+    assert ta_pick_insight(three) == three                 # ≤3 câu: không đảo chữ model
+
+
+def test_card_block_drops_numbered_list_fragments():
+    raw = _sec("1. Ý chính rõ. 2. Thủng S1 kèm KL thì giảm. 3. Sai nếu vượt R1.")
+    out = _guard("enforce_ta_card_block")(raw, _ta_ctx())
+    assert _insight(out) == "Ý chính rõ. Thủng S1 kèm KL thì giảm. Sai nếu vượt R1."
