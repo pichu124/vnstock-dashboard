@@ -2802,6 +2802,8 @@ _TA_BULLET_RE = _re.compile(r"^\s*(?:[-•>]|\*(?=\s))\s*")
 # Model đánh số "1. … 2. … 3. …" trong dòng nhận định ⇒ bộ tách câu cắt ra mảnh "2." làm một câu
 # (replay 05/10: 8 "câu", 2 trong đó là "2." và "3.") ⇒ mảnh chỉ có số bị bỏ, số đầu câu bị gọt.
 _TA_LIST_MARK_RE = _re.compile(r"^\(?\d{1,2}[.)]\s*")
+# Mảnh chỉ là nhãn ("Hai kịch bản:") — chiếm một suất trong trần 3 câu mà không nói gì.
+_TA_LABEL_ONLY_RE = _re.compile(r"[^.!?…:]{1,40}:\s*\.?")
 # Vai của câu nhận định — trần 3 câu chọn theo VAI, không theo vị trí. Replay 20 phiên 05/10→04/11:
 # model viết ý chính + mỗi chiều kịch bản một câu + mức huỷ (4–5 câu); cắt 3 câu ĐẦU làm mất mức
 # huỷ ở 17/20 phiên và mất HẲN chiều tăng ở 7 phiên (brief thành kịch bản một chiều, nghiêng giảm).
@@ -2874,7 +2876,7 @@ def _ta_agent_sentences(agent_lines: "list[str]", card: "list[str]") -> "list[st
             lab = _TA_LABEL_RE.match(core)
             body = core[lab.end():] if lab else core
         sents = [_TA_LIST_MARK_RE.sub("", x).strip() for x in ta_split_sentences(body)]
-        sents = [x for x in sents if x]
+        sents = [x for x in sents if x and not _TA_LABEL_ONLY_RE.fullmatch(x)]
         if sents and not sents[-1].endswith((".", "!", "?", "…")):
             sents[-1] += "."
         out += sents

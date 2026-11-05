@@ -828,3 +828,10 @@ def test_card_block_drops_numbered_list_fragments():
     raw = _sec("1. Ý chính rõ. 2. Thủng S1 kèm KL thì giảm. 3. Sai nếu vượt R1.")
     out = _guard("enforce_ta_card_block")(raw, _ta_ctx())
     assert _insight(out) == "Ý chính rõ. Thủng S1 kèm KL thì giảm. Sai nếu vượt R1."
+
+
+def test_card_block_drops_label_only_fragment_from_replay_1016():
+    raw = _sec("Ý chính. Hai kịch bản:\nĐóng dưới S1 kèm KL thì giảm. Vượt R1 kèm KL thì hồi.")
+    out = _guard("enforce_ta_card_block")(raw, _ta_ctx())
+    assert "Hai kịch bản" not in out
+    assert _insight(out) == "Ý chính. Đóng dưới S1 kèm KL thì giảm. Vượt R1 kèm KL thì hồi."

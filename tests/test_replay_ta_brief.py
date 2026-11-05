@@ -477,3 +477,13 @@ def test_rerun_after_guard_change_reuses_all_paid_text_without_asking(warehouse,
     rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
     assert rep["meta"]["estimate"]["calls"] == 0 and rep["meta"]["estimate"]["reused"] == 2
     assert rep["summary"]["ran"] == 2
+
+
+def test_guard_diff_counts_joined_scenario_sentences_as_merged_not_dropped(monkeypatch):
+    monkeypatch.setattr(rt, "section_sentences", lambda sec, ctx: sec.split("|") if sec else [])
+    monkeypatch.setattr(rt, "ta_section", lambda text: text)
+    raw = "Ý.|Chiều giảm: thủng S1.|Chiều tăng: vượt R1.|Phụ.|Sai nếu vượt R2."
+    final = "Ý.|Chiều giảm: thủng S1; chiều tăng: vượt R1.|Sai nếu vượt R2."
+    g = rt.guard_diff(raw, final, {})
+    assert g["merged"] == ["Chiều giảm: thủng S1.", "Chiều tăng: vượt R1."]
+    assert g["dropped"] == ["Phụ."]

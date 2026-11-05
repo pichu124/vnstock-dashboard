@@ -224,11 +224,20 @@ def guard_diff(raw: str, final: str, ctx: dict) -> dict:
     after_sec = ta_section(final)
     after = section_sentences(after_sec, ctx)
     card = [str(l) for l in ((ctx.get("ta_card") or {}).get("lines") or [])]
+    changed = [s for s in after if s not in before]
+    gone = [s for s in before if s not in after]
+
+    def _norm(x: str) -> str:
+        return x.strip().rstrip(" .!?…").lower()
+    # Hai câu kịch bản một chiều được NỐI thành một ("a; b") — chữ vẫn còn nguyên trong câu mới,
+    # không phải bị bỏ (lượt chấm lại 05/11 đếm nhầm chúng thành "bỏ").
+    merged = [d for d in gone if any(_norm(d) and _norm(d) in _norm(c) for c in changed)]
     return {
         "raw_sentences": len(before), "final_sentences": len(after),
         "kept": sum(1 for s in after if s in before),
-        "dropped": [s for s in before if s not in after],
-        "changed": [s for s in after if s not in before],
+        "dropped": [d for d in gone if d not in merged],
+        "merged": merged,
+        "changed": changed,
         "card_lines_ok": bool(card) and all(l in after_sec.split("\n") for l in card),
     }
 
@@ -433,7 +442,8 @@ def session_md(r: dict, dry_run: bool) -> list[str]:
         g = r.get("guard") or {}
         out += _block(r.get("new_section", ""))
         out += [f"Guard: {g.get('raw_sentences', 0)} câu model → {g.get('final_sentences', 0)} câu"
-                f" · bỏ {len(g.get('dropped') or [])} · mới/sửa {len(g.get('changed') or [])}"
+                f" · bỏ {len(g.get('dropped') or [])} · gộp {len(g.get('merged') or [])}"
+                f" · mới/sửa {len(g.get('changed') or [])}"
                 f" · dòng thẻ {'đủ' if g.get('card_lines_ok') else 'THIẾU'}"]
         out += [f"  - [bỏ] {s}" for s in g.get("dropped") or []]
         out += [f"  - [mới/sửa] {s}" for s in g.get("changed") or []]
@@ -459,6 +469,7 @@ def summarize(rows: list[dict], dry_run: bool) -> dict:
         "new_raw_violations": _by_rule("new_raw_violations", ran),
         "new_final_violations": _by_rule("new_final_violations", ran),
         "dropped_sentences": sum(len(r["guard"]["dropped"]) for r in ran),
+        "merged_sentences": sum(len(r["guard"].get("merged") or []) for r in ran),
         "changed_sentences": sum(len(r["guard"]["changed"]) for r in ran),
         "dry_run": dry_run,
     }
@@ -500,7 +511,8 @@ def render_report(rows: list[dict], meta: dict) -> str:
         tot.append(f"- {name}: {sum(v.values())} — "
                    + " · ".join(f"{RULE_NAMES[k]} {v[k]}" for k in RULE_KEYS))
     if not dry:
-        tot.append(f"- Câu guard bỏ ở bản mới: {s['dropped_sentences']} · câu mới/sửa: "
+        tot.append(f"- Câu guard bỏ ở bản mới: {s['dropped_sentences']} · câu kịch bản gộp "
+                   f"đôi: {s['merged_sentences']} · câu mới/sửa: "
                    f"{s['changed_sentences']}")
     return "\n".join(head + body + tbl + tot) + "\n"
 
