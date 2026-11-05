@@ -388,3 +388,11 @@ Hai nửa thời gian cho cùng kết luận. Phần VN-Index chỉ 51 ngày ch�
    "mức kế tiếp S2" (sự kiện, không dự báo).
 3. Hệ quả P2: S/R pivot60 giữ làm MỐC THAM CHIẾU (không cách nào tốt hơn, đổi chỉ gây xáo trộn), nhưng nhận định
    KHÔNG được dựa vào "hỗ trợ sẽ giữ / thủng thì về S2" như một lợi thế — chờ user chốt §17a.
+
+## 18. Chốt 05/11 — S/R, độ rộng, nội dung thẻ
+
+| Câu | Trả lời | Làm |
+|---|---|---|
+| S/R (§17) | (a) | pivot60 giữ làm **mốc tham chiếu** + dòng "biên 1 ATR" (close ± ATR14); guard chặn câu coi mức là lợi thế ("hỗ trợ sẽ giữ", "chắc chắn bật", "thủng là về S2") |
+| Độ rộng (§16 replay) | (1) chỉ đổi SỐ HIỂN THỊ | brief + dashboard in `% trên MA200 (N mã thanh khoản)` + số toàn thị trường; phiếu regime, sentiment, allocation, guard `enforce_breadth_quality`, màu dashboard vẫn đọc `above_ma200_pct` (tập all). Công tắc `VNSTOCK_BREADTH_DISPLAY` (mặc định tắt tới khi duyệt bản mẫu cùng thẻ). Replay 507 phiên: đổi phiếu sang tập thanh khoản với ngưỡng cũ làm 44 phiên "chưa rõ→nhịp hồi" (T20 nhịp hồi +1,13%→+0,68%), +38 phiên ép TĂNG, lớp bảo vệ yếu đi 34 phiên ⇒ KHÔNG đổi phiếu |
+| Nội dung thẻ | theo đề xuất Claude | thẻ MÔ TẢ, không dự báo. VN-Index trong brief: Xu hướng MA20 · RSI · KL; mức tham chiếu S1/R1 + biên 1 ATR; tín hiệu lệch nhau — KHÔNG lặp trung/dài hạn (đã ở 🔭). Từng mã (≤ ~10 mã brief nhắc): MA20 · tuần · dài (SMA200 %) · RSI · KL · S1/R1 · lệch. Bỏ khỏi brief: MACD, vị trí 52 tuần, ATR% (giữ ở tab Phân tích mã). Nhãn thẻ lưu vào ctx để `ta-score` chấm từng nhãn sau ~60 phiên ⇒ cắt nhãn không có giá trị |
