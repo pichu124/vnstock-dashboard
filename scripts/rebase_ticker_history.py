@@ -1181,11 +1181,12 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
                          f"không xác nhận chia tách/thưởng")
     if _why_keep is None:
         scale_vol = factor
-        print(f"[rebase] -> NHÂN khối lượng lịch sử × {scale_vol:.4f} "
-              f"(nguồn chỉ điều chỉnh giá, bậc nhảy volume {step:.2f}× khớp "
-              f"hệ số"
-              + (f", kho sự kiện xác nhận '{_ev}'" if _shares_changed else "")
-              + ")")
+        # Ép --volume adjust thì KHÔNG có bằng chứng nào được kiểm — in "bậc nhảy khớp hệ số" là
+        # nói dối (05/11: KSV in "1.00× khớp" cho hệ số 1.54; whole-series in "nan× khớp").
+        _because = ("ép --volume adjust — không kiểm bằng chứng" if volume_mode == "adjust"
+                    else f"nguồn chỉ điều chỉnh giá, bậc nhảy volume {step:.2f}× khớp hệ số"
+                    + (f", kho sự kiện xác nhận '{_ev}'" if _shares_changed else ""))
+        print(f"[rebase] -> NHÂN khối lượng lịch sử × {scale_vol:.4f} ({_because})")
     else:
         print(f"[rebase] -> GIỮ NGUYÊN khối lượng: {_why_keep}"
               + ("" if volume_mode == "source"
