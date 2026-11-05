@@ -46,6 +46,15 @@ from vnstock_brief_guards_common import (  # noqa: F401  (re-export)
     ta_ctx,
     ta_rewrite_insight,
     ta_split_sentences,
+    _TA_NEGATION_RE,
+    _TA_CLAUSE_SEP_RE,
+    _TA_NOT_TICKERS,
+    _TA_OTHER_INDEX_RE,
+    _TA_TITLE_CORES,
+    _TA_TITLE_TAIL_RE,
+    _TA_VNINDEX_RE,
+    ta_drop_clauses,
+    ta_subject,
 )
 
 from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
@@ -226,6 +235,15 @@ from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     _ta_allowed,
     _ta_known,
     _ta_numbers,
+    _BREADTH_ALL,
+    _BREADTH_SET_TAG,
+    _breadth_fix_swapped,
+    _TA_DONE_RE,
+    _TA_NEGATED_TAIL_RE,
+    _TA_OTHER_FRAME_RE,
+    _TA_RSI_ALARM_RE,
+    _TA_RSI_MOMENTUM,
+    _TA_SESSIONS_RE,
     _ADVERB,
 )
 
@@ -250,6 +268,7 @@ from vnstock_brief_guards_text import (  # noqa: F401  (re-export)
     enforce_no_record_superlative,
     enforce_ta_no_level_promise,
     _TA_PROMISE_RES,
+    _ta_promises,
 )
 
 
@@ -415,11 +434,12 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_range_position(fixed, ctx)
     # Mục 📈 khi có thẻ kỹ thuật (PTKT P3): SAU mọi guard có thể đụng số trong mục, để dòng
     # thẻ ra đúng nguyên văn; TRƯỚC number_format (EN hoá số VN trong câu nhận định).
+    # Sai ⇒ BỎ câu/mệnh đề, không thay từ. Bỏ mệnh đề hứa hẹn TRƯỚC: các guard sau phán phần còn lại.
     fixed = enforce_ta_card_block(fixed, ctx)        # dòng thẻ = code, nhận định ≤3 câu
+    fixed = enforce_ta_no_level_promise(fixed, ctx)  # 'hỗ trợ sẽ giữ' → bỏ mệnh đề
     fixed = enforce_ta_numbers(fixed, ctx)           # câu có số ngoài thẻ → bỏ câu
-    fixed = enforce_ta_trend_words(fixed, ctx)       # 'xu hướng tăng' ngược thẻ → theo thẻ
-    fixed = enforce_ta_rsi_words(fixed, ctx)         # RSI >70 'quá mua' → 'đà mạnh'
-    fixed = enforce_ta_no_level_promise(fixed, ctx)  # 'hỗ trợ sẽ giữ' → mốc tham chiếu
+    fixed = enforce_ta_trend_words(fixed, ctx)       # 'xu hướng tăng' ngược thẻ → bỏ câu
+    fixed = enforce_ta_rsi_words(fixed, ctx)         # RSI >70 'quá mua' → bỏ câu
     fixed = enforce_ta_breakout_volume(fixed, ctx)   # 'vượt R1' thiếu KL → chèn điều kiện KL
     fixed = enforce_number_format(fixed, ctx)            # one number convention (EN)
     return fixed

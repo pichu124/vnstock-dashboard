@@ -152,6 +152,7 @@ def _ta_ctx(brief_type: str = "afternoon") -> dict:
     ctx = _ctx_off(brief_type)
     ctx["vnindex_tech"]["ta_levels"] = [1708.2, 1758.2]
     ctx["ta_card"] = {**tc.card_labels(vni), "label": "VN-Index",
+                      "day_change_pct": ctx["vnindex_tech"]["day_change_pct"],
                       "lines": tc.brief_lines(vni, "2026-11-04")}
     ctx["ta_cards"] = {tk: {**tc.card_labels(c), "label": tk,
                             "line": tc.brief_facts(c, "2026-11-04", price_scale=1000)}
@@ -210,10 +211,8 @@ RAW_ON = RAW.replace(
 GUARDED_SECTION = [
     "## 📈 Mức kỹ thuật chốt phiên (VNINDEX)",
     *CARD_LINES,
-    "**Nhận định:** VN-Index giữ xu hướng tăng dù đóng trên MA20, RSI 75.3 đà mạnh. Hỗ trợ là "
-    "mốc tham chiếu (chưa chắc giữ) quanh S1 1,705.50; vượt R1 1,748.80 (kèm KL ≥ 1.20× TB20; "
-    "phiên gần nhất KL 1.30× TB20) thì mức kế tiếp R2 1,765.40, thủng S1 1,705.50 (kèm KL ≥ "
-    "1.20× TB20; phiên gần nhất KL 1.30× TB20) thì mức kế tiếp là S2 1,690.25.",
+    # câu 1 (xu hướng + RSI ngược thẻ) và câu 2 (số bịa) bị BỎ; câu 3 mất hai mệnh đề hứa hẹn
+    "**Nhận định:** Vượt R1 1,748.80 (cần KL ≥ 1.2× TB20) thì mức kế tiếp R2 1,765.40.",
 ]
 
 
@@ -246,9 +245,10 @@ def test_chain_position_after_number_guards_before_number_format():
 
     import vnstock_brief_guards as g
     src = inspect.getsource(g.apply_brief_guards)
+    # bỏ mệnh đề hứa hẹn TRƯỚC guard số/chữ: chúng phán phần còn lại (idempotent ở lượt 2)
     order = ["enforce_scenario_levels", "enforce_range_position", "enforce_ta_card_block",
-             "enforce_ta_numbers", "enforce_ta_trend_words", "enforce_ta_rsi_words",
-             "enforce_ta_no_level_promise", "enforce_ta_breakout_volume", "enforce_number_format"]
+             "enforce_ta_no_level_promise", "enforce_ta_numbers", "enforce_ta_trend_words",
+             "enforce_ta_rsi_words", "enforce_ta_breakout_volume", "enforce_number_format"]
     pos = [src.index(f"{n}(") for n in order]
     assert pos == sorted(pos)
 
@@ -306,12 +306,41 @@ def test_card_block_inserted_after_overview_when_model_drops_the_section():
 def test_card_block_merges_duplicate_sections_and_old_template_lines():
     raw = ("## 📊 Tổng kết phiên\nx.\n\n## Mức kỹ thuật chốt phiên\n**Đóng cửa:** 1,733.20\n"
            "**Hỗ trợ gần:** S1 1,705.50\n**Trigger ngày mai:** vượt R1 1,748.80 có KL\n\n"
-           "## 📈 Thẻ kỹ thuật VN-Index\n- Mức tham chiếu: S1 9\nÝ phụ.\n")
+           "## 📈 Mức kỹ thuật chốt phiên (VNINDEX)\n- Mức tham chiếu: S1 9\nÝ phụ.\n")
     out = _guard("enforce_ta_card_block")(raw, _ta_ctx())
     sec = _ta_section(out)
     assert sec[0] == "## Mức kỹ thuật chốt phiên" and sec[1:5] == CARD_LINES
     assert _insight(out) == "vượt R1 1,748.80 có KL. Ý phụ."
     assert out.count("Mức tham chiếu") == 1
+
+
+@pytest.mark.parametrize("line, want", [
+    ("## 📈 Mức kỹ thuật chốt phiên (VNINDEX)", True),
+    ("## 📈 Mức kỹ thuật quan trọng (VNINDEX)", True),
+    ("## Mức kỹ thuật chốt phiên", True),                       # model bỏ emoji / đuôi
+    ("## 📈 **Mức kỹ thuật quan trọng (VN-Index)**", True),
+    ("## 📈 Mức kỹ thuật", True),
+    ("## 📋 Watchlist — mức kỹ thuật cần canh", False),          # mục khác có cụm "mức kỹ thuật"
+    ("## ⚠️ Rủi ro: thủng mức kỹ thuật", False),
+    ("## 📈 Thẻ kỹ thuật VN-Index", False),
+    ("Mức kỹ thuật chốt phiên", False),                          # không phải dòng tiêu đề
+])
+def test_ta_heading_is_only_the_section_title(line, want):
+    from vnstock_brief_guards_common import is_ta_heading
+    assert is_ta_heading(line) is want
+
+
+def test_ta_heading_recognises_every_canon_title():
+    from vnstock_brief_canon import TA_SECTION_TITLES
+    from vnstock_brief_guards_common import is_ta_heading
+    assert all(is_ta_heading(t) for t in TA_SECTION_TITLES.values())
+
+
+def test_card_block_leaves_other_sections_mentioning_levels_alone():
+    raw = _sec("Ý một.") + "\n## ⚠️ Rủi ro: thủng mức kỹ thuật\n- Thủng S1.\n"
+    out = _guard("enforce_ta_card_block")(raw, _ta_ctx())
+    assert "## ⚠️ Rủi ro: thủng mức kỹ thuật\n- Thủng S1." in out
+    assert _insight(out) == "Ý một."
 
 
 @pytest.mark.parametrize("line, want", [
@@ -350,39 +379,98 @@ def test_numbers_guard_drops_only_the_bad_sentence():
     assert _insight(out) == "Ý đúng 1,733.20. Ý cuối."
 
 
+def _guarded_insight(name: str, insight: str) -> "str | None":
+    """Dòng nhận định sau MỘT guard; None = guard bỏ hết câu (dòng thẻ vẫn còn)."""
+    out = _guard(name)(_sec(insight), _ta_ctx())
+    assert _ta_section(out)[1:5] == CARD_LINES
+    return _insight(out) if "**Nhận định:**" in out else None
+
+
+# Chữ ngược thẻ ⇒ BỎ câu, KHÔNG thay từ (thay từ biến câu đúng thành sai — review 05/11).
 @pytest.mark.parametrize("insight, want", [
-    ("VN-Index trong xu hướng giảm.", "VN-Index trong xu hướng tăng."),
-    ("Xu hướng MA20 đi ngang.", "Xu hướng MA20 tăng."),
-    ("Thị trường xu hướng GIẢM.", "Thị trường xu hướng TĂNG."),
-    ("Xu hướng giảm trung hạn còn đó.", "Xu hướng giảm trung hạn còn đó."),   # khung khác
-    ("EIB xu hướng tăng.", "EIB xu hướng giảm."),                            # thẻ của mã
+    ("VN-Index trong xu hướng giảm.", None),
+    ("Xu hướng MA20 đi ngang.", None),
+    ("Thị trường xu hướng GIẢM.", None),
+    ("Ý đúng. VN-Index xu hướng giảm. Ý cuối.", "Ý đúng. Ý cuối."),
+    ("EIB xu hướng tăng.", None),                                            # thẻ của mã
     ("VN-Index xu hướng tăng.", "VN-Index xu hướng tăng."),
+    ("Xu hướng giảm trung hạn còn đó.", "Xu hướng giảm trung hạn còn đó."),   # khung khác
+    ("Không xu hướng giảm nào xuất hiện.", "Không xu hướng giảm nào xuất hiện."),  # phủ định
+    ("VN-Index chưa có xu hướng giảm.", "VN-Index chưa có xu hướng giảm."),
+    ("FPT xu hướng tăng còn EIB xu hướng giảm.", "FPT xu hướng tăng còn EIB xu hướng giảm."),
+    ("HPG xu hướng giảm.", "HPG xu hướng giảm."),                            # mã không có thẻ
+    ("HNX-Index xu hướng giảm.", "HNX-Index xu hướng giảm."),                # chỉ số khác
+    ("UPCoM xu hướng giảm.", "UPCoM xu hướng giảm."),
+    ("RSI cao, xu hướng tăng.", "RSI cao, xu hướng tăng."),                  # RSI không phải mã
 ])
-def test_trend_words_follow_the_card(insight, want):
-    assert _insight(_guard("enforce_ta_trend_words")(_sec(insight), _ta_ctx())) == want
+def test_trend_words_against_the_card(insight, want):
+    assert _guarded_insight("enforce_ta_trend_words", insight) == want
 
 
 @pytest.mark.parametrize("insight, want", [
-    ("RSI 75.3 vùng quá mua, cảnh báo điều chỉnh.", "RSI 75.3 đà mạnh."),
-    ("RSI 75.3 quá mua.", "RSI 75.3 đà mạnh."),
-    ("Giá quá mua.", "Giá quá mua."),                           # câu không nói RSI
-    ("EIB RSI 35.2 quá bán.", "EIB RSI 35.2 yếu."),             # thẻ của mã
+    ("RSI 75.3 vùng quá mua, cảnh báo điều chỉnh.", None),
+    ("RSI 75.3 quá mua.", None),
+    ("RSI 75.3 quá mua, chưa có tín hiệu đảo chiều.", None),       # phủ định KHÔNG nhắm vùng
+    ("Giá quá mua.", "Giá quá mua."),                               # câu không nói RSI
+    ("Tín hiệu quá mua có thể dẫn tới điều chỉnh.", None),          # §16: không cần chữ RSI
+    ("EIB RSI 35.2 quá bán.", None),                                # thẻ của mã: yếu
+    ("RSI 75.3 là đà mạnh chứ không phải quá mua.", "RSI 75.3 là đà mạnh chứ không phải quá mua."),
+    ("Không có tín hiệu quá mua theo RSI.", "Không có tín hiệu quá mua theo RSI."),
+    ("RSI 75.3 đà mạnh.", "RSI 75.3 đà mạnh."),
 ])
-def test_rsi_words_follow_the_card(insight, want):
-    assert _insight(_guard("enforce_ta_rsi_words")(_sec(insight), _ta_ctx())) == want
+def test_rsi_words_against_the_card(insight, want):
+    assert _guarded_insight("enforce_ta_rsi_words", insight) == want
+
+
+def test_rsi_negated_zone_that_is_the_card_label_is_dropped():
+    """Thẻ quá bán mà câu nói "không phải quá bán" ⇒ phủ định đúng nhãn thẻ ⇒ sai ⇒ bỏ."""
+    ctx = _ta_ctx()
+    ctx["ta_card"]["rsi_label"] = "quá bán"
+    raw = _sec("RSI không phải quá bán. RSI quá bán.")
+    assert _insight(_guard("enforce_ta_rsi_words")(raw, ctx)) == "RSI quá bán."
 
 
 @pytest.mark.parametrize("insight, want", [
-    ("Hỗ trợ sẽ giữ quanh S1.", "Hỗ trợ là mốc tham chiếu (chưa chắc giữ) quanh S1."),
-    ("Chắc chắn bật lên.", "Có thể bật lên."),
-    ("Thủng S1 là về S2.", "Thủng S1 thì mức kế tiếp là S2."),
-    ("Kháng cự sẽ chặn đà tăng.", "Kháng cự là mốc tham chiếu (chưa chắc chặn) đà tăng."),
-    ("Vượt R1 thì lên R2.", "Vượt R1 thì mức kế tiếp là R2."),
-    ("Giá chắc chắn sẽ hồi.", "Giá có thể hồi."),
-    ("Đảm bảo giữ được.", "Có thể giữ được."),
+    ("Hỗ trợ sẽ giữ quanh S1.", None),
+    ("Hỗ trợ S1 1,705.50 sẽ giữ vững nếu dòng tiền không rút.", None),   # tên mức + số chen giữa
+    ("Hỗ trợ gần S1 sẽ đỡ giá, kháng cự R1 sẽ cản.", None),
+    ("Kháng cự R1 1,748.80 chắc chắn sẽ chặn đà tăng.", None),
+    ("Chắc chắn bật lên.", None),
+    ("Thủng S1 là về S2.", None),
+    ("Đảm bảo giữ được.", None),
+    ("Giá giữ trên MA20, chắc chắn sẽ hồi.", "Giá giữ trên MA20."),       # bỏ MỆNH ĐỀ
+    ("Thủng S1 thì chắc chắn sẽ rơi về S2, cần cẩn trọng.", "Cần cẩn trọng."),
+    ("Vượt R1 thì mức kế tiếp R2; thủng S1 1,705.50 sẽ về S2 1,690.25.",
+     "Vượt R1 thì mức kế tiếp R2."),
+    ("RSI đà mạnh nhưng hỗ trợ S1 sẽ giữ.", "RSI đà mạnh."),
+    ("Vượt R1 thì lên R2.", "Vượt R1 thì lên R2."),                       # kịch bản nếu–thì
+    ("Có thể sẽ về S2 nếu thủng S1.", "Có thể sẽ về S2 nếu thủng S1."),
+    ("Chưa chắc chắn S1 giữ được.", "Chưa chắc chắn S1 giữ được."),
+    ("Đảm bảo an toàn bằng cách chờ vượt R1.", "Đảm bảo an toàn bằng cách chờ vượt R1."),
+    ("Hỗ trợ S1 sẽ giữ, cần theo dõi (S1, MA20).", "Cần theo dõi (S1, MA20)."),  # ngoặc nguyên
 ])
-def test_no_level_promise(insight, want):
-    assert _insight(_guard("enforce_ta_no_level_promise")(_sec(insight), _ta_ctx())) == want
+def test_no_level_promise_drops_the_clause(insight, want):
+    assert _guarded_insight("enforce_ta_no_level_promise", insight) == want
+
+
+def test_promise_clause_drop_then_number_check_is_idempotent():
+    """Mã nằm ở mệnh đề bị bỏ, số của mã ở mệnh đề còn lại ⇒ câu mất chủ thể: guard số phán SAU
+    khi bỏ mệnh đề (bỏ luôn ở lượt 1, không phải lượt 2)."""
+    import vnstock_brief as vb
+    raw = _sec("FPT có hỗ trợ sẽ giữ, cách S1 108.3 nghìn. Ý cuối.")
+    once = vb.apply_brief_guards(raw, _ta_ctx())
+    assert _insight(once) == "Ý cuối."
+    assert vb.apply_brief_guards(once, _ta_ctx()) == once
+
+
+@pytest.mark.parametrize("sentence, want", [
+    ("; chắc chắn S2 là về S2 nhưng giá giữ.", "giá giữ."),     # mệnh đề rỗng đầu câu không giữ
+    ("; chắc chắn S2.", None),                                  # chỉ còn dấu câu ⇒ bỏ câu
+])
+def test_drop_clauses_ignores_empty_clauses(sentence, want):
+    from vnstock_brief_guards_common import ta_drop_clauses
+    from vnstock_brief_guards_text import _ta_promises
+    assert ta_drop_clauses(sentence, _ta_promises) == want
 
 
 def test_level_promise_examples_are_all_caught():
@@ -392,26 +480,132 @@ def test_level_promise_examples_are_all_caught():
     from vnstock_brief_canon import TA_LEVEL_PROMISE_EXAMPLES, TA_LEVEL_PROMISE_PHRASES
     for ex in TA_LEVEL_PROMISE_EXAMPLES:
         assert any(re.search(p, f"thủng S1 {ex}", re.IGNORECASE)
-                   for p, _ in TA_LEVEL_PROMISE_PHRASES), ex
+                   for p in TA_LEVEL_PROMISE_PHRASES), ex
 
 
 @pytest.mark.parametrize("insight, want", [
     ("Vượt R1 1,748.80 thì mức kế tiếp R2.",
-     "Vượt R1 1,748.80 (kèm KL ≥ 1.20× TB20; phiên gần nhất KL 1.30× TB20) thì mức kế tiếp R2."),
+     "Vượt R1 1,748.80 (cần KL ≥ 1.2× TB20) thì mức kế tiếp R2."),
+    ("Vượt lên trên R1 1,748.80 sẽ xác nhận đà tăng.",
+     "Vượt lên trên R1 1,748.80 (cần KL ≥ 1.2× TB20) sẽ xác nhận đà tăng."),
+    ("Thủng xuống dưới S1 1,705.50 thì dừng.",
+     "Thủng xuống dưới S1 1,705.50 (cần KL ≥ 1.2× TB20) thì dừng."),
+    ("Vượt R1 thì R2, thủng S1 thì S2.",                                   # MỘT lần mỗi câu
+     "Vượt R1 (cần KL ≥ 1.2× TB20) thì R2, thủng S1 thì S2."),
     ("Thủng hỗ trợ 1,705.50 với KL lớn là tín hiệu xấu.",
      "Thủng hỗ trợ 1,705.50 với KL lớn là tín hiệu xấu."),
     ("Vượt MA20 khi khối lượng tăng.", "Vượt MA20 khi khối lượng tăng."),
+    ("Thanh khoản cần cải thiện; vượt R1 mới xác nhận.",
+     "Thanh khoản cần cải thiện; vượt R1 mới xác nhận."),
+    ("Chỉ số đã vượt MA20.", "Chỉ số đã vượt MA20."),                     # việc đã xảy ra
     ("Giữ trên MA20.", "Giữ trên MA20."),
 ])
 def test_breakout_needs_volume(insight, want):
-    assert _insight(_guard("enforce_ta_breakout_volume")(_sec(insight), _ta_ctx())) == want
+    assert _guarded_insight("enforce_ta_breakout_volume", insight) == want
 
 
-def test_breakout_note_without_volume_data():
+def test_breakout_note_uses_card_threshold_without_session_volume():
     ctx = _ta_ctx()
     ctx["ta_card"]["vol_ratio"] = None
+    ctx["ta_card"]["vol_mult"] = 1.25
     out = _guard("enforce_ta_breakout_volume")(_sec("Thủng S1 thì dừng."), ctx)
-    assert _insight(out) == "Thủng S1 (kèm KL ≥ 1.20× TB20) thì dừng."
+    assert _insight(out) == "Thủng S1 (cần KL ≥ 1.25× TB20) thì dừng."
+
+
+@pytest.mark.parametrize("insight", [
+    "Mức huỷ: đóng cửa dưới S1 1,705.50 2 phiên liên tiếp.",       # số phiên ≤ 10
+    "Đóng cửa dưới S1 trong 10 phiên.",
+    "Chỉ số tăng 0.77% và giữ trên MA20 1,712.50.",                # day_change_pct + ma20
+    "Đóng cửa 1,733.2 điểm.",
+])
+def test_numbers_guard_allows_sessions_ma20_close_change(insight):
+    raw = _sec(insight)
+    assert _guard("enforce_ta_numbers")(raw, _ta_ctx()) == raw
+
+
+@pytest.mark.parametrize("insight", [
+    "Đóng cửa dưới S1 trong 11 phiên.",                            # > 10 phiên: không miễn
+    "Đóng cửa dưới S1 2.5 phiên.",
+    "Chỉ số tăng 1.5% hôm nay.",
+])
+def test_numbers_guard_still_drops_unknown(insight):
+    assert "**Nhận định:**" not in _guard("enforce_ta_numbers")(_sec(insight), _ta_ctx())
+
+
+# ── Bộ câu của review đối kháng (05/11) qua CẢ chuỗi guard: câu → kỳ vọng ──────────
+# None = câu bị bỏ (mục chỉ còn dòng thẻ). Sai ⇒ bỏ câu/mệnh đề; đúng ⇒ giữ nguyên từng chữ.
+REVIEW_SENTENCES = [
+    # s1.txt
+    ("VN-Index duy trì xu hướng giảm dù đóng cửa trên MA20, RSI 75.3 vùng quá mua.", None),
+    ("Chỉ số vượt MA50 1,690.10 và MA200 1,600.30, xu hướng tăng được củng cố.", None),  # MA50 ∉ thẻ
+    ("VN-Index tăng 0.77% lên 1,733.20 với GTGD 25,000 tỷ.", None),                      # GTGD ∉ thẻ
+    ("Nếu vượt R1 1,748.80 và giữ được trên mốc này, chỉ số có thể hướng tới R2 1,765.40; "
+     "ngược lại thủng S1 1,705.50 sẽ về S2 1,690.25.",
+     "Nếu vượt R1 1,748.80 (cần KL ≥ 1.2× TB20) và giữ được trên mốc này, chỉ số có thể hướng "
+     "tới R2 1,765.40."),
+    ("Kháng cự R1 1,748.80 chắc chắn sẽ chặn đà tăng trong phiên tới.", None),
+    ("Không xu hướng giảm nào xuất hiện khi chỉ số còn trên MA20.", "="),
+    ("RSI 75.3 cho thấy đà mạnh, nhưng tín hiệu quá mua có thể dẫn tới điều chỉnh ngắn.", None),
+    ("Đảm bảo an toàn bằng cách chờ vượt R1 1,748.80 kèm thanh khoản cải thiện.", "="),
+    ("Hỗ trợ S1 1,705.50 sẽ giữ vững nếu dòng tiền không rút.", None),
+    ("Ngắn hạn xu hướng tăng nhưng trung hạn xu hướng giảm — tín hiệu lệch nhau.", "="),
+    ("Chỉ số cách R1 khoảng 15 điểm, cách S1 khoảng 28 điểm.", None),                     # tự tính
+    ("FPT đang trong xu hướng giảm, RSI 64 quá mua.", None),
+    ("Phá vỡ 1,750 sẽ mở ra nhịp tăng mới.", None),                                      # số bịa
+    ("Giá đóng trên MA20 1,712.50 ba phiên liên tiếp, vượt đỉnh tuần 1,745.60 thì xác nhận.",
+     None),                                                                             # đỉnh tuần ∉ thẻ
+    ("Mức huỷ: đóng cửa dưới S1 1,705.50 hai phiên liên tiếp với KL ≥ 1.2× TB20.", "="),
+    ("Thủng S1 thì chắc chắn sẽ rơi về S2, cần cẩn trọng.", "Cần cẩn trọng."),
+    ("VN-Index giữ xu hướng tăng; vượt R1 1,748.80 thì lên R2 1,765.40, thủng S1 1,705.50 thì "
+     "xuống S2 1,690.25.",
+     "VN-Index giữ xu hướng tăng; vượt R1 1,748.80 (cần KL ≥ 1.2× TB20) thì lên R2 1,765.40, "
+     "thủng S1 1,705.50 thì xuống S2 1,690.25."),
+    # s2.txt
+    ("Mức huỷ: đóng cửa dưới S1 1,705.50 2 phiên liên tiếp.", "="),
+    ("Mức huỷ là đóng cửa dưới S1 trong 3 phiên.", "="),
+    ("Chỉ số quanh 1.733 điểm, trên MA20.", "="),
+    ("Đóng cửa 1.733,20 điểm, cao hơn MA20.", "Đóng cửa 1,733.20 điểm, cao hơn MA20."),  # định dạng EN
+    ("Chỉ số tăng 0.77% và giữ trên MA20 1,712.50.", "="),
+    ("Xu hướng MA20 tăng với độ dốc +0.5%, KL 1.3 lần TB20.", "="),
+    ("VN-Index tăng nhưng HPG xu hướng giảm kéo nhóm thép.", "="),
+    ("FPT xu hướng tăng còn EIB xu hướng giảm.", "="),
+    ("Dài hạn xu hướng tăng, khung tuần xu hướng giảm.", "="),
+    ("Vượt lên trên R1 1,748.80 sẽ xác nhận đà tăng.",
+     "Vượt lên trên R1 1,748.80 (cần KL ≥ 1.2× TB20) sẽ xác nhận đà tăng."),
+    ("Nếu vượt 1,748.80 thì R2 1,765.40 là đích; nếu thủng 1,705.50 thì S2 1,690.25.",
+     "Nếu vượt 1,748.80 (cần KL ≥ 1.2× TB20) thì R2 1,765.40 là đích; nếu thủng 1,705.50 thì "
+     "S2 1,690.25."),
+    ("Hỗ trợ gần S1 sẽ đỡ giá, kháng cự R1 sẽ cản.", None),
+    ("Thanh khoản cần cải thiện; vượt R1 mới xác nhận.", "="),
+    ("Chỉ số đã vượt MA20, RSI trên 70 là đà mạnh chứ không phải quá mua.", "="),
+    ("Không có tín hiệu quá mua theo RSI.", "="),
+    # thêm
+    ("EIB xu hướng tăng, RSI 35.2 yếu.", None),
+    ("HNX-Index xu hướng giảm, chưa theo VN-Index.", "="),
+    ("RSI 75.3 quá mua, chưa có tín hiệu đảo chiều.", None),
+    ("Thủng xuống dưới S1 1,705.50 thì mức kế tiếp S2 1,690.25.",
+     "Thủng xuống dưới S1 1,705.50 (cần KL ≥ 1.2× TB20) thì mức kế tiếp S2 1,690.25."),
+]
+
+
+def _chain_insight(sentence: str, bt: str = "afternoon") -> "tuple[str | None, str]":
+    import vnstock_brief as vb
+    start = RAW.index("**Nhận định:**")
+    raw = RAW[:start] + "**Nhận định:** " + sentence + RAW[RAW.index("\n", start):]
+    out = vb.apply_brief_guards(raw, _ta_ctx(bt))
+    sec = _ta_section(out)
+    assert sec[1:5] == CARD_LINES                       # mục không bao giờ trống: thẻ của code
+    ins = [l for l in sec if l.startswith("**Nhận định:**")]
+    return (ins[0][len("**Nhận định:** "):] if ins else None), out
+
+
+@pytest.mark.parametrize("bt", ["afternoon", "morning"])
+@pytest.mark.parametrize("sentence, want", REVIEW_SENTENCES)
+def test_review_sentences_through_full_chain(sentence, want, bt):
+    import vnstock_brief as vb
+    got, out = _chain_insight(sentence, bt)
+    assert got == (sentence if want == "=" else want)
+    assert vb.apply_brief_guards(out, _ta_ctx(bt)) == out          # idempotent
 
 
 # ── Prompt khi bật ───────────────────────────────────────────────────────
@@ -533,16 +727,50 @@ def test_attach_ta_cards_blanks_live_volume_intraday(monkeypatch):
     assert any("KL chưa đủ dữ liệu" in l for l in ctx["ta_card"]["lines"])
 
 
+def test_collect_context_card_shares_the_vnindex_read_with_vnindex_tech(monkeypatch, tmp_path):
+    """Brief sáng có live: WSS ghi file giữa hai lần đọc ⇒ lần đọc thứ hai ra close khác. Thẻ phải
+    dựng trên CÙNG bản đọc với ``vnindex_tech`` — không thì ValueError và brief mất thẻ."""
+    import vnstock_brief as vb
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("VNSTOCK_TA_CARD", "1")
+    base = _bars(_uptrend(320, 1500.0))
+    reads = []
+
+    def _live_read(augment=True):
+        df = base.copy()
+        df.loc[df.index[-1], "close"] += len(reads)       # mỗi lần đọc: tick live mới
+        reads.append(augment)
+        return df
+    monkeypatch.setattr(vb, "_load_vnindex_df", _live_read)
+    ctx = vb.collect_context("morning")
+    assert "ta_card" not in (ctx.get("loader_errors") or {})
+    assert ctx["ta_card"]["close"] == pytest.approx(ctx["vnindex_tech"]["close"], abs=1e-3)
+
+
+def test_star_line_keeps_one_sided_note_when_card_replaces_levels():
+    import vnstock_brief as vb
+    import vnstock_ta_card as tc
+    ctx = _ta_ctx()
+    ctx["vn30_gainers"][0]["sr_resistance"] = None
+    fpt = _card(112.5, short="TĂNG", medium="ĐI NGANG", long_="TĂNG", rsi=64.0, vol=1.4,
+                sma200_pct=8.0, atr=3.0, sr={"s1": 108.3})
+    ctx["ta_cards"]["FPT"] = {**tc.card_labels(fpt), "label": "FPT",
+                              "line": tc.brief_facts(fpt, "2026-11-04", price_scale=1000)}
+    data = vb.build_prompt(ctx, brief_type="afternoon").split("\n---\n", 1)[0]
+    fpt_line = next(l for l in data.splitlines() if l.startswith("- FPT "))
+    assert fpt_line.endswith("mốc THAM CHIẾU, CHƯA có mốc còn lại trong tầm]")
+
+
 def test_collect_context_switch(monkeypatch, tmp_path):
     """Tắt ⇒ không gọi bước 6b; bật mà bước 6b ném ⇒ ghi `loader_errors`, ctx không có thẻ."""
     import vnstock_brief as vb
     monkeypatch.chdir(tmp_path)                    # collect_context đọc/ghi `data_warehouse/` tương đối
     calls = []
 
-    def _boom(ctx):
+    def _boom(ctx, idx=None):
         calls.append(1)
         raise RuntimeError("kho lỗi")
-    monkeypatch.setattr(vb, "_vnindex_technicals", lambda: {})
+    monkeypatch.setattr(vb, "_vnindex_technicals", lambda df=None: {})
     monkeypatch.setattr(vb, "_attach_ta_cards", _boom)
     ctx = vb.collect_context("afternoon")
     assert not calls and "ta_card" not in ctx

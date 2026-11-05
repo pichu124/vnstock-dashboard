@@ -128,12 +128,20 @@ def ta_ctx(ctx: dict | None) -> dict | None:
     return ta
 
 
+# Lõi chữ của tiêu đề mục 📈 — `vnstock_brief_canon.TA_SECTION_TITLES` bỏ "## 📈" và "(VNINDEX)"
+# (common là lá, không import canon; test canh hai bên khớp) + bản trơn "Mức kỹ thuật".
+_TA_TITLE_CORES = frozenset({"mức kỹ thuật", "mức kỹ thuật quan trọng", "mức kỹ thuật chốt phiên"})
+_TA_TITLE_TAIL_RE = _re.compile(r"\s*\(?\s*vn-?index\s*\)?\s*$")
+
+
 def is_ta_heading(line: str) -> bool:
-    """Tiêu đề mục "📈 Mức kỹ thuật …" (cả bản model bỏ emoji)."""
+    """Tiêu đề mục "📈 Mức kỹ thuật …" (cả bản model bỏ emoji / đuôi "(VNINDEX)" / in đậm) — CHỈ
+    tiêu đề mục đó, không phải mọi tiêu đề có cụm "mức kỹ thuật" ("⚠️ Rủi ro: thủng mức kỹ
+    thuật" là mục khác: gộp nhầm thì chữ của nó bị bỏ)."""
     if not _is_section_start(line):
         return False
-    low = line.lower()
-    return "mức kỹ thuật" in low or ("📈" in line and "kỹ thuật" in low)
+    core = _re.sub(r"^[^\w]+", "", line.replace("*", "").strip().lower())
+    return " ".join(_TA_TITLE_TAIL_RE.sub("", core).split()) in _TA_TITLE_CORES
 
 
 def ta_split_sentences(text: str) -> list[str]:
@@ -146,6 +154,58 @@ def ta_card_for(sentence: str, ta: dict, cards: dict | None) -> dict:
         if isinstance((cards or {}).get(tk), dict):
             return cards[tk]
     return ta
+
+
+# Chữ hoa 3 ký tự mà KHÔNG phải mã: tên chỉ báo.
+_TA_NOT_TICKERS = frozenset({"RSI", "ATR", "SMA", "EMA", "ADX", "OBV", "CCI", "MFI", "ROC", "SAR"})
+_TA_OTHER_INDEX_RE = _re.compile(
+    r"\b(?:HNX|UPCOM|VN30|VN100|VNMID|VNSML|HNX30)\b|\b(?!vn[- ]?index\b)\w+[- ]index\b",
+    _re.IGNORECASE)
+_TA_VNINDEX_RE = _re.compile(r"\bvn[- ]?index\b", _re.IGNORECASE)
+_TA_NEGATION_RE = _re.compile(r"\b(?:không|chưa|chẳng)\b", _re.IGNORECASE)
+
+
+def ta_subject(sentence: str, ta: dict, cards: dict | None) -> dict | None:
+    """Thẻ của ĐÚNG MỘT chủ thể câu nói tới — mã có thẻ, không nêu ai thì VN-Index. None khi
+    không phán được: câu nêu ≥2 chủ thể (mã/VN-Index), hoặc nêu mã/chỉ số KHÔNG có thẻ (HPG
+    ngoài ``ta_cards``, HNX-Index, UPCoM) — so chữ với thẻ VN-Index lúc đó là so nhầm người."""
+    s = sentence or ""
+    if _TA_OTHER_INDEX_RE.search(s):
+        return None
+    tickers = {t for t in _TA_TICKER_RE.findall(s) if t not in _TA_NOT_TICKERS}
+    if any(not isinstance((cards or {}).get(t), dict) for t in tickers):
+        return None
+    if len(tickers) + bool(_TA_VNINDEX_RE.search(s)) > 1:
+        return None
+    return cards[next(iter(tickers))] if tickers else ta
+
+
+_TA_CLAUSE_SEP_RE = _re.compile(r"\s*;\s*|,\s+|\s+nhưng\s+", _re.IGNORECASE)
+
+
+def ta_drop_clauses(sentence: str, bad) -> str | None:
+    """Bỏ MỆNH ĐỀ mà ``bad(mệnh đề)`` đúng — tách ở ";", ", " (dấu phẩy KÈM khoảng trắng: số
+    1,748.80 không bị cắt), " nhưng ", không tách trong ngoặc. Không mệnh đề nào tự sai (cụm vắt
+    qua ranh giới) hoặc bỏ hết ⇒ None (bỏ câu). Giữ dấu kết câu; câu gốc viết hoa đầu thì mệnh
+    đề đầu còn lại cũng viết hoa."""
+    body = sentence.rstrip(".!?… ")
+    end = sentence[len(body):].strip() or "."
+    clauses, seps, prev = [], [], 0
+    for m in _TA_CLAUSE_SEP_RE.finditer(body):
+        if body[:m.start()].count("(") > body[:m.start()].count(")"):
+            continue
+        clauses.append(body[prev:m.start()])
+        seps.append(m.group(0))
+        prev = m.end()
+    clauses.append(body[prev:])
+    real = [i for i, c in enumerate(clauses) if c.strip()]
+    keep = [i for i in real if not bad(clauses[i])]
+    if not keep or len(keep) == len(real):
+        return None
+    out = (clauses[keep[0]] + "".join(seps[i - 1] + clauses[i] for i in keep[1:])).strip()
+    if sentence[:1].isupper():
+        out = out[:1].upper() + out[1:]
+    return out + end
 
 
 def ta_rewrite_insight(text: str, ctx: dict, fn) -> str:
