@@ -531,6 +531,36 @@ def test_breadth_label_guard_display_ambiguous_number_not_tagged(monkeypatch):
         == "30% mã trên MA200; 30% mã trên MA200"
 
 
+@pytest.mark.parametrize("text, expect", [
+    # số TOÀN THỊ TRƯỜNG mang nhãn tập thanh khoản ⇒ đổi nhãn (gắn sai tệ hơn không gắn)
+    ("37% mã trên MA200 (317 mã thanh khoản)", "37% mã trên MA200 toàn thị trường"),
+    ("Trên MA200 (317 mã thanh khoản): 37%", "Trên MA200 toàn thị trường: 37%"),
+    ("% mã trên MA200: 36.8% (317 mã thanh khoản)", "% mã trên MA200: 36.8% toàn thị trường"),
+    # "toàn thị trường" mà chép số tập thanh khoản ⇒ số đúng, giữ độ chính xác model viết
+    ("Trên MA200: 49% · toàn thị trường 49%",
+     "Trên MA200 (317 mã thanh khoản): 49% · toàn thị trường 37%"),
+    ("Trên MA200 (317 mã thanh khoản): 48.6% · toàn thị trường 48.6%",
+     "Trên MA200 (317 mã thanh khoản): 48.6% · toàn thị trường 36.8%"),
+    # đúng thì không đụng
+    ("49% mã trên MA200 (317 mã thanh khoản)", "49% mã trên MA200 (317 mã thanh khoản)"),
+    ("Trên MA200: 49% · toàn thị trường 37%",
+     "Trên MA200 (317 mã thanh khoản): 49% · toàn thị trường 37%"),
+    ("GTGD toàn thị trường 49% so với TB20", "GTGD toàn thị trường 49% so với TB20"),  # không MA200
+])
+def test_breadth_label_guard_display_fixes_swapped_figures(monkeypatch, text, expect):
+    from vnstock_brief_guards_numbers import enforce_breadth_label
+    monkeypatch.setenv(_DISPLAY, "investable")
+    out = enforce_breadth_label(text, _CTX_DISP)
+    assert out == expect
+    assert enforce_breadth_label(out, _CTX_DISP) == out
+
+
+def test_breadth_label_guard_swapped_figures_untouched_when_display_off():
+    from vnstock_brief_guards_numbers import enforce_breadth_label
+    t = "37% mã trên MA200 (317 mã thanh khoản) · toàn thị trường 49%"
+    assert enforce_breadth_label(t, _CTX_DISP) == t
+
+
 def test_breadth_label_guard_unchanged_when_display_off():
     from vnstock_brief_guards_numbers import enforce_breadth_label
     t = "chỉ 49% mã tăng giá; Trên MA200: 49%; 37% mã tăng giá"

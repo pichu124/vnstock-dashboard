@@ -834,19 +834,20 @@ TA_SECTION_TITLES = {"morning": "## 📈 Mức kỹ thuật quan trọng (VNINDE
                      "afternoon": "## 📈 Mức kỹ thuật chốt phiên (VNINDEX)"}
 TA_INSIGHT_LABEL = "**Nhận định:**"
 TA_INSIGHT_MAX_SENTENCES = 3
-# S/R là MỐC THAM CHIẾU (§17: không cách tìm S/R nào hơn mốc ngây thơ giá ± ATR) ⇒ cụm coi mức là
-# LỢI THẾ đổi sang cách nói có điều kiện. (mẫu regex, chữ thay), không phân biệt hoa thường — cụm
-# dài/cụ thể đứng trước cụm chung ("chắc chắn", "đảm bảo").
+# S/R là MỐC THAM CHIẾU (§17: không cách tìm S/R nào hơn mốc ngây thơ giá ± ATR) ⇒ mệnh đề coi mức
+# là LỢI THẾ bị BỎ (không thay từ: thay từ trong câu model biến câu đúng thành sai). Mẫu regex,
+# không phân biệt hoa thường; tên mức/số được chen giữa ("hỗ trợ S1 1,705.50 sẽ giữ"). Kịch bản
+# nếu–thì ("vượt R1 thì lên R2") và cách nói rào ("có thể sẽ về S2", "chưa chắc chắn",
+# "đảm bảo an toàn") KHÔNG phải hứa hẹn.
 TA_LEVEL_PROMISE_EXAMPLES = ("hỗ trợ sẽ giữ", "chắc chắn bật", "thủng là về S2")
+_TA_LEVEL_FILLER = r"(?:\s+(?:gần|quanh|tại|ở|S[12]|R[12]|\d[\d.,]*))"
 TA_LEVEL_PROMISE_PHRASES: tuple = (
-    (r"hỗ trợ\s+(?:chắc chắn\s+)?sẽ\s+(?:giữ vững|giữ|trụ vững|trụ|đỡ)",
-     "hỗ trợ là mốc tham chiếu (chưa chắc giữ)"),
-    (r"kháng cự\s+(?:chắc chắn\s+)?sẽ\s+(?:chặn|cản)",
-     "kháng cự là mốc tham chiếu (chưa chắc chặn)"),
-    (r"(?:là|thì|sẽ)\s+(?:về|rơi về|lùi về|xuống)\s+(S2|vùng S2)\b", r"thì mức kế tiếp là \1"),
-    (r"(?:là|thì|sẽ)\s+(?:lên|tới|test|hướng tới|mở đường lên)\s+(R2|vùng R2)\b",
-     r"thì mức kế tiếp là \1"),
-    (r"chắc chắn\s+sẽ\s+", "có thể "),
-    (r"chắc chắn", "có thể"),
-    (r"đảm bảo", "có thể"),
+    rf"\b(?:hỗ trợ|S[12])\b{_TA_LEVEL_FILLER}{{0,4}}\s+(?:chắc chắn\s+)?sẽ\s+"
+    r"(?:giữ|đỡ|trụ|chặn|bật)",
+    rf"\b(?:kháng cự|R[12])\b{_TA_LEVEL_FILLER}{{0,4}}\s+(?:chắc chắn\s+)?sẽ\s+(?:cản|chặn)",
+    r"(?<!có thể )\b(?:sẽ|là)\s+(?:rơi về|rơi xuống|lùi về|về|xuống|lên|tới|test|hướng tới|"
+    r"mở đường lên)\s+(?:(?:vùng|mức|mốc)\s+)?[SR]2\b",
+    r"(?<!chưa )(?<!không )(?<!chẳng )\bchắc chắn\b",
+    r"(?<!không )\bđảm bảo(?:\s+\S+){0,2}?\s+(?:giữ|bật|tăng|hồi|đỡ|chặn|cản|vượt|thủng|lên|"
+    r"xuống|về)\b",
 )

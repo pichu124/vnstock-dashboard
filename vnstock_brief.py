@@ -72,6 +72,7 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     TA_INSIGHT_MAX_SENTENCES,
     TA_LEVEL_PROMISE_PHRASES,
     TA_SECTION_TITLES,
+    _TA_LEVEL_FILLER,
     RSI_OVERBOUGHT,
     RSI_OVERHEAT_SIDEWAYS,
     RSI_OVERSOLD,
@@ -2535,7 +2536,7 @@ def _blank_live_volume(df: "pd.DataFrame", session: str) -> "pd.DataFrame":
     return d
 
 
-def _attach_ta_cards(ctx: dict) -> None:
+def _attach_ta_cards(ctx: dict, idx: "pd.DataFrame | None" = None) -> None:
     """Bước 6b của collect_context: ``ctx["ta_card"]`` (VN-Index) + ``ctx["ta_cards"]`` (≤12 mã).
 
     Lưu NHÃN thẻ (dict gọn `card_labels` + dòng đã dựng) — không DataFrame — để prompt, guard và
@@ -2551,13 +2552,16 @@ def _attach_ta_cards(ctx: dict) -> None:
 
     Thêm ``vnindex_tech["ta_levels"]`` = biên 1 ATR để `enforce_scenario_levels` coi là mức ĐÃ
     BIẾT (không ghim nhầm số biên trong câu nhận định về mức khác). Mã lỗi/thiếu kho ⇒ bỏ mã đó.
+
+    ``idx`` = bản đọc VN-Index mà ``vnindex_tech`` đã tính (`collect_context` truyền): brief sáng
+    có live, WSS ghi file giữa hai lần đọc thì lần đọc thứ hai ra close khác ⇒ ValueError dưới.
     """
     import vnstock_ta_card as tc
     vt = ctx.get("vnindex_tech") or {}
     if not vt.get("close"):
         return                     # kho trống = "rỗng", không phải "hỏng": prompt có sentinel riêng
     session = ctx.get("date")
-    idx = _load_vnindex_df()
+    idx = _load_vnindex_df() if idx is None else idx
     if vt.get("intraday"):
         idx = _blank_live_volume(idx, session)
     sr = {k: vt.get(k) for k in ("support_1", "support_2", "resistance_1", "resistance_2")}
@@ -2565,6 +2569,7 @@ def _attach_ta_cards(ctx: dict) -> None:
     if card.get("close") is None or abs(card["close"] - float(vt["close"])) > 0.01:
         raise ValueError(f"thẻ VN-Index lệch vnindex_tech: {card.get('close')} vs {vt['close']}")
     ta = {**tc.card_labels(card), "label": "VN-Index",
+          "day_change_pct": vt.get("day_change_pct"),
           "lines": tc.brief_lines(card, session, intraday=bool(vt.get("intraday")))}
 
     from vnstock_strategy import _load_history_from_parquet
@@ -2673,7 +2678,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # Determine effective trading date: use the last bar date from VNINDEX
     # warehouse instead of calendar today. Avoids "no data" briefs when called
     # early morning (market not open yet) or on weekends/holidays.
-    _vt_early = _vnindex_technicals()
+    _vni_df = _load_vnindex_df()        # MỘT bản đọc cho vnindex_tech + thẻ kỹ thuật (bước 6b)
+    _vt_early = _vnindex_technicals(_vni_df)
     _data_date_str = effective_trading_date(_vt_early)
 
     _today_str = date.today().isoformat()
@@ -2909,7 +2915,7 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
         from vnstock_ta_card import ta_card_enabled
         if ta_card_enabled():
             try:
-                _attach_ta_cards(ctx)
+                _attach_ta_cards(ctx, _vni_df)
             except Exception as _e:
                 ctx.pop("ta_card", None)
                 ctx.pop("ta_cards", None)
@@ -3418,7 +3424,7 @@ def _select_sr_levels(cands: "list[float]", last: float) -> "list[float]":
     return out
 
 
-def _vnindex_technicals() -> dict:
+def _vnindex_technicals(df: "pd.DataFrame | None" = None) -> dict:
     """Compute VNINDEX close, MAs, day/52w range, and pivot levels.
 
     Best-effort — returns {} on any failure. The brief prompt then renders a
@@ -3436,7 +3442,8 @@ def _vnindex_technicals() -> dict:
     except Exception:
         return {}
 
-    df = _load_vnindex_df()
+    if df is None:
+        df = _load_vnindex_df()
     if df is None or df.empty or "close" not in df.columns:
         return {}
 
@@ -4237,7 +4244,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             if _parts and _tac_line and (_tac.get("s1") or _tac.get("r1")):
                 # P2c: thẻ THAY khối mốc ⭐ — S1/R1 của thẻ chính là pivot ở trên
                 return line + (f" ⭐ [thẻ: {_tac_line} — S1/R1 = hỗ trợ/kháng cự pivot "
-                               "60 phiên, mốc THAM CHIẾU]")
+                               "60 phiên, mốc THAM CHIẾU"
+                               + (", CHƯA có mốc còn lại trong tầm" if len(_parts) == 1 else "")
+                               + "]")
             if _parts:
                 line += (f" ⭐ [{' / '.join(_parts)} — pivot 60 phiên"
                          + (", CHƯA có mốc còn lại trong tầm"
@@ -4629,6 +4638,25 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _ta_known,
     _ta_numbers,
     _TA_PROMISE_RES,
+    _TA_NEGATION_RE,
+    _TA_CLAUSE_SEP_RE,
+    _TA_NOT_TICKERS,
+    _TA_OTHER_INDEX_RE,
+    _TA_TITLE_CORES,
+    _TA_TITLE_TAIL_RE,
+    _TA_VNINDEX_RE,
+    ta_drop_clauses,
+    ta_subject,
+    _BREADTH_ALL,
+    _BREADTH_SET_TAG,
+    _breadth_fix_swapped,
+    _TA_DONE_RE,
+    _TA_NEGATED_TAIL_RE,
+    _TA_OTHER_FRAME_RE,
+    _TA_RSI_ALARM_RE,
+    _TA_RSI_MOMENTUM,
+    _TA_SESSIONS_RE,
+    _ta_promises,
     _PRICE_SCAFFOLD_RE,
     enforce_no_price_scaffold,
     validate_brief_factuality,
