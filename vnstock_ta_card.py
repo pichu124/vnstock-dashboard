@@ -5,7 +5,8 @@ dữ kiện, model nói ý nghĩa"), §12 (dài hạn từng mã = TĂNG / ĐI N
 S1 là tín hiệu DUY NHẤT đo được có lợi thế), §16 (RSI > 70 = "đà mạnh", KHÔNG hàm ý cảnh báo: mã RSI
 Wilder > 70 vượt VN-Index +1,75% T+20 giai đoạn 05–10/2026 — số đo MỘT giai đoạn).
 
-CHƯA nối vào brief/prompt/guard/dashboard. Bản mẫu trên kho thật: `scripts/sample_ta_card.py`.
+Brief (P2c, sau công tắc `VNSTOCK_TA_CARD`): `brief_lines` (VN-Index) / `brief_facts` (từng mã) /
+`card_labels` (nhãn gọn lưu ctx). Dashboard CHƯA nối. Bản mẫu trên kho thật: `scripts/sample_ta_card.py`.
 
     card = ta_card(daily, sr={"support_1": …, "support_2": …, "resistance_1": …}, label="FPT")
     card_lines(card)   # VN-Index: nhiều dòng
@@ -21,6 +22,7 @@ CHƯA hiệu chỉnh — P2 đo bằng `ta-score` T4 rồi mới chốt.
 from __future__ import annotations
 
 import math
+import os
 from typing import Mapping
 
 import numpy as np
@@ -421,3 +423,155 @@ def card_line(card: Mapping, market_as_of: str | None = None) -> str:
     if card.get("conflicts"):
         parts.append(f"lệch: {'; '.join(card['conflicts'])}")
     return " · ".join(parts)
+
+
+# ── Biến thể cho brief (P2c, §18) ─────────────────────────────────────────
+# VN-Index KHÔNG lặp trung/dài hạn (khối 🔭 đã có); từng mã bỏ MACD, 52 tuần, ATR% (giữ ở
+# `card_lines`/`card_line` cho tab Phân tích mã). Tín hiệu lệch nhau suy từ MACD cũng rời brief:
+# brief không in MACD thì không in câu dựa trên MACD.
+
+_MACD_CONFLICTS = (CONFLICT_MACD_UP_BELOW_MA20, CONFLICT_MACD_DOWN_ABOVE_MA20)
+BRIEF_TREND_HEAD = "Xu hướng MA20"
+BRIEF_LEVEL_HEAD = "Mức tham chiếu"
+BRIEF_CONFLICT_HEAD = "Tín hiệu lệch nhau"
+STALE_HEAD = "⚠️ Dữ liệu dừng"
+
+
+def ta_card_enabled() -> bool:
+    """Công tắc `VNSTOCK_TA_CARD` (mặc định TẮT; 1/true/yes/on bật) — thẻ kỹ thuật vào brief +
+    guard chữ kỹ thuật. Tắt ⇒ `collect_context` không dựng khoá `ta_card` ⇒ prompt/guard y nguyên."""
+    return os.environ.get("VNSTOCK_TA_CARD", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def brief_conflicts(card: Mapping) -> list[str]:
+    return [c for c in card.get("conflicts") or [] if c not in _MACD_CONFLICTS]
+
+
+def atr_band(card: Mapping) -> tuple[float, float] | None:
+    """Biên 1 ATR = đóng cửa ± ATR14 — mốc ngây thơ mà P2b đo là KHÔNG thua cách S/R nào (§17)."""
+    close, a = card.get("close"), (card.get("volatility") or {}).get("atr")
+    return (close - a, close + a) if close is not None and a else None
+
+
+def _price_fmt(scale: float):
+    return _f if scale == 1 else (lambda x: f"{x * scale:,.0f}")
+
+
+def _brief_level_txt(lv: Mapping, fmt) -> str:
+    """S1/R1 kèm bội ATR. "đã vượt/đã thủng" chỉ khi giá đã đi qua mức — chỉ xảy ra khi mức là của
+    PHIÊN TRƯỚC; mức tính từ bar cuối (brief hiện nay) luôn nằm hai phía giá."""
+    parts = []
+    for key, atr_key, name, past in (("support_1", "s1_atr", "S1", "đã thủng"),
+                                     ("resistance_1", "r1_atr", "R1", "đã vượt")):
+        if lv.get(key) is None:
+            continue
+        d = lv.get(atr_key)
+        if d is not None and d < 0:
+            parts.append(f"{past} {name} {fmt(lv[key])} ({_f(-d)} ATR)")
+        else:
+            parts.append(f"{name} {fmt(lv[key])}" + (f" ({_f(d)} ATR)" if d is not None else ""))
+    return " · ".join(parts)
+
+
+def _stale(card: Mapping, market_as_of: str | None) -> bool:
+    return bool(market_as_of and card.get("as_of") and str(card["as_of"]) < str(market_as_of))
+
+
+def brief_lines(card: Mapping, market_as_of: str | None = None, *,
+                intraday: bool = False) -> list[str]:
+    """Thẻ VN-Index cho mục "📈 Mức kỹ thuật" của brief — CODE in nguyên, model chỉ viết nhận
+    định. Dòng: phiên + đóng cửa · Xu hướng MA20 · RSI · KL · Mức tham chiếu S1/R1 (+ S2/R2 kế
+    tiếp) · biên 1 ATR · tín hiệu lệch nhau · thủng hỗ trợ. Không có trung/dài hạn (khối 🔭).
+
+    ``intraday`` ⇒ "giá hiện tại" thay "đóng cửa" (brief sáng: phiên đang dở). Bar cuối CŨ hơn
+    ``market_as_of`` ⇒ dòng cảnh báo dữ liệu dừng đứng đầu. Mọi dòng mở bằng "- " (dòng mở bằng
+    emoji là ranh giới mục với guard)."""
+    if card.get("close") is None:
+        return [f"- {BRIEF_TREND_HEAD}: {NO_DATA}"]
+    out = []
+    if _stale(card, market_as_of):
+        out.append(f"- {STALE_HEAD} từ {card['as_of']} — số dưới đây là của phiên đó "
+                   f"(thị trường đã có phiên {market_as_of})")
+    word = "giá hiện tại" if intraday else "đóng cửa"
+    out.append(f"- Phiên {card.get('as_of') or '?'} · {word} {_f(card['close'])}")
+    sh = card["short"]
+    slope = (f" (MA20 dốc {_sp(sh['ma20_slope_pct'])}/{SHORT_SLOPE_BARS} phiên)"
+             if sh.get("ma20_slope_pct") is not None else "")
+    out.append(f"- {BRIEF_TREND_HEAD}: {sh.get('label') or NO_DATA} — "
+               f"{_side(card['close'], sh.get('ma20'), 'MA20')}{slope} · {_rsi_txt(sh)} · "
+               f"{_vol_txt(sh)}")
+    lv = card.get("levels") or {}
+    parts = [p for p in (_brief_level_txt(lv, _f),) if p]
+    nxt = [f"{n} {_f(lv[k])}" for k, n in (("support_2", "S2"), ("resistance_2", "R2"))
+           if lv.get(k) is not None]
+    if nxt:
+        parts.append("kế tiếp " + " / ".join(nxt))
+    if band := atr_band(card):
+        parts.append(f"biên 1 ATR: {_f(band[0])}–{_f(band[1])}")
+    if parts:
+        out.append(f"- {BRIEF_LEVEL_HEAD}: {' · '.join(parts)}")
+    if conf := brief_conflicts(card):
+        out.append(f"- {BRIEF_CONFLICT_HEAD}: {'; '.join(conf)}")
+    if card.get("broke_support"):
+        out.append(f"- ⚠️ {_broke_txt(card)}")
+    return out
+
+
+def brief_facts(card: Mapping, market_as_of: str | None = None, *,
+                price_scale: float = 1.0) -> str:
+    """Dữ kiện nén của MỘT mã cho brief (không tên, không giá — dòng mover đã có): xu hướng MA20
+    · tuần · dài (SMA200 %) · RSI · KL · S1/R1 theo bội ATR · lệch. ``price_scale`` đổi đơn vị
+    giá kho (nghìn đồng) sang đồng như "Giá" của prompt."""
+    if card.get("close") is None:
+        return NO_DATA
+    sh, md, lg = card["short"], card["medium"], card["long"]
+    long_txt = lg.get("label") or NO_DATA
+    if lg.get("sma200_dist_pct") is not None:
+        long_txt += f" (SMA200 {_sp(lg['sma200_dist_pct'])})"
+    parts = []
+    if _stale(card, market_as_of):
+        parts.append(f"{STALE_HEAD} từ {card['as_of']} (số dưới đây là của phiên đó)")
+    parts += [f"xu hướng MA20 {sh.get('label') or NO_DATA}",
+              f"tuần {md.get('label') or md.get('reason') or NO_DATA}",
+              f"dài {long_txt}", _rsi_txt(sh), _vol_txt(sh)]
+    fmt = _price_fmt(price_scale)
+    lv = card.get("levels") or {}
+    if txt := _brief_level_txt(lv, fmt):
+        parts.append(txt.replace(" · ", " / "))
+    if card.get("broke_support"):
+        s2 = lv.get("support_2")
+        parts.append(f"⚠️ đóng cửa dưới S1 {fmt(lv['support_1'])}: {BROKE_SUPPORT_TEXT} "
+                     f"{fmt(s2) if s2 is not None else '(chưa có mức S2)'}")
+    if conf := brief_conflicts(card):
+        parts.append(f"lệch: {'; '.join(conf)}")
+    return " · ".join(parts)
+
+
+def _r(x, nd: int = 4) -> float | None:
+    x = _num(x)
+    return None if x is None else round(x, nd)
+
+
+def card_labels(card: Mapping) -> dict:
+    """NHÃN + số của thẻ dạng dict gọn (JSON được, không DataFrame) — lưu vào ctx để `ta-score`
+    chấm từng nhãn sau ~60 phiên (§18) và để guard so chữ model với thẻ."""
+    sh, md, lg = card.get("short") or {}, card.get("medium") or {}, card.get("long") or {}
+    lv = card.get("levels") or {}
+    band = atr_band(card)
+    vc = sh.get("vol_confirmed")
+    return {
+        "as_of": card.get("as_of"), "close": _r(card.get("close")),
+        "short": sh.get("label"), "ma20": _r(sh.get("ma20")),
+        "ma20_dist_pct": _r(sh.get("ma20_dist_pct")), "ma20_slope_pct": _r(sh.get("ma20_slope_pct")),
+        "rsi": _r(sh.get("rsi"), 2), "rsi_label": sh.get("rsi_label"),
+        "vol_ratio": _r(sh.get("vol_ratio")), "vol_confirmed": None if vc is None else bool(vc),
+        "medium": md.get("label"), "long": lg.get("label"),
+        "sma200_dist_pct": _r(lg.get("sma200_dist_pct")),
+        "atr": _r((card.get("volatility") or {}).get("atr")),
+        "band_lo": _r(band[0]) if band else None, "band_hi": _r(band[1]) if band else None,
+        "s1": _r(lv.get("support_1")), "s2": _r(lv.get("support_2")),
+        "r1": _r(lv.get("resistance_1")), "r2": _r(lv.get("resistance_2")),
+        "s1_atr": _r(lv.get("s1_atr")), "r1_atr": _r(lv.get("r1_atr")),
+        "broke_support": bool(card.get("broke_support")),
+        "conflicts": brief_conflicts(card), "vol_mult": VOL_MULT,
+    }
