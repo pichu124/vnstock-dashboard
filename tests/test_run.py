@@ -278,3 +278,73 @@ class TestAutohealBudgetSwitch:
         src = inspect.getsource(R.cmd_sync)
         assert "time_budget_s=_budget" in src
         assert "else None" not in src.split("auto-heal")[-1][:400]
+
+
+# ── Giữ máy thức trong lúc pipeline chạy (05/11: desktop ngủ 18:19→20:58 giữa task Daily) ──
+
+class _FakeKernel:
+    def __init__(self, ok=1):
+        self.calls, self.ok = [], ok
+
+    def SetThreadExecutionState(self, flags):
+        self.calls.append(flags)
+        return self.ok
+
+
+def _fake_windows(monkeypatch, kernel):
+    import ctypes
+    import types
+    monkeypatch.setattr(orchestrator.sys, "platform", "win32")
+    monkeypatch.setattr(ctypes, "windll", types.SimpleNamespace(kernel32=kernel), raising=False)
+
+
+def test_keep_awake_holds_system_required_during_all_and_releases(monkeypatch):
+    k = _FakeKernel()
+    _fake_windows(monkeypatch, k)
+    monkeypatch.delenv("VNSTOCK_KEEP_AWAKE", raising=False)
+    with orchestrator._keep_awake("all") as held:
+        assert held is True
+        assert k.calls == [0x80000001]                   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+    assert k.calls[-1] == 0x80000000                      # trả lại khi xong
+
+
+def test_keep_awake_releases_even_when_pipeline_raises(monkeypatch):
+    k = _FakeKernel()
+    _fake_windows(monkeypatch, k)
+    monkeypatch.delenv("VNSTOCK_KEEP_AWAKE", raising=False)
+    with pytest.raises(RuntimeError):
+        with orchestrator._keep_awake("sync"):
+            raise RuntimeError("bước hỏng")
+    assert k.calls == [0x80000001, 0x80000000]
+
+
+@pytest.mark.parametrize("sub, env, platform", [
+    ("news-alert", None, "win32"),      # lệnh ngắn: không giữ
+    ("all", "0", "win32"),              # công tắc tắt
+    ("all", None, "linux"),             # không phải Windows
+])
+def test_keep_awake_noop_cases(monkeypatch, sub, env, platform):
+    k = _FakeKernel()
+    _fake_windows(monkeypatch, k)
+    monkeypatch.setattr(orchestrator.sys, "platform", platform)
+    if env is None:
+        monkeypatch.delenv("VNSTOCK_KEEP_AWAKE", raising=False)
+    else:
+        monkeypatch.setenv("VNSTOCK_KEEP_AWAKE", env)
+    with orchestrator._keep_awake(sub) as held:
+        assert held is False
+    assert k.calls == []
+
+
+def test_keep_awake_failed_call_is_noop(monkeypatch):
+    k = _FakeKernel(ok=0)
+    _fake_windows(monkeypatch, k)
+    monkeypatch.delenv("VNSTOCK_KEEP_AWAKE", raising=False)
+    with orchestrator._keep_awake("all") as held:
+        assert held is False
+    assert k.calls == [0x80000001]                       # gọi thất bại ⇒ không gọi trả
+
+
+def test_main_wraps_handler_in_keep_awake(monkeypatch):
+    import inspect
+    assert "_keep_awake(args.subcommand)" in inspect.getsource(orchestrator.main)

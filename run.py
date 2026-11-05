@@ -2431,6 +2431,38 @@ _DISPATCH = {
 # `_meta/pipeline_running.json` để máy kia không bấm chạy trùng (Dropbox).
 _PIPELINE_MARKED = ("all", "sync")
 
+# Lệnh chạy LÂU ⇒ giữ máy thức tới khi xong. 05/11: desktop ngủ 18:19→20:58 GIỮA task Daily
+# (Windows không coi tiến trình python là "đang bận"), đông cứng 2,5 giờ rồi bị trần 240′ tính
+# theo giờ thực giết lúc 22:00 — mất brief tối, phải bấm chạy bù 23:17. Màn hình vẫn được tắt.
+_KEEP_AWAKE = ("all", "sync", "weekend")
+_ES_CONTINUOUS = 0x80000000
+_ES_SYSTEM_REQUIRED = 0x00000001
+
+
+@contextlib.contextmanager
+def _keep_awake(subcommand: str):
+    """Chặn Windows ngủ do rảnh (SetThreadExecutionState) trong lúc lệnh chạy; ra khỏi thì trả.
+    Best-effort: không phải Windows / lỗi ctypes ⇒ no-op. Tắt: VNSTOCK_KEEP_AWAKE=0."""
+    on = (subcommand in _KEEP_AWAKE and sys.platform == "win32"
+          and os.environ.get("VNSTOCK_KEEP_AWAKE", "1").strip() != "0")
+    kernel = None
+    if on:
+        try:
+            import ctypes
+            kernel = ctypes.windll.kernel32
+            if not kernel.SetThreadExecutionState(_ES_CONTINUOUS | _ES_SYSTEM_REQUIRED):
+                kernel = None
+        except Exception:                        # noqa: BLE001 — giữ thức là phụ, pipeline là chính
+            kernel = None
+    try:
+        yield kernel is not None
+    finally:
+        if kernel is not None:
+            try:
+                kernel.SetThreadExecutionState(_ES_CONTINUOUS)
+            except Exception:                    # noqa: BLE001
+                pass
+
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
@@ -2441,7 +2473,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.subcommand in _PIPELINE_MARKED:
         from vnstock_pipeline_marker import held
         marker = held(REPO_ROOT / args.warehouse, note)
-    with marker:
+    with marker, _keep_awake(args.subcommand):
         rc = handler(args)
     print(f"[run.py] {args.subcommand} → exit {rc}")
     return rc
