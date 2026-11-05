@@ -49,6 +49,7 @@ from vnstock_brief_guards_text import enforce_ta_no_level_promise  # noqa: E402
 
 BRIEF_TYPE = "afternoon"
 DEFAULT_LIMIT = 20
+ENGINE_FAIL_STREAK_MAX = 2       # 2 phiên liền engine lỗi ⇒ dừng (timeout 600s/lượt × 20 = 3 tiếng)
 FWD_SESSIONS = 5
 VOL_AVG_BARS = 20
 REBASE_TOL = 0.02              # giá kho vs giá trong ctx lệch > 2% ⇒ nghi kho đã rebase sau phiên
@@ -117,6 +118,10 @@ def stored_ctx(brief: dict) -> dict:
     `mover_universe`… như set — so chuỗi repr là so từng ký tự)."""
     ctx = {k: _as_set(v) for k, v in tsio._ctx(brief).items()}
     ctx["brief_type"] = BRIEF_TYPE
+    # Guard ⚠️ GDKHQ so sự kiện với "hôm nay": thiếu khoá ⇒ `date.today()` lúc chạy lại ⇒ mọi
+    # sự kiện của phiên cũ thành "đã qua", bản mới mất cảnh báo mà production đã có.
+    if not ctx.get("today") and ctx.get("date"):
+        ctx["today"] = str(ctx["date"])[:10]
     return ctx
 
 
@@ -293,23 +298,37 @@ def prepare_session(brief: dict, index_bars: pd.DataFrame,
 Engine = Callable[[str], "tuple[str, str | None, dict]"]
 
 
-def run_engine(row: dict, engine: Engine) -> dict:
+def _raw_path(out_dir: Path, session: str) -> Path:
+    return Path(out_dir) / "new" / f"{session}.raw.md"
+
+
+def run_engine(row: dict, engine: Engine, out_dir: "Path | None" = None) -> dict:
     """Gọi engine cho phiên đã dựng, làm sạch như `finalize_brief` (`_clean_text`) rồi
-    `apply_brief_guards(text, ctx)`. KHÔNG memory, KHÔNG brief_watch, KHÔNG Telegram."""
+    `apply_brief_guards(text, ctx)`. KHÔNG memory, KHÔNG brief_watch, KHÔNG Telegram.
+
+    ``out_dir`` ⇒ chữ thô ghi ra `new/<phiên>.raw.md` NGAY sau lượt gọi (Ctrl+C / máy ngủ ở
+    phiên 15 không mất 14 bản đã trả tiền), và phiên đã có file đó thì DÙNG LẠI, không gọi."""
     import vnstock_brief_pack as vbp
     if row.get("error"):
         return row
-    try:
-        text, err, info = engine(row["prompt"])
-    except Exception as e:
-        text, err, info = "", f"{type(e).__name__}: {e}", {}
-    row["engine_info"] = {k: info.get(k) for k in ("model", "elapsed_s", "cost_usd", "fallback")
-                          if k in (info or {})}
+    cached = _raw_path(out_dir, row["session"]) if out_dir is not None else None
+    if cached is not None and cached.is_file() and cached.read_text(encoding="utf-8").strip():
+        text, err, info = cached.read_text(encoding="utf-8"), None, {"reused": True}
+    else:
+        try:
+            text, err, info = engine(row["prompt"])
+        except Exception as e:
+            text, err, info = "", f"{type(e).__name__}: {e}", {}
+    row["engine_info"] = {k: info.get(k) for k in ("model", "elapsed_s", "cost_usd", "fallback",
+                                                   "reused") if k in (info or {})}
     raw = vbp._clean_text(text)
     if err or not raw:
         row["error"] = f"engine: {err or 'trả chữ rỗng'}"
         return row
     row["new_raw"], ctx = raw, row["ctx"]
+    if cached is not None and not (info or {}).get("reused"):
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_text(raw, encoding="utf-8")
     try:
         final = vb.apply_brief_guards(raw, ctx)
     except Exception as e:                       # chữ đã trả tiền vẫn được ghi ra `new/`
@@ -404,7 +423,9 @@ def session_md(r: dict, dry_run: bool) -> list[str]:
     out += ["", "### 📈 brief CŨ (chữ trong DB)"] + _block(r.get("old_section", ""))
     out += [f"Vi phạm theo 5 luật mới: {_viol_txt(r.get('old_violations'))}"]
     out += _viol_lines(r.get("old_violations")) + ["", "### 📈 brief MỚI (sau guard)"]
-    if dry_run:
+    if r.get("error") and not r.get("prompt"):
+        out += [f"❌ Lỗi: {r['error']}"]
+    elif dry_run:
         out += [f"(dry-run — chưa gọi model; prompt ở `prompts/{r['session']}.md`)"]
     elif r.get("error"):
         out += [f"❌ Lỗi: {r['error']}"]
@@ -523,8 +544,21 @@ def _ticker_loader(prices_dir: Path, sessions: list[dict]) -> Callable[[str], pd
     return _load
 
 
-def _default_out() -> Path:
-    return _REPO / "data_warehouse" / "_meta" / "replay_ta" / date.today().isoformat()
+def _default_out(dry_run: bool) -> Path:
+    """Dry-run ghi thư mục RIÊNG `<ngày>-dry`: chạy lại dry-run buổi chiều không được đè
+    `report.*` của lượt `--run` đã trả tiền buổi sáng. Lượt `--run` cùng ngày dùng chung
+    `<ngày>/` để DÙNG LẠI `new/*.raw.md` đã có (chạy tiếp sau khi đứt giữa chừng)."""
+    name = date.today().isoformat() + ("-dry" if dry_run else "")
+    return _REPO / "data_warehouse" / "_meta" / "replay_ta" / name
+
+
+def _reset_timeout_memo() -> None:
+    """Một lượt timeout 600s làm `vnstock_claude_cli` ghi nhớ "CLI chết" cho cả tiến trình —
+    đúng cho brief đêm (1 lượt), sai cho 20 phiên: phiên 4..20 sẽ hỏng trong vài giây. Chỉ
+    xoá ghi nhớ khi lý do là TIMEOUT; thiếu exe / chưa đăng nhập vẫn giữ (lượt nào cũng thế)."""
+    import vnstock_claude_cli as vcc
+    if str(vcc._DEAD_REASON or "").startswith("claude CLI quá"):
+        vcc.reset_dead_memo()
 
 
 def main(argv: list[str] | None = None, *, engine: Engine | None = None,
@@ -534,7 +568,7 @@ def main(argv: list[str] | None = None, *, engine: Engine | None = None,
     ap.add_argument("--run", action="store_true", help="gọi model (mặc định: dry-run, 0 lượt gọi)")
     ap.add_argument("--yes", action="store_true", help="không hỏi xác nhận trước khi gọi model")
     ap.add_argument("--out", type=Path, default=None,
-                    help="thư mục output (mặc định data_warehouse/_meta/replay_ta/<ngày chạy>/)")
+                    help="thư mục output (mặc định data_warehouse/_meta/replay_ta/<ngày chạy>/, dry-run <ngày chạy>-dry/). Lượt --run dùng lại new/<phiên>.raw.md đã có trong thư mục")
     ap.add_argument("--db", type=Path, default=None, help="brief_memory.db (mặc định của vnstock_memory)")
     a = ap.parse_args(argv)
 
@@ -562,13 +596,32 @@ def main(argv: list[str] | None = None, *, engine: Engine | None = None,
                 not in ("y", "yes", "c", "có"):
             print("Huỷ — không gọi model.")
             return 1
+    out_dir = a.out or _default_out(not a.run)
+    if a.run:
         eng = engine or vbp.run_claude_cli
-        for r in rows:
-            if not r.get("error"):
-                run_engine(r, eng)
+        streak = 0
+        try:
+            for r in rows:
+                if r.get("error"):
+                    continue
+                _reset_timeout_memo()
+                run_engine(r, eng, out_dir)
+                reused = (r.get("engine_info") or {}).get("reused")
                 print(f"  {r['session']}: " + (f"❌ {r['error']}" if r.get("error") else
-                                               f"✅ {len(r.get('new_raw') or ''):,} ký tự"))
-    out = write_outputs(a.out or _default_out(), rows, meta)
+                                               f"✅ {len(r.get('new_raw') or ''):,} ký tự"
+                                               + (" (dùng lại bản đã có)" if reused else "")))
+                failed = str(r.get("error") or "").startswith("engine:")
+                streak = streak + 1 if failed else 0
+                if streak >= ENGINE_FAIL_STREAK_MAX:
+                    print(f"⛔ DỪNG SỚM: {streak} phiên liên tiếp engine lỗi — chạy lại ĐÚNG lệnh "
+                          f"này sau (phiên đã xong được dùng lại, không tốn lượt gọi).")
+                    meta["stopped_early"] = True
+                    break
+        finally:                                 # Ctrl+C giữa chừng vẫn có report cho phần đã chạy
+            out = write_outputs(out_dir, rows, meta)
+            print(f"Báo cáo: {out / 'report.md'}")
+        return 0
+    out = write_outputs(out_dir, rows, meta)
     print(f"Báo cáo: {out / 'report.md'}")
     return 0
 

@@ -34,6 +34,9 @@ def _no_vnstock_env(monkeypatch):
     monkeypatch.setenv("VNSTOCK_HORIZONS", "0")
     monkeypatch.setenv("VNSTOCK_TA_CARD", "0")     # main() đặt "1" — monkeypatch trả lại sau test
     monkeypatch.setattr(vb, "_ENV_LOADED", True)   # không kéo .env máy thật vào pytest
+    # vòng delenv vừa xoá luôn ghim của conftest `_no_claude_cli_anywhere` — ghim lại: quên
+    # `engine=` trong một test sau này không được thành lượt gọi Opus thật trên desktop
+    monkeypatch.setenv("VNSTOCK_CLAUDE_CLI_EXE", "/nonexistent/claude-cli-blocked-in-tests")
 
 
 def _bdays(start: date, n: int) -> list[date]:
@@ -391,3 +394,72 @@ def test_estimate_uses_ledger_price_table():
     assert est["usd_measured"] == pytest.approx(2 * rt.MEASURED_USD_PER_CALL)
     assert est["usd_tokens"] > 0                          # opus có trong bảng giá sổ LLM
     assert rt.estimate(rows, "model-la")["usd_tokens"] == 0
+
+
+# ── Sau review: không mất bản đã trả tiền, không đè report, memo timeout ─────
+
+@needs("pyarrow")
+def test_interrupt_mid_run_keeps_paid_text_and_rerun_reuses_it(warehouse, tmp_path):
+    calls = []
+
+    def _dies_on_second(prompt):
+        calls.append(prompt)
+        if len(calls) == 2:
+            raise KeyboardInterrupt                   # Ctrl+C / máy ngủ giữa lượt 2
+        return NEW_RAW, None, {"model": "claude-opus-5-5"}
+    out = tmp_path / "out"
+    with pytest.raises(KeyboardInterrupt):
+        rt.main(_args(warehouse, out, "--run", "--yes"), engine=_dies_on_second)
+    raws = sorted(p.name for p in (out / "new").glob("*.raw.md"))
+    assert len(raws) == 1                             # bản đã trả tiền nằm trên đĩa
+    assert (out / "report.md").is_file()              # finally vẫn ghi report phần đã chạy
+
+    again = []
+
+    def _count(prompt):
+        again.append(prompt)
+        return NEW_RAW, None, {"model": "claude-opus-5-5"}
+    assert rt.main(_args(warehouse, out, "--run", "--yes"), engine=_count) == 0
+    assert len(again) == 1                            # phiên đã có raw KHÔNG gọi lại
+    rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert rep["summary"]["ran"] == 2
+    assert [s["engine_info"].get("reused") for s in rep["sessions"]].count(True) == 1
+
+
+@needs("pyarrow")
+def test_engine_fail_streak_stops_early(warehouse, tmp_path):
+    calls = []
+
+    def _always_fail(prompt):
+        calls.append(prompt)
+        return "", "claude CLI quá 600s — bỏ", {}
+    out = tmp_path / "out"
+    assert rt.main(_args(warehouse, out, "--run", "--yes"), engine=_always_fail) == 0
+    assert len(calls) == rt.ENGINE_FAIL_STREAK_MAX
+    assert json.loads((out / "report.json").read_text(encoding="utf-8"))["meta"]["stopped_early"]
+
+
+def test_dry_run_default_dir_never_overwrites_paid_run_dir():
+    assert rt._default_out(True).name.endswith("-dry")
+    assert not rt._default_out(False).name.endswith("-dry")
+    assert rt._default_out(True).parent == rt._default_out(False).parent
+
+
+def test_timeout_memo_is_reset_but_missing_exe_memo_is_kept(monkeypatch):
+    import vnstock_claude_cli as vcc
+    monkeypatch.setattr(vcc, "_DEAD_REASON", "claude CLI quá 600s — bỏ")
+    rt._reset_timeout_memo()
+    assert vcc._DEAD_REASON is None
+    monkeypatch.setattr(vcc, "_DEAD_REASON", "không tìm thấy lệnh `claude` (Claude Code CLI)")
+    rt._reset_timeout_memo()
+    assert vcc._DEAD_REASON is not None
+
+
+def test_stored_ctx_pins_today_to_session_date():
+    ctx = rt.stored_ctx({"context_json": json.dumps({"date": "2026-10-15"})})
+    assert ctx["today"] == "2026-10-15"               # guard GDKHQ so với NGÀY PHIÊN, không hôm nay
+
+
+def test_hermetic_cli_pin_survives_env_wipe():
+    import vnstock_brief_pack as vbp
+    assert vbp.cli_executable() is None
