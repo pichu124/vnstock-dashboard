@@ -9,7 +9,7 @@ Dropbox ⇒ ○ máy nào cũng được (tránh khung pipeline 18:00 → `⏱ T
 
 In thẻ VN-Index nhiều dòng + một dòng nén cho từng mã VN30 (rổ hằng số canon) có GTGD TB20 lớn
 nhất. S/R ở bản mẫu là TẠM: pivot 60 phiên hiện hành của brief (`_select_sr_levels`), dựng trên
-bar TỚI PHIÊN TRƯỚC (đúng mức brief hôm trước đã công bố) — P2b sẽ thay phương pháp.
+bar TỚI PHIÊN TRƯỚC (đúng mức brief hôm trước đã công bố). P2b (§17) đo: không cách nào hơn giá ± ATR ⇒ giữ pivot60 làm mốc tham chiếu (§18).
 """
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ def build(prices: Path, until: date | None, top: int) -> list[str]:
     missing = sorted(tk for tk, df in tickers.items() if df.empty)
     if missing:
         out.append(f"(không có dữ liệu trong kho: {', '.join(missing)})")
-    out += ["", "S/R tạm: pivot 60 phiên tính tới phiên trước (P2b sẽ thay)."]
+    out += ["", "S/R = pivot 60 phiên tính tới phiên trước — MỐC THAM CHIẾU, không phải lợi thế (đo §17: không cách nào hơn giá ± ATR)."]
     return out
 
 
