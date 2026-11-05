@@ -38,6 +38,14 @@ from vnstock_brief_guards_common import (  # noqa: F401  (re-export)
     defensive_level,
     floor_dir,
     is_defensive,
+    _TA_INSIGHT_RE,
+    _TA_SENTENCE_SPLIT_RE,
+    _TA_TICKER_RE,
+    is_ta_heading,
+    ta_card_for,
+    ta_ctx,
+    ta_rewrite_insight,
+    ta_split_sentences,
 )
 
 from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
@@ -168,6 +176,11 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_watchlist_levels,
     _REC_RAW_LINE_RE, _REC_QTY_RE, _STRATEGY_TAG_RE, _STRATEGY_BARE_RE, _rec_line_vi,
     enforce_rec_line_format,
+    enforce_ta_card_block,
+    _TA_FACT_LINE_RE,
+    _TA_LABEL_RE,
+    _TA_BULLET_RE,
+    _ta_agent_sentences,
 )
 
 from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
@@ -199,6 +212,20 @@ from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     enforce_session_direction,
     enforce_sr_direction,
     enforce_vnindex_change,
+    enforce_ta_breakout_volume,
+    enforce_ta_numbers,
+    enforce_ta_rsi_words,
+    enforce_ta_trend_words,
+    _TA_BREAK_RE,
+    _TA_DATE_RE,
+    _TA_GLUED_RE,
+    _TA_NUM_RE,
+    _TA_RSI_ZONE_RE,
+    _TA_TREND_RE,
+    _TA_VOLUME_RE,
+    _ta_allowed,
+    _ta_known,
+    _ta_numbers,
     _ADVERB,
 )
 
@@ -221,6 +248,8 @@ from vnstock_brief_guards_text import (  # noqa: F401  (re-export)
     enforce_no_instruction_leak,
     enforce_no_placeholder_leak,
     enforce_no_record_superlative,
+    enforce_ta_no_level_promise,
+    _TA_PROMISE_RES,
 )
 
 
@@ -384,5 +413,13 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_no_record_superlative(fixed, ctx)    # no all-time GTGD claim
     fixed = enforce_no_duplicate_momentum(fixed, ctx)    # state momentum once
     fixed = enforce_range_position(fixed, ctx)
+    # Mục 📈 khi có thẻ kỹ thuật (PTKT P3): SAU mọi guard có thể đụng số trong mục, để dòng
+    # thẻ ra đúng nguyên văn; TRƯỚC number_format (EN hoá số VN trong câu nhận định).
+    fixed = enforce_ta_card_block(fixed, ctx)        # dòng thẻ = code, nhận định ≤3 câu
+    fixed = enforce_ta_numbers(fixed, ctx)           # câu có số ngoài thẻ → bỏ câu
+    fixed = enforce_ta_trend_words(fixed, ctx)       # 'xu hướng tăng' ngược thẻ → theo thẻ
+    fixed = enforce_ta_rsi_words(fixed, ctx)         # RSI >70 'quá mua' → 'đà mạnh'
+    fixed = enforce_ta_no_level_promise(fixed, ctx)  # 'hỗ trợ sẽ giữ' → mốc tham chiếu
+    fixed = enforce_ta_breakout_volume(fixed, ctx)   # 'vượt R1' thiếu KL → chèn điều kiện KL
     fixed = enforce_number_format(fixed, ctx)            # one number convention (EN)
     return fixed

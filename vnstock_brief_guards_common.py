@@ -110,4 +110,69 @@ def brief_section(text: str, marker: str) -> str:
     return "\n".join(lines[start:end]).strip()
 
 
+# ── Mục "📈 Mức kỹ thuật" khi có thẻ kỹ thuật (PTKT P2c/P3) — dùng chung cho guard ở 3 nhóm ──
+_TA_INSIGHT_RE = _re.compile(r"^\s*(?:[-*•]\s*)?\*{0,2}Nhận định\*{0,2}\s*[:：]\s*\*{0,2}\s*",
+                             _re.IGNORECASE)
+_TA_SENTENCE_SPLIT_RE = _re.compile(r"(?<=[.!?…])\s+")
+_TA_TICKER_RE = _re.compile(r"\b[A-Z][A-Z0-9]{2}\b")
+
+
+def ta_ctx(ctx: dict | None) -> dict | None:
+    """Thẻ VN-Index của ctx khi guard chữ kỹ thuật phải chạy: brief sáng/chiều + có dòng thẻ.
+    ctx không có ``ta_card`` (công tắc VNSTOCK_TA_CARD tắt, pack cũ) ⇒ None ⇒ guard no-op."""
+    ta = (ctx or {}).get("ta_card")
+    if not isinstance(ta, dict) or not ta.get("lines"):
+        return None
+    if ((ctx or {}).get("brief_type") or "afternoon") not in ("morning", "afternoon"):
+        return None
+    return ta
+
+
+def is_ta_heading(line: str) -> bool:
+    """Tiêu đề mục "📈 Mức kỹ thuật …" (cả bản model bỏ emoji)."""
+    if not _is_section_start(line):
+        return False
+    low = line.lower()
+    return "mức kỹ thuật" in low or ("📈" in line and "kỹ thuật" in low)
+
+
+def ta_split_sentences(text: str) -> list[str]:
+    return [s.strip() for s in _TA_SENTENCE_SPLIT_RE.split((text or "").strip()) if s.strip()]
+
+
+def ta_card_for(sentence: str, ta: dict, cards: dict | None) -> dict:
+    """Thẻ mà câu nói tới: mã có thẻ được nêu tên trong câu ⇒ thẻ mã đó; còn lại ⇒ VN-Index."""
+    for tk in _TA_TICKER_RE.findall(sentence or ""):
+        if isinstance((cards or {}).get(tk), dict):
+            return cards[tk]
+    return ta
+
+
+def ta_rewrite_insight(text: str, ctx: dict, fn) -> str:
+    """Áp ``fn(câu, thẻ của câu) -> câu | None`` lên từng câu của dòng "**Nhận định:**" trong mục
+    📈 (None ⇒ bỏ câu; hết câu ⇒ bỏ dòng). No-op khi không có thẻ / mục / dòng nhận định."""
+    ta = ta_ctx(ctx)
+    if not text or not ta:
+        return text
+    lines = text.split("\n")
+    start = next((i for i, l in enumerate(lines) if is_ta_heading(l)), None)
+    if start is None:
+        return text
+    end = next((j for j in range(start + 1, len(lines)) if _is_section_start(lines[j])), len(lines))
+    idx = next((i for i in range(start + 1, end) if _TA_INSIGHT_RE.match(lines[i])), None)
+    if idx is None:
+        return text
+    m = _TA_INSIGHT_RE.match(lines[idx])
+    sents = ta_split_sentences(lines[idx][m.end():])
+    cards = ctx.get("ta_cards") or {}
+    new = [s2 for s in sents if (s2 := fn(s, ta_card_for(s, ta, cards)))]
+    if new == sents:
+        return text
+    if new:
+        lines[idx] = f"{lines[idx][:m.end()].rstrip()} {' '.join(new)}"
+    else:
+        del lines[idx]
+    return "\n".join(lines)
+
+
 _PIVOT_LABEL_RE = _re.compile(r"\b(S1|S2|R1|R2)\s*=\s*([0-9][0-9.,]*[0-9]|[0-9])")
