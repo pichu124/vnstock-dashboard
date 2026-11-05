@@ -408,3 +408,5 @@ Hai nửa thời gian cho cùng kết luận. Phần VN-Index chỉ 51 ngày ch�
 - Vi phạm bản cũ = dòng điền khuôn prompt cũ (`Trigger ngày mai` không KL; `Vs MA` bắt in MA50/MA200), KHÔNG phải model sai.
 - Bản mới: 0 xu hướng ngược thẻ · 0 RSI sai vùng · 0 hứa hẹn mức · 0 thiếu KL.
 - **Lỗi tìm ra:** trần 3 câu cắt theo VỊ TRÍ, guard bỏ 29 câu. Model viết ý chính + mỗi chiều kịch bản 1 câu + mức huỷ (4–5 câu), nên mất mức huỷ 17/20 phiên và mất HẲN chiều tăng ở 7 phiên (kịch bản thành một chiều, nghiêng giảm). Sửa: `ta_pick_insight` chọn theo VAI (câu đầu = ý chính · hai câu một chiều nối "a; b" · câu mức huỷ), ≤3 câu thì giữ nguyên; mảnh đánh số "2." bị bỏ; prompt dặn gộp hai chiều trong một câu. Chạy lại đúng lệnh `--run` = chấm lại 20 bản đã trả tiền, 0 lượt gọi.
+- Chấm lại sau sửa (0 lượt gọi): mọi phiên có ý chính + kịch bản hai chiều (gộp "a; b") + mức huỷ. Còn mất 1 câu ý phụ ở ~8 phiên (model viết ý chính 2 câu, đa số nhắc lại KL/RSI thẻ đã in) — GIỮ trần 3 câu.
+- **Bật `VNSTOCK_TA_CARD=1` ở `.env` 🖥️ desktop 05/11** (máy sinh brief; mặc định code vẫn TẮT). Brief chiều 05/11 = bản thật đầu tiên ⇒ soi sáng 06/11.
