@@ -16,11 +16,21 @@ from __future__ import annotations
 
 import re as _re
 
-from vnstock_brief_canon import _FINANCIAL_TICKERS, _FUND_KW, _SR_MAX_MOVE_PCT, _gtgd_close_frame
+from vnstock_brief_canon import (
+    RSI_OVERBOUGHT,
+    RSI_OVERSOLD,
+    RSI_STRONG,
+    RSI_WEAK,
+    _FINANCIAL_TICKERS,
+    _FUND_KW,
+    _SR_MAX_MOVE_PCT,
+    _gtgd_close_frame,
+)
 from vnstock_brief_guards_common import (
     _PIVOT_LABEL_RE,
     _is_section_start,
     _parse_vn_number,
+    ta_rewrite_insight,
 )
 
 
@@ -228,10 +238,13 @@ def _known_index_levels(vt: dict, *, with_close: bool = False,
     cố định; `with_close` thêm giá đóng cửa ở đầu. Cuối cùng là `horizon_levels`
     (MA10w/MA40w, neo 🚨, mức kích hoạt — P1b-3, chỉ có khi VNSTOCK_HORIZONS bật)
     phòng khi agent tự chép các mức này vào câu của mình. ``with_horizon=False``
-    cho guard dùng danh sách làm ĐÍCH ghim (S/R): ngưỡng 🚨 không phải hỗ trợ."""
+    cho guard dùng danh sách làm ĐÍCH ghim (S/R): ngưỡng 🚨 không phải hỗ trợ.
+    ``ta_levels`` (biên 1 ATR của thẻ kỹ thuật, chỉ có khi VNSTOCK_TA_CARD bật) đi cùng nhóm
+    này: là số đã biết, nhưng không phải hỗ trợ/kháng cự."""
     keys = (("close",) if with_close else ()) + _KNOWN_INDEX_LEVEL_KEYS
-    vals = [vt.get(k) for k in keys] + (list(vt.get("horizon_levels") or [])
-                                        if with_horizon else [])
+    vals = [vt.get(k) for k in keys] + (
+        list(vt.get("horizon_levels") or []) + list(vt.get("ta_levels") or [])
+        if with_horizon else [])
     return [v for v in vals if isinstance(v, (int, float)) and 800 <= v <= 2500]
 
 
@@ -1147,3 +1160,123 @@ def enforce_gtgd_missing_note(text: str, ctx: dict) -> str:
         return text
     note = f" (chưa gồm {len(mh)} mã lớn thiếu data)"
     return text[:m.end()] + note + text[m.end():]
+
+
+# ── Nhận định kỹ thuật phải khớp thẻ (PTKT P3, §6/§10d) ────────────────────────
+# Chỉ đụng dòng "**Nhận định:**" của mục 📈; ctx không có thẻ ⇒ no-op (`ta_rewrite_insight`).
+_TA_DATE_RE = _re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b")
+_TA_GLUED_RE = _re.compile(r"[^\W\d_]+[+(]?\d+\)?")          # MA20, TB20, S1, T+5, RSI(14)
+_TA_NUM_RE = _re.compile(r"\d[\d.,]*\d|\d")
+
+
+def _ta_numbers(text: str) -> list[float]:
+    t = _TA_GLUED_RE.sub(" ", _TA_DATE_RE.sub(" ", text or ""))
+    return [v for m in _TA_NUM_RE.finditer(t) if (v := _parse_vn_number(m.group(0))) is not None]
+
+
+def _ta_allowed(card: dict, ta: dict) -> list[float]:
+    """Số có trong thẻ VN-Index (+ thẻ mã câu nhắc tới — cả bản nghìn đồng) + ngưỡng canon mà
+    nhận định được phép nêu (RSI 30/40/60/70, KL xác nhận ×TB20, "1 ATR")."""
+    nums = _ta_numbers(" ".join(str(l) for l in ta.get("lines") or []))
+    if card is not ta:
+        own = _ta_numbers(str(card.get("line") or ""))
+        nums += own + [v / 1000 for v in own if v >= 1000]
+    nums += [RSI_OVERBOUGHT, RSI_STRONG, RSI_WEAK, RSI_OVERSOLD, 1.0]
+    return nums + ([float(ta["vol_mult"])] if ta.get("vol_mult") else [])
+
+
+def _ta_known(x: float, allowed: list[float]) -> bool:
+    """Dung sai LÀM TRÒN của số model viết: số nguyên ±0,5 ("1,733" cho 1,733.20), số lẻ ±0,05
+    ("1.2" cho 1.23). Không dung sai tương đối: ở thang chỉ số 0,1% đã là 1,7 điểm — đủ để một
+    mức khác (MA50 1,690.10 cạnh S2 1,690.25) lọt."""
+    tol = 0.5 if float(x).is_integer() else 0.051
+    return any(abs(x - v) <= tol for v in allowed)
+
+
+def enforce_ta_numbers(text: str, ctx: dict) -> str:
+    """Câu nhận định kỹ thuật có số giá/chỉ số KHÔNG có trong thẻ ⇒ bỏ CẢ câu (§10d: "câu nhận
+    định có số không nằm trong thẻ ⇒ bỏ câu đó"). So theo giá trị tuyệt đối, dung sai làm tròn
+    (0,5 cho số nguyên, 0,05 cho số lẻ); bỏ qua ngày và số dính chữ (MA20, TB20, S1)."""
+    def _keep(sent: str, card: dict) -> "str | None":
+        ta = ctx["ta_card"]
+        allowed = _ta_allowed(card, ta)
+        return sent if all(_ta_known(abs(x), allowed) for x in _ta_numbers(sent)) else None
+    return ta_rewrite_insight(text, ctx, _keep)
+
+
+_TA_TREND_RE = _re.compile(
+    r"(xu hướng(?:\s+MA20)?\s+)(tăng|giảm|đi ngang)(?!\s+(?:trung|dài)\s+hạn)(?!\s+tuần)",
+    _re.IGNORECASE)
+
+
+def enforce_ta_trend_words(text: str, ctx: dict) -> str:
+    """"xu hướng tăng/giảm/đi ngang" trong nhận định ngược nhãn "Xu hướng MA20" của thẻ (VN-Index,
+    hoặc mã câu nêu tên) ⇒ sửa theo thẻ. "xu hướng … trung/dài hạn/tuần" là khung khác — không
+    đụng. Thẻ không có nhãn ⇒ để nguyên."""
+    def _fix(sent: str, card: dict) -> str:
+        label = card.get("short")
+        if not label:
+            return sent
+
+        def _sub(m: "_re.Match") -> str:
+            word = m.group(2)
+            if word.lower() == label.lower():
+                return m.group(0)
+            return m.group(1) + (label if word.isupper() else label.lower())
+        return _TA_TREND_RE.sub(_sub, sent)
+    return ta_rewrite_insight(text, ctx, _fix)
+
+
+_TA_RSI_ZONE_RE = _re.compile(
+    r"(?:(?:vùng|tín hiệu|cảnh báo)\s+)?(quá mua|quá bán)"
+    r"(?:\s*,?\s*(?:cảnh báo|rủi ro)(?:\s+(?:điều chỉnh|đảo chiều))?)?", _re.IGNORECASE)
+
+
+def enforce_ta_rsi_words(text: str, ctx: dict) -> str:
+    """Câu nhận định nói RSI mà gọi "quá mua/quá bán" ngược nhãn RSI của thẻ ⇒ thay bằng nhãn thẻ.
+    RSI > 70 ⇒ "đà mạnh", bỏ luôn đuôi "cảnh báo điều chỉnh" (§16: mã RSI Wilder > 70 VƯỢT
+    VN-Index +1,75% T+20 giai đoạn 05–10/2026 — không phải tín hiệu cảnh báo)."""
+    def _fix(sent: str, card: dict) -> str:
+        label = card.get("rsi_label")
+        if not label or "rsi" not in sent.lower():
+            return sent
+
+        def _sub(m: "_re.Match") -> str:
+            return m.group(0) if m.group(1).lower() == label else label
+        return _TA_RSI_ZONE_RE.sub(_sub, sent)
+    return ta_rewrite_insight(text, ctx, _fix)
+
+
+_TA_BREAK_RE = _re.compile(
+    r"\b(?:vượt|thủng|phá vỡ|phá)\s+(?:(?:lên|qua|lại|xuống)\s+)?"
+    r"(?:(?:mốc|mức|ngưỡng|hỗ trợ|kháng cự)\s+)?"
+    r"(?:(?:[SR][12]|MA\d{2,3})(?:\s*=?\s*\d[\d.,]*\d)?|\d[\d.,]*\d)", _re.IGNORECASE)
+_TA_VOLUME_RE = _re.compile(r"\bKL\b|khối lượng|thanh khoản|volume", _re.IGNORECASE)
+
+
+def enforce_ta_breakout_volume(text: str, ctx: dict) -> str:
+    """Kịch bản "vượt/thủng <mức>" trong nhận định mà đoạn của nó không nói khối lượng ⇒ chèn
+    điều kiện KL ngay sau mức: "(kèm KL ≥ 1.20× TB20; phiên gần nhất KL x× TB20)" — ngưỡng xác
+    nhận và KL phiên lấy từ thẻ. Đoạn = từ hết mốc trước tới đầu mốc sau trong cùng câu."""
+    def _fix(sent: str, card: dict) -> str:
+        hits = list(_TA_BREAK_RE.finditer(sent))
+        if not hits:
+            return sent
+        vm = card.get("vol_mult") or ctx["ta_card"].get("vol_mult")
+        if not vm:
+            return sent
+        note = f" (kèm KL ≥ {vm:,.2f}× TB20"
+        if card.get("vol_ratio") is not None:
+            note += f"; phiên gần nhất KL {card['vol_ratio']:,.2f}× TB20"
+        note += ")"
+        out, prev = [], 0
+        for k, m in enumerate(hits):
+            seg_end = hits[k + 1].start() if k + 1 < len(hits) else len(sent)
+            seg = sent[(hits[k - 1].end() if k else 0):seg_end]
+            out.append(sent[prev:m.end()])
+            if not _TA_VOLUME_RE.search(seg):
+                out.append(note)
+            prev = m.end()
+        out.append(sent[prev:])
+        return "".join(out)
+    return ta_rewrite_insight(text, ctx, _fix)

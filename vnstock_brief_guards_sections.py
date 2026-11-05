@@ -59,14 +59,21 @@ from vnstock_brief_canon import (
     _market_news_body_lines,
     _portfolio_fact_line,
     _round_tick,
+    TA_INSIGHT_LABEL,
+    TA_INSIGHT_MAX_SENTENCES,
+    TA_SECTION_TITLES,
 )
 from vnstock_brief_guards_common import (
     _PIVOT_LABEL_RE,
+    _TA_INSIGHT_RE,
     _is_section_start,
     _parse_vn_number,
     defensive_level,
     floor_dir,
     is_defensive,
+    is_ta_heading,
+    ta_ctx,
+    ta_split_sentences,
 )
 from vnstock_fund_periods import period_text as _period_text
 
@@ -2781,3 +2788,73 @@ def enforce_rec_line_format(text: str, ctx: dict | None = None) -> str:
     if not changed:
         return text
     return "\n".join(out) + ("\n" if text.endswith("\n") else "")
+
+
+# ── 📈 Mức kỹ thuật = thẻ của CODE + ≤3 câu nhận định (PTKT P2c/P3, §10d) ─────
+# Dòng model viết mà mở bằng các cụm này là bản chép (đúng/sai) của dữ kiện thẻ hoặc khung template
+# cũ ⇒ bỏ, code in lại; còn lại là chữ nhận định.
+_TA_FACT_LINE_RE = _re.compile(
+    r"^(?:phiên \d{4}-|xu hướng ma20\s*:|mức tham chiếu\s*:|tín hiệu lệch nhau\s*:|⚠️|"
+    r"thẻ kỹ thuật|số tham chiếu|\[hệ thống|đóng cửa(?: hiện tại)?\s*:|giá hiện tại\s*:|"
+    r"hỗ trợ gần\s*:|kháng cự gần\s*:|vị trí[^:]{0,25}:|vs ma\s*:)", _re.IGNORECASE)
+_TA_LABEL_RE = _re.compile(r"^\*\*[^*\n]{1,40}?(?:\*\*\s*[:：]|[:：]\s*\*\*)\s*")   # "**Nhãn:**"
+_TA_BULLET_RE = _re.compile(r"^\s*(?:[-•>]|\*(?=\s))\s*")
+
+
+def _ta_agent_sentences(agent_lines: "list[str]", card: "list[str]") -> "list[str]":
+    out: list[str] = []
+    for raw in agent_lines:
+        s = raw.strip()
+        if not s or s in card:
+            continue
+        if m := _TA_INSIGHT_RE.match(s):
+            body = s[m.end():]
+        else:
+            core = _TA_BULLET_RE.sub("", s)
+            if _TA_FACT_LINE_RE.match(core.replace("**", "")):
+                continue
+            lab = _TA_LABEL_RE.match(core)
+            body = core[lab.end():] if lab else core
+        sents = ta_split_sentences(body)
+        if sents and not sents[-1].endswith((".", "!", "?", "…")):
+            sents[-1] += "."
+        out += sents
+    return out
+
+
+def enforce_ta_card_block(text: str, ctx: dict) -> str:
+    """Mục "📈 Mức kỹ thuật" khi có thẻ kỹ thuật: thân = dòng thẻ CỦA CODE (``ctx["ta_card"]
+    ["lines"]``, chép nguyên — model sửa/bỏ ⇒ dựng lại) + MỘT dòng "**Nhận định:**" gom chữ model
+    trong mục, cắt còn ≤ `TA_INSIGHT_MAX_SENTENCES` câu. Dòng model chép lại dữ kiện thẻ / khung
+    template cũ ("Đóng cửa:", "Hỗ trợ gần:"…) bị bỏ. Model bỏ cả mục ⇒ chèn mục (sau 📊, không có
+    thì sau TLDR, không có nữa thì cuối brief) — khối không bao giờ trống. Nhiều mục 📈 ⇒ gộp về
+    chỗ mục đầu. No-op khi ctx không có thẻ (`VNSTOCK_TA_CARD` tắt). Idempotent."""
+    ta = ta_ctx(ctx)
+    if not text or not ta:
+        return text
+    card = [str(l) for l in ta["lines"]]
+    lines = text.split("\n")
+    title, at, agent = None, None, []
+    while (s := next((i for i, l in enumerate(lines) if is_ta_heading(l)), None)) is not None:
+        e = _hz_section_end(lines, s)
+        if title is None:
+            title, at = lines[s].strip(), s
+        agent += lines[s + 1:e]
+        del lines[s:e]
+    sents = _ta_agent_sentences(agent, card)[:TA_INSIGHT_MAX_SENTENCES]
+    block = [title or TA_SECTION_TITLES[ctx.get("brief_type") or "afternoon"]] + card
+    if sents:
+        block.append(f"{TA_INSIGHT_LABEL} {' '.join(sents)}")
+    if at is None:
+        anchor = _first_section(lines, ("📊",))
+        if anchor is None:
+            anchor = next((i for i, l in enumerate(lines)
+                           if _is_section_start(l) and "tldr" in l.lower()), None)
+        at = _after_section(lines, anchor, len(lines))
+    while at > 0 and not lines[at - 1].strip():
+        at -= 1
+    tail = lines[at:]
+    while tail and not tail[0].strip():
+        tail.pop(0)
+    head = lines[:at] + ([""] if at else [])
+    return "\n".join(head + block + ([""] + tail if tail else [""]))

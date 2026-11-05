@@ -818,3 +818,28 @@ def _fmt_footer_price(p: float) -> str:
 def _fmt_adj_price(p: float) -> str:
     """Giá quy đổi quyền: tối đa 2 số lẻ, bỏ số 0 thừa — 52.0 → '52', 23.5 → '23.5'."""
     return f"{p:,.2f}".rstrip("0").rstrip(".")
+
+
+# ── Thẻ kỹ thuật trong brief (PTKT P2c/P3, `docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §10d, §17–§18) ──
+# Mục "📈 Mức kỹ thuật" = dòng thẻ do CODE in + TỐI ĐA 3 câu "Nhận định" của model. Prompt
+# (`vnstock_brief._swap_ta_template`) và guard (`enforce_ta_*`) đọc cùng các hằng dưới đây.
+TA_SECTION_TITLES = {"morning": "## 📈 Mức kỹ thuật quan trọng (VNINDEX)",
+                     "afternoon": "## 📈 Mức kỹ thuật chốt phiên (VNINDEX)"}
+TA_INSIGHT_LABEL = "**Nhận định:**"
+TA_INSIGHT_MAX_SENTENCES = 3
+# S/R là MỐC THAM CHIẾU (§17: không cách tìm S/R nào hơn mốc ngây thơ giá ± ATR) ⇒ cụm coi mức là
+# LỢI THẾ đổi sang cách nói có điều kiện. (mẫu regex, chữ thay), không phân biệt hoa thường — cụm
+# dài/cụ thể đứng trước cụm chung ("chắc chắn", "đảm bảo").
+TA_LEVEL_PROMISE_EXAMPLES = ("hỗ trợ sẽ giữ", "chắc chắn bật", "thủng là về S2")
+TA_LEVEL_PROMISE_PHRASES: tuple = (
+    (r"hỗ trợ\s+(?:chắc chắn\s+)?sẽ\s+(?:giữ vững|giữ|trụ vững|trụ|đỡ)",
+     "hỗ trợ là mốc tham chiếu (chưa chắc giữ)"),
+    (r"kháng cự\s+(?:chắc chắn\s+)?sẽ\s+(?:chặn|cản)",
+     "kháng cự là mốc tham chiếu (chưa chắc chặn)"),
+    (r"(?:là|thì|sẽ)\s+(?:về|rơi về|lùi về|xuống)\s+(S2|vùng S2)\b", r"thì mức kế tiếp là \1"),
+    (r"(?:là|thì|sẽ)\s+(?:lên|tới|test|hướng tới|mở đường lên)\s+(R2|vùng R2)\b",
+     r"thì mức kế tiếp là \1"),
+    (r"chắc chắn\s+sẽ\s+", "có thể "),
+    (r"chắc chắn", "có thể"),
+    (r"đảm bảo", "có thể"),
+)

@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import re as _re
 
-from vnstock_brief_guards_common import _is_section_start, _parse_vn_number
+from vnstock_brief_canon import TA_LEVEL_PROMISE_PHRASES
+from vnstock_brief_guards_common import _is_section_start, _parse_vn_number, ta_rewrite_insight
 
 
 _CJK_RE = _re.compile(r"[㐀-䶿一-鿿豈-﫿]+")
@@ -311,3 +312,18 @@ def enforce_no_duplicate_momentum(text: str, ctx: dict | None = None) -> str:
             ln = _re.sub(r"\s*\(\s*\)", "", ln)
         out.append(ln)
     return "\n".join(out)
+
+
+_TA_PROMISE_RES = tuple((_re.compile(p, _re.IGNORECASE), r) for p, r in TA_LEVEL_PROMISE_PHRASES)
+
+
+def enforce_ta_no_level_promise(text: str, ctx: dict) -> str:
+    """Nhận định kỹ thuật coi mức là LỢI THẾ ("hỗ trợ sẽ giữ", "chắc chắn bật", "thủng là về S2",
+    "chắc chắn", "đảm bảo") ⇒ cách nói có điều kiện (`TA_LEVEL_PROMISE_PHRASES`). §17: không cách
+    tìm S/R nào hơn mốc ngây thơ giá ± ATR — S/R là mốc tham chiếu, không phải dự báo."""
+    def _fix(sent: str, _card: dict) -> str:
+        out = sent
+        for rx, rep in _TA_PROMISE_RES:
+            out = rx.sub(rep, out)
+        return out[:1].upper() + out[1:] if sent[:1].isupper() else out
+    return ta_rewrite_insight(text, ctx, _fix)
