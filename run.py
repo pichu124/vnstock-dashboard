@@ -858,6 +858,7 @@ def cmd_test(args) -> int:
             "tests/test_ta_card.py",      # thẻ kỹ thuật 3 khung (P2a PTKT)
             "tests/test_brief_ta_card.py",  # thẻ vào brief + guard chữ kỹ thuật (P2c+P3 PTKT)
             "tests/test_replay_ta_brief.py",  # chạy lại lịch sử brief có thẻ (PTKT §14 câu 2)
+            "tests/test_setup_scheduled_tasks.py",  # -OnlyNewsAlert: tin mỗi giờ chạy ở laptop
             "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
