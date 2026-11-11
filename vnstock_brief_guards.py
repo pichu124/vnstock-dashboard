@@ -124,6 +124,8 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_sector_nn_figures,
     _NN_MONTH_AFTER_RE,
     _NN_MONTH_NOT,
+    _NN_MONTH_NOT_TRONG,
+    _NN_MONTH_NAMES,
     _nn_close,
     _nn_month_framed,
     _nn_month_value,

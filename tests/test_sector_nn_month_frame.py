@@ -27,6 +27,9 @@ def _run(t: str) -> str:
     # số 1 tháng ĐÚNG có nhãn tháng ⇒ giữ nguyên
     ("Ngân hàng bán ròng 2,536 tỷ (1M).", "Ngân hàng bán ròng 2,536 tỷ (1"),
     ("Ngân hàng bán ròng 2,536 tỷ trong tháng.", "Ngân hàng bán ròng 2,536 tỷ trong tháng"),
+    # review 11/11: "trong (1) tháng trước/sau …" vẫn là khung tháng
+    ("Ngân hàng bán ròng 2,536 tỷ trong 1 tháng trước kỳ review.", "2,536 tỷ trong 1 tháng trước kỳ review"),
+    ("Ngân hàng bán ròng 2,536 tỷ trong tháng sau khi FTSE công bố.", "2,536 tỷ trong tháng sau khi"),
     ("- Dòng tiền ngoại: Thép & Kim loại mua ròng 300 tỷ (1M).", "Thép & Kim loại mua ròng 300 tỷ (1 tháng)"),
     # sai CHIỀU / sai dấu / sai độ lớn với nhãn tháng ⇒ ghim về NN 1M thật (có dấu, động từ đúng)
     ("Ngân hàng mua ròng 2,536 tỷ (1M).", "Ngân hàng bán ròng -2,536 tỷ (1"),
@@ -92,3 +95,17 @@ def test_week_figure_with_month_label_is_idempotent():
 def test_parenthetical_liquidity_figure_is_not_pinned():
     out = _run("**Dòng tiền ngành:** Thép & Kim loại (+1,500 tỷ GTGD) sôi động.")
     assert "(+1,500 tỷ GTGD)" in out, out
+
+
+
+def test_week_figure_next_to_signed_month_figure_is_kept():
+    """Review 11/11: "(NN -1,032 tỷ, 1 tháng -2,536 tỷ)" — số sau "1 tháng" là số THÁNG riêng, số trước
+    là số tuần đúng: không được ghi đè số tuần thành bản sao số tháng."""
+    out = _run("**Dòng tiền ngành:** Ngân hàng (NN -1,032 tỷ, 1 tháng -2,536 tỷ) chịu áp lực.")
+    assert "(NN -1,032 tỷ, 1 tháng -2,536 tỷ)" in out, out
+    for t, want in (("🎯 TLDR\nNgân hàng bán ròng 1,032 tỷ, 1 tháng -2,536 tỷ.", "1,032"),
+                    ("🎯 TLDR\nNN bán ròng 1,032 tỷ trong ngành Ngân hàng, 1 tháng qua ngành giảm 5%.",
+                     "1,032 tỷ trong ngành Ngân hàng")):
+        once = vb.apply_brief_guards(t, _CTX)
+        assert vb.apply_brief_guards(once, _CTX) == once, once
+        assert want in once.splitlines()[1], once

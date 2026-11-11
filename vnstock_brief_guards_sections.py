@@ -1069,14 +1069,23 @@ def enforce_lead_lag(text: str, ctx: dict) -> str:
 # ── Khung của một số NN ngành: nhãn THÁNG đứng NGAY sau số / tên ngành (11/11) ────────
 # Chỉ nhìn NGAY SAU (không nhìn lùi, không cả câu): "Tuần này … 2,536 tỷ, cao nhất trong tháng" là
 # số tuần. "tháng 10" (tên tháng) và "11 tháng" không phải khung 1M.
-# Sau "tháng"/"20 phiên" mà là trước/sau/thứ/tới/tên tháng/số ⇒ mệnh đề khác ("1 tháng trước còn mua
-# ròng", "tháng thứ ba liên tiếp", "tháng Mười", "20 phiên trước đó") — KHÔNG phải khung 1M.
-_NN_MONTH_NOT = r"(?!\s*(?:\d|trước|sau|thứ|tới|qua\s+nữa|mười|một|giêng|chạp))"
+# Sau "tháng"/"20 phiên" mà là SỐ (kể cả có dấu / sau ":"), thứ/tới/tên tháng ⇒ mệnh đề khác
+# ("1 tháng -2,536 tỷ", "tháng thứ ba", "tháng Mười"). "trước/sau" trần ("1 tháng trước còn mua
+# ròng") cũng là mệnh đề khác — NHƯNG "trong (1) tháng trước kỳ review" / "trong tháng sau khi FTSE
+# công bố" vẫn là khung tháng: sau "trong" chỉ loại "trước/sau" khi theo sau là "đó"/dấu câu/hết.
+_NN_MONTH_NAMES = r"mười|một|giêng|chạp|hai|ba|tư|năm|sáu|bảy|tám|chín"
+_NN_MONTH_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|thứ|tới|qua\s+nữa|"
+                 + _NN_MONTH_NAMES + r")\b)")
+_NN_MONTH_NOT_TRONG = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:thứ|tới|qua\s+nữa|" + _NN_MONTH_NAMES
+                       + r")\b|\s*(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
+# Nhánh dấu phẩy (", 1 tháng") chỉ khi nó ĐÓNG cụm: ")"/dấu câu/hết — ", 1 tháng qua ngành giảm
+# 5%" là mệnh đề khác.
 _NN_MONTH_AFTER_RE = _re.compile(
     r"(?:\s*đồng)?\s*(?:\(\s*(?:NN\s+)?(?:1M\b|(?:1\s+tháng|20\s+phiên)\b" + _NN_MONTH_NOT + r")"
-    r"|,\s*(?:1\s+tháng|20\s+phiên)\b" + _NN_MONTH_NOT
-    + r"|(?:trong\s+)?(?:1\s+)?tháng\b" + _NN_MONTH_NOT
-    + r"|trong\s+20\s+phiên\b" + _NN_MONTH_NOT + r")", _re.IGNORECASE)
+    r"|,\s*(?:1\s+tháng|20\s+phiên)\b(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
+    + r"|trong\s+(?:1\s+)?tháng\b" + _NN_MONTH_NOT_TRONG
+    + r"|trong\s+20\s+phiên\b" + _NN_MONTH_NOT_TRONG
+    + r"|(?:1\s+)?tháng\b" + _NN_MONTH_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
 
 
 def _nn_month_framed(s: str, pos: int) -> bool:
