@@ -847,7 +847,8 @@ def test_market_tab_warns_when_sector_nn_is_missing_sessions(render_env, monkeyp
     stub = _stub_dashboard(_sector_df(), _index_df())
     monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
     render_env.session_state["_mkt_ticker_data"] = _ticker_df()
-    render_env.session_state["_mkt_nn_coverage"] = {"sessions": 12, "asked": 20, "failed_days": 8}
+    render_env.session_state["_mkt_nn_coverage"] = {"sessions": 12, "asked": 20, "missing_1t": 0,
+                                                     "missing_1m": 8}
     _load("dashboard.market_tab").render_market_tab()
     warns = [str(c.args[0]) for c in render_env.warning.call_args_list if c.args]
-    assert any("12/20 phiên" in w for w in warns), warns
+    assert any("8/20 phiên" in w for w in warns), warns

@@ -4295,9 +4295,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             lines.append(block)
             if _nn_cov := nn_coverage_label(ctx):
                 lines.append(
-                    f"⚠️ NN ròng NGÀNH (1T/1M) tính THIẾU phiên: {_nn_cov} tải được (nguồn báo lỗi/"
-                    f"chạm hạn mức). Khi nêu số NN ngành ghi '({_nn_cov})' đúng một lần; KHÔNG "
-                    "kết luận mạnh từ NN ngành.")
+                    f"⚠️ NN ròng NGÀNH tính THIẾU phiên ({_nn_cov}; nguồn báo lỗi/chạm hạn mức). "
+                    "Khi nêu số NN ngành của khung đó ghi nhãn trong ngoặc đúng một lần; KHÔNG "
+                    "kết luận mạnh từ NN ngành của khung thiếu.")
 
     # VN30 fundamentals (debt-to-equity, ROE, operating cash flow) so the agent
     # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
@@ -4552,6 +4552,9 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     _NN_COVERAGE_MARK,
     enforce_nn_coverage_note,
     nn_coverage_label,
+    nn_coverage_labels,
+    _NN_WINDOWS,
+    _label_first_sector_figure,
     enforce_gtgd_compare_frame,
     enforce_gtgd_total,
     enforce_lead_lag,

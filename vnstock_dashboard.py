@@ -240,6 +240,8 @@ def _fetch_foreign_net_flow(trading_days: int = 20) -> pd.DataFrame:
     days_fetched = 0
     calendar_day = 0
     stopped_early = False      # dừng giữa chừng ⇒ không cache (cửa sổ 20D không được là 2 phiên)
+    truncated = False          # dừng hẳn (ngày cũ hơn chưa hỏi) — khác với thủng một ngày mạng
+    failed_dates: list = []
 
     while days_fetched < trading_days and calendar_day < trading_days * 2:
         dt = today - _td(days=calendar_day)
@@ -256,18 +258,19 @@ def _fetch_foreign_net_flow(trading_days: int = 20) -> pd.DataFrame:
             df = call_with_rate_limit_retry(foreign_net_for_date, dt_str, retries=1)
         except NetworkError as e:  # mạng chập chờn — ngày sau có thể được
             errors.append(f"{dt_str}: {type(e).__name__}: {e}")
+            failed_dates.append(dt_str)
             stopped_early = True   # cửa sổ thủng một phiên ⇒ không cache
             days_fetched += 1
             continue
         except RuntimeError as e:  # hạn mức không hạ sau lượt chờ (vnstock_ratelimit) ⇒ dừng
             _NN_DIAG["state"] = f"{dt_str}: rate limit: {str(e)[:150]}"
             errors.append(_NN_DIAG["state"])
-            stopped_early = True
+            stopped_early = truncated = True
             break
         except VnstockError as e:  # nguồn/khoá/quyền/hạn mức: gọi tiếp chỉ lặp lỗi ⇒ dừng
             _NN_DIAG["state"] = f"{dt_str}: {type(e).__name__}: {str(e)[:150]}"
             errors.append(_NN_DIAG["state"])
-            stopped_early = True
+            stopped_early = truncated = True
             break
         if days_fetched == 0:
             _NN_DIAG["state"] = f"ok ({len(df)} mã, {dt_str})"
@@ -297,7 +300,8 @@ def _fetch_foreign_net_flow(trading_days: int = 20) -> pd.DataFrame:
         # ⇒ gắn độ phủ vào CHÍNH bảng (attrs đi qua pickle của cache) để tab BÁO RÕ số phiên thật.
         # Không dùng _NN_DIAG: Streamlit chạy lại script mỗi lượt ⇒ dict cấp module về {}.
         result.attrs["nn_coverage"] = {"sessions": int(result["date"].nunique()),
-                                       "asked": int(trading_days), "source": "dashboard"}
+                                       "asked": int(trading_days), "source": "dashboard",
+                                       "failed_dates": failed_dates, "truncated": truncated}
     return result
 
 

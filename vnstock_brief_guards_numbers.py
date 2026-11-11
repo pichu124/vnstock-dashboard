@@ -1222,48 +1222,69 @@ def enforce_gtgd_missing_note(text: str, ctx: dict) -> str:
 
 
 # ─── NN ròng NGÀNH tính thiếu phiên (vnstock thế hệ 6, 11/11) ───────────────────
-# Lượt tải NN của runner có ngày lỗi (nguồn/hạn mức) ⇒ market_overview `nn_coverage`
-# {sessions, asked, …}: NN 1T/1M của ngành cộng trên ÍT phiên hơn nhãn. Prompt bảo model
-# ghi nhãn; guard gắn đúng MỘT lần ngay sau số NN ngành đầu tiên (số phải khớp |NN 1T| hoặc
-# |NN 1M| của chính ngành được nêu cùng dòng, dòng có chữ "ròng"). Đủ phiên ⇒ no-op.
-_NN_COVERAGE_MARK = "NN chỉ có"
+# Lượt tải NN có ngày lỗi (nguồn/hạn mức) ⇒ market_overview `nn_coverage` mang số phiên thiếu
+# THEO KHUNG: `missing_1t` (trong 5 phiên gần nhất) / `missing_1m` (trong 20). Phiên lỗi CŨ
+# không làm NN 1T thiếu ⇒ chỉ khung thật sự thiếu mới có nhãn. Prompt dặn; guard gắn nhãn
+# MỘT lần mỗi khung, ngay sau số NN ngành đầu tiên của khung đó (số khớp |NN 1T| hoặc |NN 1M|
+# của ngành có tên ĐỨNG SÁT số). Đủ phiên ⇒ no-op.
+_NN_COVERAGE_MARK = "thiếu"
+_NN_WINDOWS = (("1T", "NN 1T (tỷ)", "missing_1t", 5), ("1M", "NN 1M (tỷ)", "missing_1m", 20))
+
+
+def nn_coverage_labels(ctx: dict) -> dict:
+    """{"1T": "NN 1T thiếu 2/5 phiên" | None, "1M": …} theo `ctx["nn_coverage"]`."""
+    cov = (ctx or {}).get("nn_coverage")
+    out = {w: None for w, *_ in _NN_WINDOWS}
+    if not isinstance(cov, dict):
+        return out
+    for w, _col, key, n in _NN_WINDOWS:
+        try:
+            miss = int(cov.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if miss > 0:
+            # "gần nhất": 1T vẫn cộng 5 phiên (phiên cũ thế chỗ) — đừng để đọc thành "chỉ có 4 phiên"
+            out[w] = f"NN {w} {_NN_COVERAGE_MARK} {min(miss, n)}/{n} phiên" + (" gần nhất" if w == "1T" else "")
+    return out
 
 
 def nn_coverage_label(ctx: dict) -> "str | None":
-    """'NN chỉ có 12/20 phiên' khi lượt tải NN thiếu phiên; None khi đủ / không rõ."""
-    cov = (ctx or {}).get("nn_coverage")
-    if not isinstance(cov, dict):
-        return None
-    try:
-        got, asked = int(cov.get("sessions", 0)), int(cov.get("asked", 0))
-    except (TypeError, ValueError):
-        return None
-    if asked <= 0 or got >= asked:
-        return None
-    return f"{_NN_COVERAGE_MARK} {got}/{asked} phiên"
+    """Gộp nhãn các khung thiếu ('NN 1M thiếu 8/20 phiên'); None khi đủ / không rõ."""
+    got = [lb for lb in nn_coverage_labels(ctx).values() if lb]
+    return "; ".join(got) or None
 
 
 def enforce_nn_coverage_note(text: str, ctx: dict) -> str:
-    """Tên ngành phải ĐỨNG SÁT số: trong ~40 ký tự TRƯỚC số (không có số khác chen giữa), hoặc
-    ngay SAU qua từ nối ("… 120 tỷ trong ngành Thép") — "bán ròng 1,040 tỷ, tập trung ở ngân
-    hàng" là NN toàn thị trường, không gắn. Dấu "đã gắn" là CHÍNH nhãn "NN chỉ có X/Y phiên"."""
-    label = nn_coverage_label(ctx)
-    if not text or not label or _re.search(_NN_COVERAGE_MARK + r" \d+/\d+ phiên", text):
+    """Tên ngành phải ĐỨNG SÁT số: trong ~40 ký tự TRƯỚC số (cắt tại số "… tỷ" gần nhất phía
+    trước), hoặc ngay SAU qua từ nối ("… 120 tỷ trong ngành Thép", "… ở ngành Thép") — "bán ròng
+    1,040 tỷ ở Ngân hàng hôm nay" / "…, tập trung ở ngân hàng" là NN toàn thị trường, không gắn.
+    Dấu "đã gắn" là CHÍNH nhãn của khung."""
+    labels = nn_coverage_labels(ctx)
+    if not text or not any(labels.values()):
         return text
     fig_re = _re.compile(r"[-+]?\d[\d.,]*(?=\s*tỷ)")
+    tyfig_re = _re.compile(r"\d[\d.,]*\s*tỷ")
     frame_re = _re.compile(r"\s*\((?:1 tuần|1T|1 tháng|1M)\)|, 1 (?:tuần|tháng)(?! qua)")
-    rows = []
-    for s in (ctx or {}).get("sectors") or []:
-        nm = s.get("Ngành")
-        vals = [abs(v) for k in ("NN 1T (tỷ)", "NN 1M (tỷ)")
-                if isinstance(v := s.get(k), (int, float)) and abs(v) >= 1]
-        if nm and vals:
-            rows.append((_re.compile(r"(?<!\w)" + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE), _re.compile(
-                r"\s*tỷ(?:\s*đồng)?(?:\s*\((?:1 tuần|1T|1 tháng|1M)\))?\s*"
-                r"(?:(?:trong|ở|của|vào)\s+)?(?:(?:ngành|nhóm)\s+)?" + _re.escape(nm) + r"(?!\w)",
-                _re.IGNORECASE), vals))
-    if not rows:
-        return text
+    out = text
+    for w, col, _key, n in _NN_WINDOWS:
+        label = labels[w]
+        if not label or _re.search(_re.escape(f"NN {w} {_NN_COVERAGE_MARK} ") + r"\d+/\d+ phiên", out):
+            continue
+        rows = []
+        for s in (ctx or {}).get("sectors") or []:
+            nm, v = s.get("Ngành"), s.get(col)
+            if isinstance(nm, str) and nm and isinstance(v, (int, float)) and abs(v) >= 1:
+                rows.append((_re.compile(r"(?<!\w)" + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE),
+                             _re.compile(r"\s*tỷ(?:\s*đồng)?(?:\s*\((?:1 tuần|1T|1 tháng|1M)\))?\s*"
+                                         r"(?:(?:trong|của)\s+(?:(?:ngành|nhóm)\s+)?|(?:ở|vào)\s+(?:ngành|nhóm)\s+)"
+                                         + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE), abs(v)))
+        if not rows:
+            continue
+        out = _label_first_sector_figure(out, rows, label, fig_re, tyfig_re, frame_re)
+    return out
+
+
+def _label_first_sector_figure(text, rows, label, fig_re, tyfig_re, frame_re) -> str:
     pos = 0
     for line in text.splitlines(keepends=True):
         if "ròng" in line.lower():
@@ -1272,15 +1293,14 @@ def enforce_nn_coverage_note(text: str, ctx: dict) -> str:
                 if val is None:
                     continue
                 before = line[max(0, m.start() - 40):m.start()]
-                before = before[max((b.end() for b in _re.finditer(r"\d", before)), default=0):]
-                hit = any(any(abs(abs(val) - v) <= max(1.0, 0.02 * v) for v in vals)
-                          and (name_re.search(before) or after_re.match(line, m.end()))
-                          for name_re, after_re, vals in rows)
-                if not hit:
+                before = before[max((b.end() for b in tyfig_re.finditer(before)), default=0):]
+                if not any(abs(abs(val) - v) <= max(1.0, 0.02 * v)
+                           and (name_re.search(before) or after_re.match(line, m.end()))
+                           for name_re, after_re, v in rows):
                     continue
                 end = _re.match(r"\s*tỷ(?:\s*đồng)?", line[m.end():]).end() + m.end()
                 frame = frame_re.match(line[end:])
-                if frame:      # gộp vào ngoặc nhãn khung: "(1 tuần; NN chỉ có 12/20 phiên)"
+                if frame:      # gộp vào ngoặc nhãn khung: "(1 tuần; NN 1T thiếu 1/5 phiên)"
                     end += frame.end() - (1 if frame.group(0).endswith(")") else 0)
                 note = f"; {label}" if line[end:end + 1] == ")" else f" ({label})"
                 at = pos + end

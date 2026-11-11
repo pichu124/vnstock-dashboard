@@ -297,6 +297,32 @@ def _nn_windows(nn_df: pd.DataFrame) -> tuple:
     return nn_w, nn_m, nn_3m, sessions.iloc[0].date().isoformat()
 
 
+def nn_window_gaps(nn_df: "pd.DataFrame | None", cov: "dict | None") -> "dict | None":
+    """Độ phủ NN theo TỪNG khung (hàm thuần): thêm `missing_1t` / `missing_1m` = số phiên lỗi
+    nằm trong 5 / 20 phiên gần nhất đã hỏi.
+
+    NN 1T/1M = 5/20 phiên MỚI NHẤT CÓ dữ liệu (`_nn_windows`) ⇒ phiên lỗi CŨ (thường gặp: hết
+    ngân sách chờ hạn mức ở cuối vòng lùi ngày) không làm 1T thiếu. Gộp ngày có dữ liệu + ngày
+    lỗi, xếp mới→cũ, đếm ngày lỗi trong top-N. `truncated` (dashboard dừng giữa chừng — ngày cũ
+    hơn chưa hỏi) ⇒ còn thiếu tối thiểu N − số phiên có. Ngày lễ (nguồn trả rỗng) không tính lỗi.
+    """
+    if not isinstance(cov, dict):
+        return None
+    have = set()
+    if nn_df is not None and not nn_df.empty and "date" in nn_df.columns:
+        have = set(pd.to_datetime(nn_df["date"]).dt.normalize().dt.date)
+    failed = {d for d in (pd.to_datetime(pd.Series(cov.get("failed_dates") or [], dtype=object),
+                                         errors="coerce").dt.date) if pd.notna(d)} - have
+    merged = sorted(have | failed, reverse=True)
+    out = dict(cov)
+    for key, n in (("missing_1t", 5), ("missing_1m", 20)):
+        miss = sum(1 for d in merged[:n] if d in failed)
+        if cov.get("truncated"):
+            miss = max(miss, n - len(have))
+        out[key] = max(0, miss)
+    return out
+
+
 def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
                           fetch_net_bs=None) -> dict:
     """Sector metrics + breadth + GTGD từ kho parquet → dict của market_overview.json.
@@ -542,7 +568,7 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
     if fetch_nn is not None:
         try:
             nn_df = fetch_nn()
-            nn_coverage = (getattr(nn_df, "attrs", None) or {}).get("nn_coverage")
+            nn_coverage = nn_window_gaps(nn_df, (getattr(nn_df, "attrs", None) or {}).get("nn_coverage"))
             nn_w, nn_m, nn_3m, nn_data_date = _nn_windows(nn_df)
             if nn_data_date:
                 console.log(f"  NN data: {len(nn_df)} records, đến ngày {nn_data_date}")
@@ -734,6 +760,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         from vnstock_ratelimit import call_with_rate_limit_retry
         all_nn_rows = []
         failed_days = 0
+        failed_dates: list = []
         # Ngân sách CHỜ hạn mức cho cả 20 phiên (task Daily có trần 240′): còn ngân sách ⇒ mỗi
         # phiên được chờ MỘT lượt (≤300s) theo retry_after; hết ⇒ không chờ nữa, phiên chạm
         # hạn mức tính là lỗi. Ca xấu nhất ≈ ngân sách + 300s. `0` = không bao giờ chờ.
@@ -760,6 +787,7 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                     retries=1 if waited[0] < wait_budget else 0, on_wait=_on_wait)
             except (VnstockError, RuntimeError) as e:   # RuntimeError = hạn mức không hạ
                 failed_days += 1
+                failed_dates.append(dt.isoformat())
                 console.log(f"  [yellow]⚠ NN {dt}: {getattr(e, 'code', '')} {e}[/yellow]")
                 continue
             net = board.dropna(subset=["foreign_net_value"])
@@ -771,7 +799,8 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         if failed_days:
             out.attrs["nn_coverage"] = {
                 "sessions": int(out["date"].nunique()) if not out.empty else 0,
-                "asked": 20, "failed_days": failed_days, "source": "pipeline"}
+                "asked": 20, "failed_days": failed_days, "failed_dates": failed_dates,
+                "source": "pipeline"}
         return out
 
     def _fetch_net_bs(_top_tickers: list) -> dict:

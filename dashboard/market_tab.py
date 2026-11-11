@@ -60,26 +60,28 @@ def _symmetric_xrange(*series, floor: float = 30.0) -> list:
 
 
 def nn_coverage_warning(cov) -> str | None:
-    """Câu cảnh báo khi lượt tải NN ròng của bảng ngành THIẾU phiên (hàm thuần).
+    """Câu cảnh báo khi NN ròng của bảng ngành THIẾU phiên (hàm thuần).
 
-    `cov` = `market_overview["nn_coverage"]`: {"sessions", "asked"[, "failed_days"]}; None = đủ.
+    `cov` = `market_overview["nn_coverage"]`: số phiên thiếu THEO KHUNG `missing_1t` (trong 5
+    phiên gần nhất) / `missing_1m` (trong 20) — phiên lỗi cũ không làm NN 1T thiếu. None = đủ.
     """
     if not isinstance(cov, dict):
         return None
     try:
-        got, asked = int(cov.get("sessions", 0)), int(cov.get("asked", 0))
-        failed = int(cov.get("failed_days") or 0)
+        m1t, m1m = int(cov.get("missing_1t") or 0), int(cov.get("missing_1m") or 0)
     except (TypeError, ValueError):
         return None
-    if asked <= 0 or (got >= asked and not failed):
+    parts = [f"NN 1T thiếu **{m1t}/5 phiên** gần nhất" if m1t else "",
+             f"NN 1M thiếu **{m1m}/20 phiên**" if m1m else ""]
+    parts = [p for p in parts if p]
+    if not parts:
         return None
-    why = f"{failed} ngày nguồn báo lỗi/chạm hạn mức" if failed else "nguồn báo lỗi/chạm hạn mức giữa chừng"
     if cov.get("source") == "dashboard":      # bảng do dashboard tự tính (chưa có file của pipeline)
-        fix = ("Đợi vài phút rồi bấm **🗑 Xoá cache** ở tab Dòng tiền (xoá cả bảng ngành) để tải lại.")
+        fix = "Đợi vài phút rồi bấm **🗑 Xoá cache** ở tab Dòng tiền (xoá cả bảng ngành) để tải lại."
     else:                                     # file market_overview.json của pipeline tối
         fix = "Lượt pipeline tối sau sẽ tính lại."
-    return (f"⚠️ NN ròng của bảng ngành chỉ có **{got}/{asked} phiên** ({why}) — cột NN 1T/1M "
-            f"đang tính THIẾU phiên. {fix}")
+    return (f"⚠️ NN ròng của bảng ngành: {'; '.join(parts)} (nguồn báo lỗi/chạm hạn mức) — số của "
+            f"khung đó đang tính THIẾU. {fix}")
 
 
 def ma200_card(breadth: dict) -> dict:

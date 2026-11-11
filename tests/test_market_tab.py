@@ -95,23 +95,25 @@ def test_symmetric_xrange(series, expect):
 
 @pytest.mark.parametrize("cov, expect", [
     (None, None),
-    ({"sessions": 20, "asked": 20}, None),
-    ({"sessions": 12, "asked": 20, "failed_days": 8}, "12/20 phiên"),
-    ({"sessions": 2, "asked": 20}, "2/20 phiên"),
-    ({"sessions": "rác", "asked": 20}, None),
+    ({"missing_1t": 0, "missing_1m": 0}, None),
+    ({"missing_1t": 0, "missing_1m": 8}, "NN 1M thiếu **8/20 phiên**"),
+    ({"missing_1t": 3, "missing_1m": 18}, "NN 1T thiếu **3/5 phiên** gần nhất; NN 1M thiếu **18/20 phiên**"),
+    ({"missing_1m": "rác"}, None),
 ])
 def test_nn_coverage_warning_text(cov, expect):
     """Bảng ngành tab Tổng quan báo rõ khi NN ròng tính THIẾU phiên (lỗi nguồn/hạn mức)."""
     from dashboard.market_tab import nn_coverage_warning
     msg = nn_coverage_warning(cov)
     assert (msg is None) if expect is None else (expect in msg)
+    if cov and cov.get("missing_1t") == 0 and msg:
+        assert "NN 1T" not in msg                  # phiên lỗi cũ: 1T vẫn đủ, không cảnh báo
 
 
 
 def test_nn_coverage_warning_points_to_the_right_fix():
     """Bảng của pipeline ⇒ chờ lượt tối sau (🗑 không đụng file đó); bảng dashboard tự tính ⇒ 🗑."""
     from dashboard.market_tab import nn_coverage_warning
-    pipe = nn_coverage_warning({"sessions": 12, "asked": 20, "failed_days": 8, "source": "pipeline"})
-    dash = nn_coverage_warning({"sessions": 2, "asked": 20, "source": "dashboard"})
+    pipe = nn_coverage_warning({"missing_1t": 0, "missing_1m": 8, "source": "pipeline"})
+    dash = nn_coverage_warning({"missing_1t": 3, "missing_1m": 18, "source": "dashboard"})
     assert "pipeline tối" in pipe and "Xoá cache" not in pipe
     assert "Xoá cache" in dash

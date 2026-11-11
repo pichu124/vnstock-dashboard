@@ -129,7 +129,7 @@ def test_runner_nn_keeps_top_buyers_and_sellers_per_session(monkeypatch):
     nn = captured["nn"]
     assert len(seen) == 20 and nn["date"].nunique() == 19
     assert nn.attrs["nn_coverage"] == {"sessions": 19, "asked": 20, "failed_days": 1,
-                                       "source": "pipeline"}
+                                       "failed_dates": [seen[0]], "source": "pipeline"}
     one = nn[nn["date"] == nn["date"].max()]
     assert dict(zip(one["symbol"], one["net_value"])) == {"B1": 5e9, "B2": 3e9,
                                                            "S1": -4e9, "S2": -2e9}
@@ -283,9 +283,11 @@ def test_overview_carries_nn_coverage_only_when_feed_had_errors(tmp_path):
     days = pd.bdate_range(end="2026-10-16", periods=3)
     nn = pd.DataFrame({"symbol": "AAA", "date": days, "net_value": [1e9] * 3})
     assert vr.build_market_overview(wh, fetch_nn=lambda: nn)["nn_coverage"] is None
-    nn.attrs["nn_coverage"] = {"sessions": 3, "asked": 20, "failed_days": 17}
-    assert vr.build_market_overview(wh, fetch_nn=lambda: nn)["nn_coverage"] == {
-        "sessions": 3, "asked": 20, "failed_days": 17}
+    older = [d.date().isoformat() for d in pd.bdate_range(end=days[0] - pd.Timedelta(days=1), periods=17)]
+    nn.attrs["nn_coverage"] = {"sessions": 3, "asked": 20, "failed_days": 17, "failed_dates": older}
+    cov = vr.build_market_overview(wh, fetch_nn=lambda: nn)["nn_coverage"]
+    # 3 phiên mới nhất có, 17 phiên CŨ lỗi ⇒ 1T thiếu 2/5 (chỉ có 3), 1M thiếu 17/20
+    assert (cov["missing_1t"], cov["missing_1m"]) == (2, 17) and cov["failed_days"] == 17
 
 
 def test_runner_nn_waits_on_rate_limit_instead_of_dropping_the_session(monkeypatch):

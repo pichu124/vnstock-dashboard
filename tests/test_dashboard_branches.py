@@ -1492,7 +1492,8 @@ def test_foreign_net_flow_persistent_rate_limit_returns_partial_not_crash(monkey
     assert out["date"].nunique() == 2 and saved == [] and "rate limit" in diag["state"]
     # độ phủ đi THEO BẢNG (attrs sống qua pickle của st.cache_data) — _NN_DIAG bị Streamlit
     # đặt lại mỗi lượt chạy script nên không dùng được cho lượt cache hit
-    assert out.attrs["nn_coverage"] == {"sessions": 2, "asked": 20, "source": "dashboard"}
+    assert out.attrs["nn_coverage"] == {"sessions": 2, "asked": 20, "source": "dashboard",
+                                        "failed_dates": [], "truncated": True}
     import pickle
     assert pickle.loads(pickle.dumps(out)).attrs["nn_coverage"]["sessions"] == 2
     assert len(slept) == 1                     # MỘT lượt chờ, không treo UI nhiều phút

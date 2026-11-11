@@ -1,85 +1,111 @@
-"""NN ròng NGÀNH tính thiếu phiên (vnstock thế hệ 6, 11/11): lượt tải NN của runner có ngày lỗi
-(nguồn báo lỗi / chạm hạn mức) ⇒ `market_overview["nn_coverage"]` {sessions, asked, …}. Brief phải
-gắn nhãn "(NN chỉ có X/20 phiên)" cạnh số NN ngành — prompt dặn, guard chốt (model hay bỏ).
+"""NN ròng NGÀNH tính thiếu phiên (vnstock thế hệ 6, 11/11): lượt tải NN có ngày lỗi (nguồn báo
+lỗi / chạm hạn mức) ⇒ `market_overview["nn_coverage"]` mang số phiên thiếu THEO KHUNG
+(`missing_1t` trong 5 phiên gần nhất, `missing_1m` trong 20). Brief gắn nhãn
+"(NN 1M thiếu 8/20 phiên)" cạnh số NN ngành CỦA KHUNG THIẾU — prompt dặn, guard chốt.
+
+Review 11/11: NN 1T = 5 phiên MỚI NHẤT có dữ liệu ⇒ phiên lỗi CŨ (ca thường gặp) không làm 1T
+thiếu; gắn nhãn lên số tuần là bảo người đọc trừ hao một con số đầy đủ.
 """
 from __future__ import annotations
 
-import vnstock_brief as vb
-from vnstock_brief import build_prompt, enforce_nn_coverage_note, nn_coverage_label
+import pandas as pd
 
-_COV = {"sessions": 12, "asked": 20, "failed_days": 8, "source": "pipeline"}
+import vnstock_brief as vb
+from vnstock_brief import (build_prompt, enforce_nn_coverage_note, nn_coverage_label,
+                           nn_coverage_labels)
+from vnstock_runner import nn_window_gaps
+
 _SECTORS = [
     {"Ngành": "Ngân hàng", "NN 1T (tỷ)": -1032.4, "NN 1M (tỷ)": -2536.0, "GTGD TB (tỷ)": 4000.0},
     {"Ngành": "Thép & Kim loại", "NN 1T (tỷ)": 120.0, "NN 1M (tỷ)": 300.0, "GTGD TB (tỷ)": 900.0},
 ]
-_CTX = {"nn_coverage": _COV, "sectors": _SECTORS}
+_OLD_GAPS = {"sessions": 12, "asked": 20, "source": "pipeline", "missing_1t": 0, "missing_1m": 8}
+_RECENT_GAP = {"sessions": 19, "asked": 20, "source": "pipeline", "missing_1t": 1, "missing_1m": 1}
+_CTX = {"nn_coverage": _OLD_GAPS, "sectors": _SECTORS}
 
 
-def test_label_only_when_sessions_are_missing():
-    assert nn_coverage_label(_CTX) == "NN chỉ có 12/20 phiên"
-    assert nn_coverage_label({"nn_coverage": None}) is None
-    assert nn_coverage_label({"nn_coverage": {"sessions": 20, "asked": 20}}) is None
-    assert nn_coverage_label({"nn_coverage": {"sessions": "rác", "asked": 20}}) is None
-    assert nn_coverage_label({}) is None
+# ── nn_window_gaps (runner): phiên thiếu theo khung ─────────────────────────────
+
+def _nn(days):
+    return pd.DataFrame({"symbol": "AAA", "date": pd.to_datetime(days), "net_value": 1e9})
 
 
-def test_guard_labels_first_sector_nn_figure_once_and_merges_frame_label():
+def test_old_failed_sessions_do_not_short_the_week():
+    have = pd.bdate_range(end="2026-11-10", periods=12)
+    failed = [d.date().isoformat() for d in pd.bdate_range(end=have[0] - pd.Timedelta(days=1), periods=8)]
+    cov = nn_window_gaps(_nn(have), {"sessions": 12, "asked": 20, "failed_dates": failed})
+    assert (cov["missing_1t"], cov["missing_1m"]) == (0, 8)
+
+
+def test_recent_failed_session_shorts_both_windows():
+    days = pd.bdate_range(end="2026-11-10", periods=20)
+    cov = nn_window_gaps(_nn(days[:-1]), {"sessions": 19, "asked": 20,
+                                          "failed_dates": [days[-1].date().isoformat()]})
+    assert (cov["missing_1t"], cov["missing_1m"]) == (1, 1)
+
+
+def test_truncated_dashboard_load_counts_unasked_older_sessions():
+    cov = nn_window_gaps(_nn(pd.bdate_range(end="2026-11-10", periods=2)),
+                         {"sessions": 2, "asked": 20, "truncated": True, "failed_dates": []})
+    assert (cov["missing_1t"], cov["missing_1m"]) == (3, 18)
+    assert nn_window_gaps(_nn(["2026-11-10"]), None) is None
+
+
+# ── nhãn + guard ────────────────────────────────────────────────────────────────
+
+def test_labels_per_window():
+    assert nn_coverage_labels(_CTX) == {"1T": None, "1M": "NN 1M thiếu 8/20 phiên"}
+    assert nn_coverage_label(_CTX) == "NN 1M thiếu 8/20 phiên"
+    assert nn_coverage_label({"nn_coverage": _RECENT_GAP}) == "NN 1T thiếu 1/5 phiên gần nhất; NN 1M thiếu 1/20 phiên"
+    for cov in (None, {"missing_1t": 0, "missing_1m": 0}, {"missing_1m": "rác"}, {}):
+        assert nn_coverage_label({"nn_coverage": cov}) is None
+
+
+def test_week_figure_is_not_labelled_when_only_old_sessions_failed():
+    t = "NN mua ròng mạnh nhất (1 tuần): Ngân hàng -1,032 tỷ."
+    assert enforce_nn_coverage_note(t, _CTX) == t
+    t2 = "Ngân hàng: NN bán ròng 2,536 tỷ trong tháng (1M)."
+    assert "2,536 tỷ (NN 1M thiếu 8/20 phiên) trong tháng" in enforce_nn_coverage_note(t2, _CTX)
+
+
+def test_recent_gap_labels_week_figure_once_and_merges_frame_label():
+    ctx = {**_CTX, "nn_coverage": _RECENT_GAP}
     t = ("Khối ngoại bán ròng 159 tỷ, NN ròng ngành Ngân hàng -1,032 tỷ (1 tuần).\n"
          "Thép & Kim loại mua ròng 120 tỷ.")
-    f = enforce_nn_coverage_note(t, _CTX)
-    assert "Ngân hàng -1,032 tỷ (1 tuần; NN chỉ có 12/20 phiên)." in f
-    assert f.count("NN chỉ có") == 1                           # đúng một lần, không rải mọi số
-    assert "bán ròng 159 tỷ," in f                             # NN toàn thị trường 1D: không đụng
-    assert enforce_nn_coverage_note(f, _CTX) == f              # idempotent
+    f = enforce_nn_coverage_note(t, ctx)
+    assert "Ngân hàng -1,032 tỷ (1 tuần; NN 1T thiếu 1/5 phiên gần nhất)." in f
+    assert f.count("NN 1T thiếu") == 1 and "bán ròng 159 tỷ," in f
+    assert enforce_nn_coverage_note(f, ctx) == f                       # idempotent
+    t2 = "Ngân hàng bị NN bán ròng mạnh nhất (-1,032 tỷ, 1 tuần), bias GIẢM"
+    assert "(-1,032 tỷ, 1 tuần; NN 1T thiếu 1/5 phiên gần nhất), bias" in enforce_nn_coverage_note(t2, ctx)
 
 
-def test_guard_inside_parentheses_and_1m_figure():
-    t = "Ngân hàng bị NN bán ròng mạnh nhất (-2,536 tỷ, 1 tuần), bias GIẢM"
-    assert ("(-2,536 tỷ, 1 tuần; NN chỉ có 12/20 phiên), bias" in enforce_nn_coverage_note(t, _CTX))
-    t2 = "Thép & Kim loại: NN mua ròng 300 tỷ trong tháng."
-    assert "300 tỷ (NN chỉ có 12/20 phiên) trong tháng" in enforce_nn_coverage_note(t2, _CTX)
-
-
-def test_guard_no_op_when_full_or_not_a_sector_figure():
-    t = "NN ròng ngành Ngân hàng -1,032 tỷ (1 tuần)."
-    assert enforce_nn_coverage_note(t, {**_CTX, "nn_coverage": None}) == t
-    assert enforce_nn_coverage_note(t, {**_CTX, "sectors": []}) == t
-    # số không khớp NN của ngành được nêu / dòng không nói "ròng" / chỉ NN toàn thị trường
-    for other in ("NN ròng ngành Ngân hàng -500 tỷ.", "Ngân hàng GTGD 4,000 tỷ.",
-                  "Khối ngoại bán ròng 159 tỷ."):
-        assert enforce_nn_coverage_note(other, _CTX) == other
+def test_guard_needs_sector_name_next_to_the_figure():
+    ctx = {**_CTX, "nn_coverage": _RECENT_GAP}
+    for t in ("Khối ngoại bán ròng 1,040 tỷ, tập trung ở ngân hàng.",
+              "Khối ngoại bán ròng 1,040 tỷ ở Ngân hàng hôm nay.",        # 'ở' trần = NN toàn thị trường
+              "NN ròng ngành Ngân hàng -500 tỷ.", "Ngân hàng GTGD 4,000 tỷ."):
+        assert enforce_nn_coverage_note(t, ctx) == t
+    k = {**ctx, "sectors": [{"Ngành": "Khác", "NN 1T (tỷ)": 45.0}]}
+    t = "Khối ngoại mua ròng 45 tỷ hôm nay, khác hẳn tuần trước."
+    assert enforce_nn_coverage_note(t, k) == t
+    t3 = "NN mua ròng 120 tỷ trong ngành Thép & Kim loại."
+    assert "120 tỷ (NN 1T thiếu 1/5 phiên gần nhất) trong ngành Thép" in enforce_nn_coverage_note(t3, ctx)
+    # chữ số không kèm "tỷ" (2%, VN30) chen giữa tên và số không cắt cửa sổ
+    t4 = "Ngân hàng giảm 2%, NN bán ròng 1,032 tỷ (1T) trong tuần."
+    assert "1,032 tỷ (1T; NN 1T thiếu 1/5 phiên gần nhất)" in enforce_nn_coverage_note(t4, ctx)
 
 
 def test_guard_is_wired_into_shared_guard_chain():
     """Điểm parity duy nhất của brief sáng/chiều + engine Claude: `apply_brief_guards`."""
-    out = vb.apply_brief_guards("NN ròng ngành Ngân hàng -1,032 tỷ (1 tuần), bị bán mạnh.", _CTX)
-    assert "NN chỉ có 12/20 phiên" in out
+    ctx = {**_CTX, "nn_coverage": _RECENT_GAP}
+    out = vb.apply_brief_guards("NN ròng ngành Ngân hàng -1,032 tỷ (1 tuần), bị bán mạnh.", ctx)
+    assert "NN 1T thiếu 1/5 phiên gần nhất" in out
 
 
-def test_prompt_warns_when_sector_nn_is_short():
+def test_prompt_warns_only_for_short_windows():
     ctx = {"date": "2026-11-10", "time": "15:00", "sectors": _SECTORS,
            "vnindex_tech": {"close": 1777.73, "intraday": False}}
     assert "tính THIẾU phiên" not in build_prompt(ctx, brief_type="afternoon")
-    p = build_prompt({**ctx, "nn_coverage": _COV}, brief_type="afternoon")
-    assert "NN ròng NGÀNH (1T/1M) tính THIẾU phiên: NN chỉ có 12/20 phiên" in p
-
-
-def test_guard_needs_sector_name_next_to_the_figure():
-    """Review 11/11: số NN 1D toàn thị trường trùng tình cờ NN tuần của ngành nêu xa trong câu ⇒ KHÔNG gắn;
-    tên ngành là từ thường ("Khác") không được khớp chữ "khác" trong câu."""
-    t = "Khối ngoại bán ròng 1,040 tỷ, tập trung ở ngân hàng."
-    assert enforce_nn_coverage_note(t, _CTX) == t
-    ctx = {**_CTX, "sectors": [{"Ngành": "Khác", "NN 1T (tỷ)": 45.0}]}
-    t2 = "Khối ngoại mua ròng 45 tỷ hôm nay, khác hẳn tuần trước."
-    assert enforce_nn_coverage_note(t2, ctx) == t2
-    # số-trước-tên qua từ nối vẫn gắn
-    t3 = "NN mua ròng 120 tỷ trong ngành Thép & Kim loại."
-    assert "120 tỷ (NN chỉ có 12/20 phiên) trong ngành Thép" in enforce_nn_coverage_note(t3, _CTX)
-
-
-def test_guard_marker_is_the_label_not_any_phrase_and_more_frame_labels():
-    t = "NN chỉ có 2 ngành mua ròng; Ngân hàng -1,032 tỷ (1T) bị bán mạnh."
-    out = enforce_nn_coverage_note(t, _CTX)
-    assert "-1,032 tỷ (1T; NN chỉ có 12/20 phiên)" in out
-    t2 = "Ngân hàng bán ròng -2,536 tỷ, 1 tuần qua."
-    assert "-2,536 tỷ (NN chỉ có 12/20 phiên), 1 tuần qua" in enforce_nn_coverage_note(t2, _CTX)
+    p = build_prompt({**ctx, "nn_coverage": _OLD_GAPS}, brief_type="afternoon")
+    assert "NN ròng NGÀNH tính THIẾU phiên (NN 1M thiếu 8/20 phiên;" in p and "NN 1T thiếu" not in p
