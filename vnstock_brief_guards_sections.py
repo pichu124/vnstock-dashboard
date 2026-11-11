@@ -1314,9 +1314,11 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             ls = out.rfind("\n", 0, m.start()) + 1
             window = out[ls:m.end()].lower()
             after = out[m.end():m.end() + 12].lower()
-            # nhãn khung đã có NGAY SAU số ("(1T)", "(1M)", "(1 tháng)") ⇒ đừng chèn "(1 tuần)" lần nữa
+            # NGAY SAU số đã có khung TUẦN viết tắt "(1T)" / "(1T; …)" (kể cả qua "đồng") ⇒ đừng chèn
+            # "(1 tuần)" lần nữa. CHỈ khung trùng: "(1M)" sau một số khớp |NN 1T| là số tuần bị ghim
+            # vào chỗ số tháng — giữ "(1 tuần)" làm dấu vết như cũ.
             if ("tuần" in window or "1t" in window or "tuần" in after
-                    or _re.match(r"\s*\((?:1t|1m|1 tháng)\)", after)):
+                    or _re.match(r"(?:\s*đồng)?\s*\(1t[);]", out[m.end():m.end() + 24].lower())):
                 return m.group(0)
             # cần từ khóa "ròng" trong cùng mệnh đề (đây là số NN, không phải GTGD)
             if "ròng" not in window[-80:]:
@@ -1335,9 +1337,11 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             ls = out.rfind("\n", 0, m.start()) + 1
             window = out[ls:m.end()].lower()
             after = out[m.end():m.end() + 12].lower()
-            # nhãn khung đã có NGAY SAU số ("(1T)", "(1M)", "(1 tháng)") ⇒ đừng chèn "(1 tuần)" lần nữa
+            # NGAY SAU số đã có khung TUẦN viết tắt "(1T)" / "(1T; …)" (kể cả qua "đồng") ⇒ đừng chèn
+            # "(1 tuần)" lần nữa. CHỈ khung trùng: "(1M)" sau một số khớp |NN 1T| là số tuần bị ghim
+            # vào chỗ số tháng — giữ "(1 tuần)" làm dấu vết như cũ.
             if ("tuần" in window or "1t" in window or "tuần" in after
-                    or _re.match(r"\s*\((?:1t|1m|1 tháng)\)", after)):
+                    or _re.match(r"(?:\s*đồng)?\s*\(1t[);]", out[m.end():m.end() + 24].lower())):
                 return m.group(0)
             return m.group(0) + _frame_label(after)
         out = _re.sub(

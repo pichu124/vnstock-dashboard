@@ -1229,6 +1229,14 @@ def enforce_gtgd_missing_note(text: str, ctx: dict) -> str:
 # của ngành có tên ĐỨNG SÁT số). Đủ phiên ⇒ no-op.
 _NN_COVERAGE_MARK = "thiếu"
 _NN_WINDOWS = (("1T", "NN 1T (tỷ)", "missing_1t", 5), ("1M", "NN 1M (tỷ)", "missing_1m", 20))
+# Nhãn viết CHỮ ĐẦY ĐỦ: `enforce_no_composite_jargon` (chạy sau) đổi "1M" → "1 tháng" trên dòng
+# "dòng tiền" — viết tắt trong nhãn bị đổi ⇒ lượt chạy lại (`--from-file`) không nhận ra, gắn lần 2.
+_NN_WINDOW_WORD = {"1T": "1 tuần", "1M": "1 tháng"}
+
+
+def _nn_label(window: str, miss: int, n: int) -> str:
+    return (f"NN {_NN_WINDOW_WORD[window]} {_NN_COVERAGE_MARK} {miss}/{n} phiên"
+            + (" gần nhất" if window == "1T" else ""))
 
 
 def nn_coverage_labels(ctx: dict) -> dict:
@@ -1244,7 +1252,7 @@ def nn_coverage_labels(ctx: dict) -> dict:
             continue
         if miss > 0:
             # "gần nhất": 1T vẫn cộng 5 phiên (phiên cũ thế chỗ) — đừng để đọc thành "chỉ có 4 phiên"
-            out[w] = f"NN {w} {_NN_COVERAGE_MARK} {min(miss, n)}/{n} phiên" + (" gần nhất" if w == "1T" else "")
+            out[w] = _nn_label(w, min(miss, n), n)
     return out
 
 
@@ -1280,7 +1288,8 @@ def enforce_nn_coverage_note(text: str, ctx: dict) -> str:
     out = text
     for w, *_ in _NN_WINDOWS:
         label = labels[w]
-        if label and not _re.search(_re.escape(f"NN {w} {_NN_COVERAGE_MARK} ") + r"\d+/\d+ phiên", out):
+        if label and not _re.search(_re.escape(f"NN {_NN_WINDOW_WORD[w]} {_NN_COVERAGE_MARK} ")
+                                    + r"\d+/\d+ phiên", out):
             out = _label_first_sector_figure(out, sectors, w, label)
     return out
 
@@ -1289,7 +1298,7 @@ _NN_FIG_RE = r"[-+]?\d[\d.,]*(?=\s*tỷ)"
 _NN_FRAME = r"\s*\((?:1 tuần|1T|1 tháng|1M)\)|, 1 (?:tuần|tháng)(?! qua)"
 # Giữa hai số NN CÙNG ngành chỉ được có nhãn khung (kể cả nhãn thiếu phiên guard này vừa gắn)
 # + từ nối (", ", " và ", "; ", " / ", " còn ")
-_NN_OWN_LABEL = r"NN 1[TM] thiếu \d+/\d+ phiên(?: gần nhất)?"
+_NN_OWN_LABEL = r"NN 1 (?:tuần|tháng) thiếu \d+/\d+ phiên(?: gần nhất)?"
 _NN_SAME_SECTOR_GAP = (r"(?:\s*\((?:(?:1 tuần|1T|1 tháng|1M)(?:; " + _NN_OWN_LABEL + r")?|"
                        + _NN_OWN_LABEL + r")\)|, 1 (?:tuần|tháng)(?! qua)(?:; " + _NN_OWN_LABEL
                        + r")?){0,2}\s*(?:,|;|/|và|còn|,\s*và)?\s*")

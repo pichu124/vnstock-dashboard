@@ -228,6 +228,8 @@ from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     _NN_FRAME,
     _NN_SAME_SECTOR_GAP,
     _NN_OWN_LABEL,
+    _NN_WINDOW_WORD,
+    _nn_label,
     _NN_CARRY_TAIL,
     enforce_gtgd_compare_frame,
     enforce_gtgd_total,
