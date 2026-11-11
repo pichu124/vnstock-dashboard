@@ -94,6 +94,10 @@ def split_hot_cold(symbols, hot_set, cycle: int, every_n: int = 5,
 
 INDEX_SYMBOLS = ["VNINDEX", "VN30", "HNXINDEX", "HNX30"]
 
+# `Market().index(s).quote()` thế hệ 6 (hồ sơ v5) → tên `_emit_index_tick` đọc.
+_INDEX_QUOTE_COLS = {"close_price": "close", "high_price": "high",
+                     "low_price": "low", "total_volume": "volume"}
+
 FUTURES_SYMBOLS = ["VN30F1M", "VN30F2M", "VN30F1Q", "VN30F2Q"]
 
 
@@ -104,7 +108,7 @@ def is_futures(ticker: str) -> bool:
     Nhận diện 3 format:
     - Friendly names: VN30F1M, VN30F2M, VN30F1Q, VN30F2Q
     - Expiry codes:   VN30F2410, VN30F2504 (YYMM)
-    - HNX internal:   41I1G4000, 41I1G5000, ... (Market.price_board trả về)
+    - HNX internal:   41I1G4000, 41I1G5000, ... (bảng giá HĐTL trả về)
     """
     t = str(ticker).upper()
     if t in FUTURES_SYMBOLS:
@@ -139,27 +143,19 @@ def get_all_listed_symbols() -> list[str]:
 
     symbols = []
     try:
-        from vnstock_data import Reference
+        from vnstock import Reference
+        from vnstock.errors import VnstockError
         ensure_api_key()
         ref = Reference()
         for exchange in ("HOSE", "HNX", "UPCOM"):
             try:
                 df = ref.equity.list(exchange=exchange)
-                if df is not None and not df.empty:
-                    # Tìm cột ticker/symbol
-                    col = None
-                    for c in df.columns:
-                        if str(c).lower() in ("ticker", "symbol", "code",
-                                               "stocksymbol", "stock_symbol"):
-                            col = c
-                            break
-                    if col is None and len(df.columns) > 0:
-                        col = df.columns[0]
-                    if col:
-                        syms = df[col].dropna().astype(str).str.upper().tolist()
-                        symbols.extend(syms)
-            except Exception:
+            except VnstockError as e:
+                print(f"[vnstock_wss] Reference().equity.list({exchange}) lỗi: "
+                      f"{getattr(e, 'code', type(e).__name__)}: {str(e)[:120]}")
                 continue
+            if df is not None and not df.empty and "symbol" in df.columns:
+                symbols.extend(df["symbol"].dropna().astype(str).str.upper().tolist())
     except ImportError:
         pass
 
@@ -198,13 +194,14 @@ def get_all_listed_symbols() -> list[str]:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Depth parser — parse multi-level bid/ask từ price_board row
+# Depth parser — parse multi-level bid/ask từ 1 dòng bảng giá (quote)
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _pick_depth_levels(row, columns: list, side: str,
                        max_levels: int = 10) -> list[dict]:
     """
-    Parse bid/ask levels từ 1 row của price_board DataFrame.
+    Parse bid/ask levels từ 1 row của bảng giá (`Market().equity.quote`, thế hệ 6:
+    `bid_price_N`/`bid_vol_N`, `ask_price_N`/`ask_vol_N`).
     side = 'bid' | 'ask'. Returns list of {"price", "volume"} từ best → kém.
     Flexible column naming: bestbid1/bestbidvol1, bid_price_1/bid_vol_1, v.v.
     Dừng khi gặp level không có price.
@@ -429,7 +426,7 @@ class VnStockWSS:
     Background WebSocket client. Auto-reconnect, singleton-friendly.
 
     Modes:
-      - "wss": kết nối WebSocket tới vnstock_data (nếu có endpoint)
+      - "wss": chưa dùng (vnstock thế hệ 6 chỉ có REST)
       - "polling": fallback — poll HTTP API mỗi POLL_INTERVAL giây
     """
 
@@ -547,10 +544,9 @@ class VnStockWSS:
 
     # ─────────────────────────────────────────────────────────────────────
     # Mode: polling-only.
-    # Confirmed 2026-04 against vnstock_data 3.0.0 (Golden tier): the
-    # sponsor package ships REST-only — no WebSocket/streaming API.
-    # (A true-WSS scaffold used to live here; see git history if a
-    # sponsor release ever ships a WebSocket endpoint.)
+    # vnstock thế hệ 6 (như vnstock_data 3.0.0 trước đó) chỉ có REST —
+    # không có WebSocket/streaming API. (A true-WSS scaffold used to live
+    # here; see git history if a release ever ships a WebSocket endpoint.)
     # ─────────────────────────────────────────────────────────────────────
     def _detect_mode(self):
         self.mode = "polling"
@@ -715,11 +711,9 @@ class VnStockWSS:
         Poll HTTP API cho toàn bộ symbols subscribed.
 
         Pipeline:
-        1. Stocks + Futures (internal IDs) → Market.price_board(symbols_list)
-           → 3 mức depth
-        2. Indices → Market.index() per-symbol
-        3. Futures (VN30F*) → Quote.price_depth() per-symbol → enrich
-           lên 10 mức (overwrite quote file từ step 1)
+        1. Stocks → Market().equity.quote(symbols) → 3 mức depth
+        2. Indices → Market().index(s).quote() per-symbol
+        3. Futures (VN30F*) → Market().futures(s).quote() per-symbol
         """
         self.status = "connected"
         self._write_status()
@@ -736,7 +730,7 @@ class VnStockWSS:
         futures_friendly = [s for s in symbols if is_futures(s) and not s.startswith("41I")]
         indices = [s for s in symbols if s in INDEX_SYMBOLS]
         # Stocks: loại bỏ cả indices VÀ futures (futures được xử lý
-        # riêng qua price_depth, không đi qua price_board).
+        # riêng qua Market().futures(s).quote(), không đi qua bảng giá cổ phiếu).
         stocks_only = [s for s in symbols
                        if s not in INDEX_SYMBOLS and not is_futures(s)]
 
@@ -747,7 +741,7 @@ class VnStockWSS:
                                        every_n=self.COLD_EVERY_N,
                                        tiering=hot_tier_enabled())
 
-        # ── 1. Batch stocks qua Market.price_board ────────────────────────
+        # ── 1. Batch stocks qua Market().equity.quote ─────────────────────
         _t_batch = time.time()
         batch_ok = self._fetch_batch_price_board(batch_symbols)
         self._last_batch_s = round(time.time() - _t_batch, 2)
@@ -763,11 +757,11 @@ class VnStockWSS:
             finally:
                 pool.shutdown(wait=False, cancel_futures=False)
 
-        # ── 3. Volume Profile: chỉ futures (stocks VP fetch on-demand từ dashboard)
+        # ── 3. Futures: bảng giá từng HĐTL (stocks VP fetch on-demand từ dashboard)
         if futures_friendly:
             pool = ThreadPoolExecutor(max_workers=min(4, len(futures_friendly)))
             try:
-                futs = [pool.submit(self._fetch_volume_profile, f)
+                futs = [pool.submit(self._fetch_futures_quote, f)
                         for f in futures_friendly]
                 wait(futs, timeout=10)
             finally:
@@ -796,156 +790,121 @@ class VnStockWSS:
         self._stop_event.wait(timeout=max(self.POLL_INTERVAL - 5, 1))
 
     # ─────────────────────────────────────────────────────────────────────
-    # Batch fetcher — Market.price_board (PREFERRED)
+    # Batch fetcher — Market().equity.quote (PREFERRED)
     # ─────────────────────────────────────────────────────────────────────
     def _fetch_batch_price_board(self, symbols: list[str]) -> bool:
         """
-        1 request cho toàn bộ stocks. Trả về True nếu thành công.
-        Dùng vnstock_data.Market().price_board(symbols_list).
+        1 request cho toàn bộ stocks: `Market().equity.quote(symbols)` (thế hệ 6).
+        Trả về True nếu có ít nhất một tick.
         """
         if not symbols:
             return True
         try:
-            try:
-                from vnstock_data import Market  # type: ignore
-                ensure_api_key()
-                m = Market()
-            except ImportError:
-                from vnstock_auth import get_vnstock
-                m = get_vnstock(symbols[0] if symbols else "VCB")
-            # Flexible signature: thử kwarg khác nhau
-            df = None
-            for call in (
-                lambda: m.price_board(symbols_list=symbols),
-                lambda: m.price_board(symbols=symbols),
-                lambda: m.price_board(symbols),
-            ):
-                try:
-                    df = call()
-                    if df is not None and not df.empty:
-                        break
-                except TypeError:
-                    continue
-                except Exception:
-                    continue
-            if df is None or df.empty:
-                return False
-
-            # Normalize columns (flatten multi-index if needed)
-            if hasattr(df.columns, "nlevels") and df.columns.nlevels > 1:
-                df.columns = [
-                    "_".join(str(x) for x in c if x).strip("_")
-                    for c in df.columns.values
-                ]
-            df.columns = [str(c).lower() for c in df.columns]
-
-            now_iso = datetime.now().isoformat(timespec="seconds")
-
-            # Map flexible column lookups
-            def _pick(row, *keys):
-                for k in keys:
-                    for col in df.columns:
-                        if k in col:
-                            try:
-                                v = row[col]
-                                if v is not None and not pd.isna(v):
-                                    return float(v)
-                            except Exception:
-                                continue
-                return None
-
-            ticker_col = None
-            for candidate in ("listinginfo_symbol", "symbol", "ticker", "code"):
-                for col in df.columns:
-                    if candidate in col:
-                        ticker_col = col
-                        break
-                if ticker_col:
-                    break
-
-            cols_list = list(df.columns)
-            count = 0
-            for _, row in df.iterrows():
-                try:
-                    ticker = str(row[ticker_col]).upper() if ticker_col else None
-                    if not ticker or ticker == "NAN":
-                        continue
-                    price = _pick(row, "matchprice", "match_price", "lastprice",
-                                  "last", "close", "price")
-                    if price is None or price <= 0:
-                        continue
-                    # `or 0` (bản cũ) GỘP hai ca khác hẳn nhau: "phiên chưa
-                    # khớp lệnh nào" và "bảng giá thiếu cột volume tick này".
-                    # Ca 2 làm baseline bị ghi đè = 0, nên tick KẾ TIẾP tính
-                    # delta = accum CẢ PHIÊN → volume bar phồng (audit 06/08,
-                    # cùng họ bug 78× trên AAA). Giữ None để phân biệt.
-                    accum_raw = _pick(row, "accumulatedvolume", "accum_volume",
-                                      "totalvolume", "volume")
-                    accum_volume = accum_raw if accum_raw is not None else 0
-                    ref = _pick(row, "refprice", "ref_price", "reference")
-                    high = _pick(row, "highest", "high") or price
-                    low = _pick(row, "lowest", "low") or price
-
-                    # Convert accumulated → delta for bar aggregation.
-                    # First tick (no prior state, or new day): establish a
-                    # baseline with delta=0 rather than emitting the full
-                    # session-accumulated figure as one bogus bar. Daily
-                    # total is filled by the updater API, so missing the
-                    # pre-startup volume here is fine.
-                    today = now_iso[:10]
-                    if accum_raw is None:
-                        # Thiếu số liệu tick này: KHÔNG đụng baseline (ghi 0 vào
-                        # đó là mồi cho cú phồng ở tick sau), không cộng volume.
-                        delta_volume = 0.0
-                        accum_volume = self._last_accum_vol.get(ticker, 0)
-                    else:
-                        delta_volume = accum_to_delta(
-                            self._last_accum_vol.get(ticker),
-                            self._last_accum_date.get(ticker),
-                            accum_volume,
-                            today,
-                        )
-                        self._last_accum_vol[ticker] = accum_volume
-                        self._last_accum_date[ticker] = today
-
-                    # price_board chỉ trả 3 mức L2 cho mọi instrument
-                    bids = _pick_depth_levels(row, cols_list, "bid", 3)
-                    asks = _pick_depth_levels(row, cols_list, "ask", 3)
-
-                    chg_pct = ((price - ref) / ref * 100) if ref else 0
-
-                    tick = {
-                        "ticker": ticker,
-                        "time": now_iso,
-                        "price": price,
-                        "volume": accum_volume,  # JSON quote keeps accum (UI shows session total)
-                        "_delta_volume": delta_volume,  # aggregator uses delta
-                        # Backward compat: best bid/ask
-                        "bid": bids[0]["price"] if bids else 0,
-                        "ask": asks[0]["price"] if asks else 0,
-                        # New: full depth
-                        "bids": bids,
-                        "asks": asks,
-                        "chg_pct": round(chg_pct, 2),
-                        "high": high,
-                        "low": low,
-                        "type": "futures" if is_futures(ticker) else "stock",
-                    }
-                    self._handle_tick(tick)
-                    count += 1
-                except Exception:
-                    continue
-
-            return count > 0
-        except Exception as e:
+            from vnstock import Market
+            ensure_api_key()
+            df = Market().equity.quote(symbols)
+        except Exception as e:  # VnstockError (nguồn/khoá/hạn mức/mạng) — luồng poll không được chết
             self.last_error = f"price_board: {str(e)[:100]}"
             return False
+        if df is None or df.empty:
+            return False
+        return self._emit_board_rows(df) > 0
+
+    def _emit_board_rows(self, df: pd.DataFrame, ticker: Optional[str] = None) -> int:
+        """Dòng bảng giá thế hệ 6 (hồ sơ v5: `close_price`, `reference_price`, `high_price`,
+        `low_price`, `total_volume`, `bid_price_N`/`bid_vol_N`…) → `_handle_tick`.
+
+        `ticker` ép tên file quote (HĐTL: nguồn trả mã nội bộ 41I…, dashboard tìm VN30F1M).
+        Trả số tick đã phát.
+        """
+        def _num(row, col):
+            v = row.get(col)
+            try:
+                return None if v is None or pd.isna(v) else float(v)
+            except (TypeError, ValueError):
+                return None
+
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        today = now_iso[:10]
+        cols_list = [str(c).lower() for c in df.columns]
+        df = df.set_axis(cols_list, axis=1)
+        count = 0
+        for _, row in df.iterrows():
+            try:
+                name = ticker or str(row.get("symbol") or "")
+                name = name.upper()
+                if not name or name == "NAN":
+                    continue
+                price = _num(row, "close_price")
+                if price is None or price <= 0:
+                    continue
+                # `or 0` (bản cũ) GỘP hai ca khác hẳn nhau: "phiên chưa
+                # khớp lệnh nào" và "bảng giá thiếu cột volume tick này".
+                # Ca 2 làm baseline bị ghi đè = 0, nên tick KẾ TIẾP tính
+                # delta = accum CẢ PHIÊN → volume bar phồng (audit 06/08,
+                # cùng họ bug 78× trên AAA). Giữ None để phân biệt.
+                accum_raw = _num(row, "total_volume")
+                accum_volume = accum_raw if accum_raw is not None else 0
+                ref = _num(row, "reference_price")
+                high = _num(row, "high_price") or price
+                low = _num(row, "low_price") or price
+
+                # Convert accumulated → delta for bar aggregation.
+                # First tick (no prior state, or new day): establish a
+                # baseline with delta=0 rather than emitting the full
+                # session-accumulated figure as one bogus bar. Daily
+                # total is filled by the updater API, so missing the
+                # pre-startup volume here is fine.
+                if accum_raw is None:
+                    # Thiếu số liệu tick này: KHÔNG đụng baseline (ghi 0 vào
+                    # đó là mồi cho cú phồng ở tick sau), không cộng volume.
+                    delta_volume = 0.0
+                    accum_volume = self._last_accum_vol.get(name, 0)
+                else:
+                    delta_volume = accum_to_delta(
+                        self._last_accum_vol.get(name),
+                        self._last_accum_date.get(name),
+                        accum_volume,
+                        today,
+                    )
+                    self._last_accum_vol[name] = accum_volume
+                    self._last_accum_date[name] = today
+
+                # Bảng giá chỉ trả 3 mức L2 cho mọi instrument
+                bids = _pick_depth_levels(row, cols_list, "bid", 3)
+                asks = _pick_depth_levels(row, cols_list, "ask", 3)
+
+                chg_pct = ((price - ref) / ref * 100) if ref else 0
+
+                tick = {
+                    "ticker": name,
+                    "time": now_iso,
+                    "price": price,
+                    "volume": accum_volume,  # JSON quote keeps accum (UI shows session total)
+                    "_delta_volume": delta_volume,  # aggregator uses delta
+                    # Backward compat: best bid/ask
+                    "bid": bids[0]["price"] if bids else 0,
+                    "ask": asks[0]["price"] if asks else 0,
+                    # New: full depth
+                    "bids": bids,
+                    "asks": asks,
+                    "chg_pct": round(chg_pct, 2),
+                    "high": high,
+                    "low": low,
+                    "type": "futures" if is_futures(name) else "stock",
+                }
+                self._handle_tick(tick)
+                count += 1
+            except Exception as e:
+                self.last_error = f"price_board row: {type(e).__name__}: {str(e)[:80]}"
+                continue
+        return count
 
     # ─────────────────────────────────────────────────────────────────────
     # Single-symbol fetchers (fallback)
     # ─────────────────────────────────────────────────────────────────────
     def _fetch_single_intraday(self, ticker: str):
-        """Fallback per-stock: Quote.intraday() → _handle_tick."""
+        """Fallback per-stock: nến 1m (`_http_fetch_quote`) → _handle_tick."""
         try:
             tick = self._http_fetch_quote(ticker)
             if tick:
@@ -953,161 +912,49 @@ class VnStockWSS:
         except Exception as e:
             self.last_error = f"poll {ticker}: {str(e)[:80]}"
 
-    def _fetch_volume_profile(self, ticker: str) -> bool:
+    def _fetch_futures_quote(self, ticker: str) -> bool:
         """
-        Fetch Volume Profile cho 1 symbol (futures HOẶC stock) qua
-        Quote(symbol).price_depth().
+        Bảng giá 1 HĐTL (VN30F1M…) qua `Market().futures(s).quote()` (thế hệ 6) — giá khớp,
+        KL phiên, 3 bậc giá mua/bán — ghi `quote_<ticker>.json` như cổ phiếu.
 
-        Futures: ghi file quote_VN30F1M.json ĐỘC LẬP (data chính).
-        Stocks:  MERGE volume_profile vào quote_VCB.json đã có sẵn
-                 (từ price_board) — giữ nguyên price/bid/ask/volume.
-
-        Response format (vnstock_data 3.0.0 / KBS KRX):
-            DataFrame: price, buyVol, sellVol, unknownVol, totalVol
+        Thế hệ 6 KHÔNG có `volume_profile` cho HĐTL (dòng cũ: `Quote.price_depth()` của KBS
+        trả KL khớp theo giá) ⇒ quote HĐTL không còn khối `volume_profile`.
         """
         try:
-            try:
-                from vnstock_data import Quote  # type: ignore
-                ensure_api_key()
-                q = Quote(symbol=ticker)
-            except Exception as e:
-                self.last_error = f"Quote({ticker}): {str(e)[:80]}"
-                return False
-
-            df = None
-            for call in (
-                lambda: q.price_depth(),
-                lambda: q.price_depth(limit=50),
-            ):
-                try:
-                    df = call()
-                    if df is not None and hasattr(df, "empty") and not df.empty:
-                        break
-                except TypeError:
-                    continue
-                except Exception as e:
-                    self.last_error = f"price_depth {ticker}: {str(e)[:60]}"
-                    continue
-
-            if df is None or not hasattr(df, "empty") or df.empty:
-                self.last_error = f"price_depth {ticker}: empty result"
-                return False
-
-            # Normalize columns lowercase
-            df = df.copy()
-            df.columns = [str(c).lower() for c in df.columns]
-            cols = set(df.columns)
-            if "price" not in cols or "totalvol" not in cols:
-                self.last_error = f"profile {ticker}: unexpected cols {list(cols)}"
-                return False
-
-            # DataFrame → list of dicts
-            profile = []
-            for _, row in df.iterrows():
-                try:
-                    profile.append({
-                        "price": float(row["price"]),
-                        "buy_vol": float(row.get("buyvol", 0) or 0),
-                        "sell_vol": float(row.get("sellvol", 0) or 0),
-                        "unknown_vol": float(row.get("unknownvol", 0) or 0),
-                        "total_vol": float(row.get("totalvol", 0) or 0),
-                    })
-                except Exception:
-                    continue
-
-            if not profile:
-                self.last_error = f"profile {ticker}: no valid rows"
-                return False
-
-            # Giữ top 20 mức theo total_vol
-            profile_sorted = sorted(profile, key=lambda r: r["total_vol"], reverse=True)
-            top = profile_sorted[:20]
-            # Sort theo price để render ladder (cao → thấp)
-            top.sort(key=lambda r: r["price"], reverse=True)
-
-            # Tính metadata
-            vp_prices = [p["price"] for p in profile]
-            total_session_vol = sum(p["total_vol"] for p in profile)
-            # "Current" proxy: most active price (highest total_vol)
-            most_active_price = profile_sorted[0]["price"] if profile_sorted else 0
-
-            vp_data = {
-                "volume_profile": top,
-                "volume_profile_total_levels": len(profile),
-            }
-
-            path = LIVE_DIR / f"quote_{ticker.upper()}.json"
-
-            if is_futures(ticker):
-                # Futures: ghi file độc lập (data chính từ price_depth)
-                tick = {
-                    "ticker": ticker.upper(),
-                    "time": datetime.now().isoformat(timespec="seconds"),
-                    "price": most_active_price,
-                    "volume": total_session_vol,
-                    "bid": 0.0,
-                    "ask": 0.0,
-                    "bids": [],
-                    "asks": [],
-                    "chg_pct": 0.0,
-                    "high": max(vp_prices) if vp_prices else 0,
-                    "low": min(vp_prices) if vp_prices else 0,
-                    "type": "futures",
-                    **vp_data,
-                }
-            else:
-                # Stocks: merge VP vào quote file đã có (từ price_board)
-                tick = {}
-                if path.exists():
-                    try:
-                        tick = json.loads(path.read_text())
-                    except Exception:
-                        pass
-                tick.update(vp_data)
-
-            # Per-ticker lock để serialize
-            with self._get_file_lock(ticker.upper()):
-                try:
-                    self._atomic_write_json(path, tick)
-                    return True
-                except Exception as e:
-                    self.last_error = f"profile write {ticker}: {str(e)[:80]}"
-                    return False
-
-        except Exception as e:
-            self.last_error = f"profile {ticker} unexpected: {type(e).__name__}: {str(e)[:80]}"
+            from vnstock import Market
+            ensure_api_key()
+            df = Market().futures(ticker).quote()
+        except Exception as e:  # VnstockError (nguồn/khoá/hạn mức/mạng) — luồng poll không được chết
+            self.last_error = f"futures quote {ticker}: {str(e)[:80]}"
             return False
+        if df is None or df.empty:
+            self.last_error = f"futures quote {ticker}: empty result"
+            return False
+        return self._emit_board_rows(df.head(1), ticker=ticker) > 0
 
     def _fetch_index_quote(self, index_name: str):
         """
-        Fetch chỉ số (VNINDEX, VN30, ...) qua vnstock_data.Market.index()
-        hoặc fallback vnstock.
+        Chỉ số (VNINDEX, VN30, ...) trong phiên qua `Market().index(s).quote()` (thế hệ 6);
+        lỗi/rỗng ⇒ nến 1m của mặt tiền.
         """
         try:
-            try:
-                from vnstock_data import Market  # type: ignore
-                ensure_api_key()
-                m = Market()
-                df = None
-                for call in (
-                    lambda: m.index(symbol=index_name),
-                    lambda: m.index(index_name),
-                ):
-                    try:
-                        df = call()
-                        if df is not None and not df.empty:
-                            break
-                    except TypeError:
-                        continue
-                    except Exception:
-                        continue
-                if df is not None and not df.empty:
-                    last = df.iloc[-1]
-                    self._emit_index_tick(index_name, last)
-                    return
-            except Exception:
-                pass
-            # Fallback: vnstock
+            from vnstock import Market
+            ensure_api_key()
+            df = Market().index(index_name).quote()
+        except Exception as e:  # VnstockError — rơi về nến 1m
+            self.last_error = f"index quote {index_name}: {str(e)[:80]}"
+            df = None
+        try:
+            if df is not None and not df.empty:
+                # Hồ sơ v5 → tên `_emit_index_tick` đọc. %D tính từ giá tham chiếu (không đoán
+                # đơn vị của `percent_change`: phân số hay phần trăm tuỳ hồ sơ).
+                last = df.rename(columns=_INDEX_QUOTE_COLS).iloc[-1].copy()
+                ref = pd.to_numeric(last.get("reference_price"), errors="coerce")
+                close = pd.to_numeric(last.get("close"), errors="coerce")
+                if pd.notna(ref) and ref > 0 and pd.notna(close):
+                    last["chg_pct"] = round((close - ref) / ref * 100, 2)
+                self._emit_index_tick(index_name, last)
+                return
             tick = self._http_fetch_quote(index_name)
             if tick:
                 self._handle_tick(tick)
@@ -1115,7 +962,7 @@ class VnStockWSS:
             self.last_error = f"poll {index_name}: {str(e)[:80]}"
 
     def _emit_index_tick(self, name: str, row):
-        """Convert 1 row từ Market.index() → tick dict."""
+        """Convert 1 row từ Market().index(s).quote() (đã đổi tên cột) → tick dict."""
         try:
             def _f(r, *keys):
                 for k in keys:
@@ -1150,34 +997,18 @@ class VnStockWSS:
 
     def _http_fetch_quote(self, ticker: str) -> Optional[dict]:
         """
-        Fallback: dùng HTTP API để lấy quote gần nhất.
-        Ưu tiên vnstock_data.Quote (Golden sponsor: 600 req/min) →
-        fallback vnstock.Vnstock.
-        Lấy bar 1m gần nhất trong 2 ngày gần nhất.
+        Fallback: bar 1m gần nhất trong 2 ngày qua mặt tiền `get_vnstock(t).quote.history`
+        (thế hệ 6: `Market().equity|index(s).ohlcv`, giờ VN không múi).
         """
         from datetime import date, timedelta
-        df = None
         end = date.today().strftime("%Y-%m-%d")
         start = (date.today() - timedelta(days=2)).strftime("%Y-%m-%d")
-
-        # Thử vnstock_data trước (sponsor API, ít rate limit hơn)
         try:
-            from vnstock_data import Quote  # type: ignore
-            ensure_api_key()
-            q = Quote(symbol=ticker)
-            df = q.history(start=start, end=end, interval="1m")
-        except Exception:
-            df = None
-
-        # Fallback: vnstock free
-        if df is None or (hasattr(df, "empty") and df.empty):
-            try:
-                from vnstock_auth import get_vnstock
-                stock = get_vnstock(ticker)
-                df = stock.quote.history(start=start, end=end, interval="1m")
-            except Exception as e:
-                self.last_error = f"http fetch {ticker}: {str(e)[:80]}"
-                return None
+            from vnstock_auth import get_vnstock
+            df = get_vnstock(ticker).quote.history(start=start, end=end, interval="1m")
+        except Exception as e:  # VnstockError — chỗ gọi ghi tick khác hoặc bỏ lượt
+            self.last_error = f"http fetch {ticker}: {str(e)[:80]}"
+            return None
 
         if df is None or df.empty:
             return None
@@ -1461,7 +1292,7 @@ def _cli():
     parser.add_argument("--test", action="store_true", help="Run 60s smoke test")
     parser.add_argument("--status", action="store_true", help="Print status and exit")
     parser.add_argument("--probe-profile", metavar="TICKER",
-                        help="Run _fetch_volume_profile (use ALL for all futures)")
+                        help="Run _fetch_futures_quote (use ALL for all futures)")
     parser.add_argument("--health-check", action="store_true",
                         help="Report live data + warehouse health")
     parser.add_argument("--duration", type=int, default=60, help="Test duration (s)")
@@ -1472,7 +1303,7 @@ def _cli():
         return
 
     if args.probe_profile:
-        # Chạy _fetch_volume_profile cho 1 hoặc ALL futures
+        # Chạy _fetch_futures_quote cho 1 hoặc ALL futures
         client = get_wss_client()
         from vnstock_wss import FUTURES_SYMBOLS as _FS
 
@@ -1483,20 +1314,15 @@ def _cli():
             print(f"\n{'─'*60}")
             print(f"[probe-profile] {tkr}")
             client.last_error = None
-            ok = client._fetch_volume_profile(tkr)
+            ok = client._fetch_futures_quote(tkr)
             print(f"  Success: {ok}")
             print(f"  last_error: {client.last_error}")
             fpath = LIVE_DIR / f"quote_{tkr.upper()}.json"
             if fpath.exists():
                 q = json.loads(fpath.read_text())
-                vp = q.get("volume_profile", [])
-                print(f"  {fpath.name}: {len(vp)} volume profile rows "
-                      f"(total levels in phiên: {q.get('volume_profile_total_levels', 0)})")
-                print(f"  File price: {q.get('price')}, high: {q.get('high')}, "
-                      f"low: {q.get('low')}")
-                if vp:
-                    print(f"  Top 3 by total_vol: "
-                          f"{[{'p': r['price'], 'tv': r['total_vol']} for r in vp[:3]]}")
+                print(f"  {fpath.name}: price {q.get('price')}, high {q.get('high')}, "
+                      f"low {q.get('low')}, volume {q.get('volume')}")
+                print(f"  bids: {q.get('bids')}  asks: {q.get('asks')}")
             else:
                 print(f"  File {fpath.name} not created")
         return

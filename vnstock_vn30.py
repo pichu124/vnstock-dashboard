@@ -118,8 +118,10 @@ def extract_symbols(obj) -> list[str] | None:
     """
     Bóc danh sách mã ra khỏi thứ mà API trả về. HÀM THUẦN.
 
-    ⚠️ `Listing.symbols_by_group("VN30")` của VCI trả **pd.Series** (`return
-    df["symbol"]`), KHÔNG phải DataFrame. Bản đầu ở đây — và
+    ⚠️ `listing.symbols_by_group("VN30")` trả **pd.Series** mã, KHÔNG phải
+    DataFrame (dòng cũ: `return df["symbol"]`; thế hệ 6: mặt tiền
+    `vnstock_auth._Listing` bóc cột `symbol` của `Reference().index(g).members()`
+    rồi trả Series y như vậy). Bản đầu ở đây — và
     `vnstock_brief.get_vn30_live()` từ trước tới nay — đều dò `obj.columns`
     nên ném AttributeError ngay và im lặng rơi về hằng số: đường "lấy rổ
     động" trông như đang sống mà thực ra CHƯA BAO GIỜ chạy (doctor --net
@@ -127,7 +129,7 @@ def extract_symbols(obj) -> list[str] | None:
     """
     if obj is None:
         return None
-    # pandas Series — dạng THẬT của VCI
+    # pandas Series — dạng THẬT của `symbols_by_group`
     if hasattr(obj, "tolist") and not hasattr(obj, "columns"):
         vals = list(obj.tolist())
     # pandas DataFrame
@@ -151,10 +153,11 @@ def extract_symbols(obj) -> list[str] | None:
 
 
 def _fetch_live() -> list[str] | None:
-    """Hỏi API danh sách thành phần VN30. Lỗi gì cũng trả None."""
+    """Hỏi API danh sách thành phần VN30 (thế hệ 6: `Reference().index("VN30").members()`
+    qua mặt tiền; nguồn chọn ở `vnstock_auth.configure_sources`). Lỗi do `resolve` hứng."""
     from vnstock_auth import get_vnstock
     return extract_symbols(
-        get_vnstock("VCB", "VCI").listing.symbols_by_group("VN30"))
+        get_vnstock("VCB").listing.symbols_by_group("VN30"))
 
 
 def load_cache() -> dict | None:
@@ -231,12 +234,16 @@ def _diag() -> int:
     else:
         print("[vn30]   (chưa có cache)")
 
-    print("[vn30] gọi listing.symbols_by_group('VN30')…")
+    print("[vn30] gọi listing.symbols_by_group('VN30') (Reference().index('VN30').members())…")
     try:
         from vnstock_auth import get_vnstock
-        raw = get_vnstock("VCB", "VCI").listing.symbols_by_group("VN30")
+        raw = get_vnstock("VCB").listing.symbols_by_group("VN30")
     except Exception as e:
-        print(f"[vn30] ❌ gọi API ném {type(e).__name__}: {e}")
+        code = getattr(e, "code", None)
+        print(f"[vn30] ❌ gọi API ném {type(e).__name__}"
+              f"{f' [{code}]' if code else ''}: {e}")
+        if code == "VNSTOCK_INPUT_SOURCE":
+            print("[vn30]    chữa: đặt VNSTOCK_SOURCE trong .env (xem vnstock_auth.py)")
         return 2
     print(f"[vn30]   type={type(raw).__name__} "
           f"columns={getattr(raw, 'columns', '(không có)')} "

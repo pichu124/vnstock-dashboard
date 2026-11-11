@@ -131,3 +131,36 @@ def test_fundamental_fetch_one_survives_rate_limit(monkeypatch):
     monkeypatch.setattr(fu, "_fetch_debt_to_equity", lambda t: None)
     ticker, data, err = fu._fetch_one("VCB", delay=0.0)
     assert err is None and data["pe"] == 10.0 and calls["n"] == 2
+
+
+# ── vnstock thế hệ 6: RateLimitError có kiểu (thay sys.exit của vnai) ──────────
+
+def _gen6_errors():
+    return pytest.importorskip("vnstock.errors")
+
+
+def test_gen6_rate_limit_error_waits_retry_after_then_succeeds(monkeypatch):
+    errors = _gen6_errors()
+    sleeps = []
+    monkeypatch.setattr(rl.time, "sleep", sleeps.append)
+    n = {"i": 0}
+
+    def flaky():
+        n["i"] += 1
+        if n["i"] == 1:
+            raise errors.RateLimitError("Nguồn báo vượt giới hạn tần suất (429)",
+                                        code="VNSTOCK_SOURCE_RATE_LIMITED", retry_after=12.5)
+        return "ok"
+    assert rl.call_with_rate_limit_retry(flaky) == "ok"
+    assert sleeps == [14]
+
+
+def test_gen6_rate_limit_without_retry_after_uses_default():
+    errors = _gen6_errors()
+    e = errors.RateLimitError("Nguồn vẫn báo vượt giới hạn", code="VNSTOCK_SOURCE_RATE_LIMITED")
+    assert rl.is_rate_limit(e) and rl.wait_seconds(e) == rl._DEFAULT_WAIT
+
+
+def test_gen6_network_error_is_not_rate_limit():
+    errors = _gen6_errors()
+    assert not rl.is_rate_limit(errors.NetworkError("Hết thời gian chờ", code="VNSTOCK_SOURCE_NETWORK"))

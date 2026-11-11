@@ -49,9 +49,10 @@ from rich.progress import (BarColumn, MofNCompleteColumn, Progress,
 from rich.table import Table
 from rich import box
 
-from vnstock_auth import ensure_api_key, get_api_key
+from vnstock_auth import ensure_api_key, get_api_key, keep_schema_warnings, naive_local_time
 
 warnings.filterwarnings("ignore")
+keep_schema_warnings()      # "ignore" toàn cục không được nuốt SchemaChangeWarning
 
 console = Console()
 
@@ -77,14 +78,13 @@ TIER_CONFIG = {
 
 def _detect_tier() -> str:
     """
-    Detect tier from vnstock check_status() after API key is applied.
+    Detect tier from `vnstock.status()["tier"]` (thế hệ 6 — `vnstock status`).
     """
     if not _API_KEY:
         return "community"
     try:
-        ensure_api_key()  # Re-apply key in case vnstock_data import reset it
-        from vnstock.core.utils.auth import check_status
-        status = str(check_status()).lower()
+        import vnstock
+        status = str(vnstock.status().get("tier", "")).lower()
         for t in ("golden", "silver", "bronze"):
             if t in status:
                 console.log(f"[cyan]📊 Detected tier: {t.capitalize()}[/cyan]")
@@ -99,20 +99,15 @@ def _detect_tier() -> str:
             return "bronze"
         return "community"
 
-# ── Dual-source: vnstock_data → vnstock (free) ────────────────────────────────
+# ── vnstock thế hệ 6: một gói; nguồn chọn MỘT chỗ ở vnstock_auth.configure_sources ──
 try:
-    from vnstock_data import Market, Reference
-    USE_UNIFIED = True
+    from vnstock import Market, Reference
+    from vnstock.errors import RateLimitError, VnstockError
 except ImportError:
-    USE_UNIFIED = False
-    try:
-        from vnstock import Vnstock, Listing
-    except ImportError:
-        console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
-        sys.exit(1)
+    console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
+    sys.exit(1)
 
-# Re-apply Golden key AFTER vnstock imports (they can auto-register free keys)
-ensure_api_key()
+ensure_api_key()            # áp luật nguồn VNSTOCK_SOURCE trước lệnh gọi đầu tiên
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PyArrow schema — enforces consistent dtypes across all parquet files
@@ -289,25 +284,19 @@ class VnStockWarehouse:
         console.log(f"  📋 Fetching symbol list for: {exchanges}")
 
         try:
-            if USE_UNIFIED:
-                ref = Reference()
-                df  = ref.equity.list_by_exchange(exchanges[0]) if len(exchanges) == 1 \
-                      else ref.equity.list()
-                # Normalise column name
-                if "exchange" not in df.columns:
-                    df["exchange"] = "UNKNOWN"
-            else:
-                listing = Listing(source="VCI")
-                frames  = []
-                for ex in exchanges:
-                    try:
-                        tmp = listing.symbols_by_exchange(exchange=ex)
-                        if tmp is not None and not tmp.empty:
-                            tmp["exchange"] = ex
-                            frames.append(tmp)
-                    except Exception:
-                        pass
-                df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+            ref = Reference()
+            frames = []
+            for ex in exchanges:
+                try:
+                    tmp = ref.equity.list(exchange=ex)
+                except VnstockError as e:
+                    console.log(f"  [yellow]⚠ {ex}: không lấy được danh sách mã — {e}[/yellow]")
+                    continue
+                if tmp is not None and not tmp.empty:
+                    tmp = tmp.copy()
+                    tmp["exchange"] = ex
+                    frames.append(tmp)
+            df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
             if df is None or df.empty:
                 console.print("[red]❌ No symbols returned[/red]")
@@ -349,133 +338,97 @@ class VnStockWarehouse:
         max_retries: int = 5,
     ) -> pd.DataFrame:
         """
-        Fetch OHLCV with token-bucket throttling + smart rate-limit recovery.
+        Fetch OHLCV with token-bucket throttling + rate-limit recovery.
 
-        Key optimisation: uses Quote() directly instead of Vnstock().stock()
-        → avoids Finance/Company initialisation (saves 2 extra API calls/ticker)
-        → avoids ICB4 NoneType crash on unclassified symbols
+        Thế hệ 6: `Market().equity(t).ohlcv` (nguồn theo luật VNSTOCK_SOURCE).
+        `time` thế hệ 6 có múi giờ ⇒ đổi về ngày lịch VN như kho. Schema kho
+        giữ nguyên; ĐỐI CHIẾU khi có khoá nguồn: giá phải là NGHÌN đồng như kho
+        hiện có (hồ sơ cột `v5`).
         """
         for attempt in range(max_retries):
             self._throttle()
             try:
-                if USE_UNIFIED:
-                    df = Market().equity(ticker).ohlcv(start=start, end=end)
-                else:
-                    from vnstock import Quote
-                    q  = Quote(source="VCI", symbol=ticker)
-                    df = q.history(start=start, end=end, interval="1D")
-
-                if df is None or df.empty:
-                    return pd.DataFrame()
-
-                df = df.copy()
-                df.columns = [c.lower() for c in df.columns]
-
-                if "time" in df.columns:
-                    df["time"] = pd.to_datetime(df["time"]).dt.date
-                elif "date" in df.columns:
-                    df["time"] = pd.to_datetime(df["date"]).dt.date
-                    df.drop(columns=["date"], inplace=True)
-
-                for col in ("open", "high", "low", "close", "volume"):
-                    if col not in df.columns:
-                        df[col] = None
-
-                df["ticker"] = ticker
-                df["year"]   = pd.to_datetime(df["time"]).dt.year.astype("int16")
-                df["volume"] = (
-                    pd.to_numeric(df["volume"], errors="coerce")
-                    .fillna(0).astype("int64")
+                df = Market().equity(ticker).ohlcv(start=start, end=end, interval="1D")
+            except RateLimitError as e:
+                retry_after = e.context.get("retry_after")
+                wait_sec = int(retry_after) + 3 if retry_after else 45
+                console.log(
+                    f"  [yellow]⏳ Rate limit [{ticker}] — "
+                    f"sleeping {wait_sec}s "
+                    f"(attempt {attempt+1}/{max_retries})[/yellow]"
                 )
-                for col in ("open", "high", "low", "close"):
-                    df[col] = pd.to_numeric(df[col], errors="coerce").astype("float32")
-                df = df.dropna(subset=["close"])
-
-                # ── Data quality gate ────────────────────────────────────────
-                # Reject rows that cannot be valid OHLCV bars. Logs are surfaced
-                # at DEBUG level only to avoid flooding bulk-load output.
-                before = len(df)
-                # 1) price must be strictly positive
-                df = df[df["close"] > 0]
-                # 2) volume must be non-negative (NaN already coerced to 0)
-                df = df[df["volume"] >= 0]
-                # 3) OHLC sanity: high >= max(open, close) and low <= min(open, close)
-                #    Only enforce when all four values are present.
-                mask_ohlc = (
-                    df[["open", "high", "low", "close"]].notna().all(axis=1)
-                )
-                if mask_ohlc.any():
-                    valid_ohlc = (
-                        (df["high"] >= df[["open", "close", "low"]].max(axis=1))
-                        & (df["low"] <= df[["open", "close", "high"]].min(axis=1))
-                    )
-                    df = df[~mask_ohlc | valid_ohlc]
-                dropped = before - len(df)
-                if dropped:
-                    console.log(
-                        f"  [dim yellow]⚠ {ticker}: dropped {dropped} "
-                        f"invalid bar(s) (price<=0 / volume<0 / bad OHLC)[/dim yellow]"
-                    )
-
-                return df[["time","open","high","low","close","volume","ticker","year"]]
-
-            # ✅ Bắt BaseException để catch cả SystemExit (vnstock gọi sys.exit())
-            except BaseException as e:
-                err     = str(e)
-                err_low = err.lower()
-
-                # SystemExit từ vnstock rate limit handler
-                is_system_exit = isinstance(e, SystemExit)
-
-                # ── Skip ngay: không phải stock ──────────────────────────────
-                is_not_stock = (
-                    "not a stock" in err_low
-                    or "company and finance" in err_low
-                    or "nonetype" in err_low
-                    or "icbname" in err_low
-                    or "is not subscriptable" in err_low
-                    or ("retryerror" in err_low and "valueerror" in err_low)
-                )
-                if is_not_stock:
-                    console.log(f"  [dim]⏭ {ticker}: skipped ({err[:50]})[/dim]")
+                self._bucket_tokens = 0.0
+                time.sleep(wait_sec)
+                continue
+            except VnstockError as e:
+                if not e.retryable:         # mã/tham số/khoá/nguồn không đọc — thử lại vô ích
+                    console.log(f"  [dim]⏭ {ticker}: skipped ({str(e)[:70]})[/dim]")
                     return pd.DataFrame()
-
-                # ── IntCastingNaN: skip, no retry ────────────────────────────
-                if "intcastingna" in err_low or "castingna" in err_low:
-                    console.log(f"  [dim]⏭ {ticker}: data quality — skipped[/dim]")
-                    return pd.DataFrame()
-
-                # ── Rate limit (kể cả SystemExit từ vnstock) ─────────────────
-                is_rate_limit = is_system_exit or any(k in err_low for k in (
-                    "rate limit", "giới hạn", "429", "too many",
-                    "requests/phút", "request limit", "đã đạt",
-                    "process terminated",
-                ))
-                if is_rate_limit:
-                    wait_match = _re.search(
-                        r"(?:chờ|wait)[^\d]*(\d+)", err_low
-                    )
-                    # Đọc số giây từ message, nếu không có dùng 45s
-                    wait_sec = int(wait_match.group(1)) + 3 if wait_match else 45
-                    console.log(
-                        f"  [yellow]⏳ Rate limit [{ticker}] — "
-                        f"sleeping {wait_sec}s "
-                        f"(attempt {attempt+1}/{max_retries})[/yellow]"
-                    )
-                    self._bucket_tokens = 0.0
-                    time.sleep(wait_sec)
-                    continue
-
-                # ── Lỗi khác: exponential backoff ────────────────────────────
-                if attempt < max_retries - 1:
+                if attempt < max_retries - 1:   # mạng / nguồn 5xx: exponential backoff
                     backoff = min(2 ** attempt, 30)
                     console.log(
                         f"  [dim]⚠ {ticker} (attempt {attempt+1}): "
-                        f"{err[:70]} — retry in {backoff}s[/dim]"
+                        f"{str(e)[:70]} — retry in {backoff}s[/dim]"
                     )
                     time.sleep(backoff)
-                elif isinstance(e, (KeyboardInterrupt, SystemExit)) and not is_rate_limit:
-                    raise  # Re-raise Ctrl+C và SystemExit thật sự
+                continue
+            except Exception as e:          # noqa: BLE001 — lỗi lạ của một mã không được làm sập cả lượt bulk
+                console.log(f"  [dim]⏭ {ticker}: skipped ({type(e).__name__}: {str(e)[:70]})[/dim]")
+                return pd.DataFrame()
+
+            if df is None or df.empty:
+                return pd.DataFrame()
+
+            df = naive_local_time(df, "time", daily=True)
+            df.columns = [c.lower() for c in df.columns]
+
+            if "time" in df.columns:
+                df["time"] = pd.to_datetime(df["time"]).dt.date
+            elif "date" in df.columns:
+                df["time"] = pd.to_datetime(df["date"]).dt.date
+                df.drop(columns=["date"], inplace=True)
+
+            for col in ("open", "high", "low", "close", "volume"):
+                if col not in df.columns:
+                    df[col] = None
+
+            df["ticker"] = ticker
+            df["year"]   = pd.to_datetime(df["time"]).dt.year.astype("int16")
+            df["volume"] = (
+                pd.to_numeric(df["volume"], errors="coerce")
+                .fillna(0).astype("int64")
+            )
+            for col in ("open", "high", "low", "close"):
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype("float32")
+            df = df.dropna(subset=["close"])
+
+            # ── Data quality gate ────────────────────────────────────────
+            # Reject rows that cannot be valid OHLCV bars. Logs are surfaced
+            # at DEBUG level only to avoid flooding bulk-load output.
+            before = len(df)
+            # 1) price must be strictly positive
+            df = df[df["close"] > 0]
+            # 2) volume must be non-negative (NaN already coerced to 0)
+            df = df[df["volume"] >= 0]
+            # 3) OHLC sanity: high >= max(open, close) and low <= min(open, close)
+            #    Only enforce when all four values are present.
+            mask_ohlc = (
+                df[["open", "high", "low", "close"]].notna().all(axis=1)
+            )
+            if mask_ohlc.any():
+                valid_ohlc = (
+                    (df["high"] >= df[["open", "close", "low"]].max(axis=1))
+                    & (df["low"] <= df[["open", "close", "high"]].min(axis=1))
+                )
+                df = df[~mask_ohlc | valid_ohlc]
+            dropped = before - len(df)
+            if dropped:
+                console.log(
+                    f"  [dim yellow]⚠ {ticker}: dropped {dropped} "
+                    f"invalid bar(s) (price<=0 / volume<0 / bad OHLC)[/dim yellow]"
+                )
+
+            return df[["time","open","high","low","close","volume","ticker","year"]]
 
         return pd.DataFrame()
 

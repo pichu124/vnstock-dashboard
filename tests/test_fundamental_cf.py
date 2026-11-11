@@ -134,3 +134,114 @@ def test_update_parallel_reports_worker_errors(tmp_path, monkeypatch, capsys):
                    workers=3)
     # Mã lỗi KHÔNG chặn mã khác; lỗi được đếm, 2 mã OK vẫn vào parquet
     assert sorted(df["ticker"]) == ["OKA", "OKB"]
+
+
+# ── Thế hệ 6: Fundamental().equity(t).<bctc>/ratio (qua mặt tiền get_vnstock) ──
+
+def _long(rows):
+    """BCTC dạng DÀI của thế hệ 6 (hồ sơ v5): period, id, name, order, level, unit, value, line_code."""
+    return pd.DataFrame([
+        {"period": p, "id": i, "name": n, "order": k, "level": 1, "unit": "VND",
+         "value": v, "line_code": i}
+        for k, (p, i, n, v) in enumerate(rows)])
+
+
+class _Gen6Fin:
+    """`Fundamental().equity(t)` giả: ghi lại tham số, tham số lạ ⇒ InputError như thế hệ 6."""
+    _OK = {"ratio": {"period", "year"},
+           "cash_flow": {"company_type", "period", "lang", "drop_empty", "format"},
+           "balance_sheet": {"company_type", "period", "lang", "drop_empty", "format"}}
+
+    def __init__(self, **frames):
+        self.frames, self.calls = frames, []
+
+    def __getattr__(self, name):
+        if name not in self._OK:
+            raise AttributeError(name)
+
+        def call(**kw):
+            from vnstock.errors import InputError
+            self.calls.append((name, kw))
+            bad = set(kw) - self._OK[name]
+            if bad or ("lang" in kw and name == "ratio"):
+                raise InputError(f"tham số lạ {bad}", code="VNSTOCK_INPUT_PARAM")
+            v = self.frames[name]
+            if isinstance(v, Exception):
+                raise v
+            return v
+        return call
+
+
+def _patch_fin(monkeypatch, fin):
+    import vnstock_auth
+    monkeypatch.setattr(vnstock_auth, "get_vnstock",
+                        lambda t, *a, **k: type("S", (), {"finance": fin})())
+
+
+def test_gen6_ratio_columns_map_to_legacy_fields(monkeypatch):
+    import vnstock_fundamental_updater as fu
+    fin = _Gen6Fin(ratio=pd.DataFrame([
+        {"year": 2024, "quarter": None, "pe": 10.0, "pb": 1.5, "roe": 15.0, "roa": 2.0,
+         "eps": 3000.0, "net_margin": 10.0, "gross_margin": 30.0,
+         "liabilities_to_equity": 2.0, "debt_to_assets": 0.6},
+        {"year": 2025, "quarter": None, "pe": 12.0, "pb": 1.8, "roe": 18.0, "roa": 1.7,
+         "eps": 3500.0, "net_margin": 1.5, "gross_margin": 32.0,
+         "liabilities_to_equity": 2.81, "debt_to_assets": 0.65},
+    ]))
+    _patch_fin(monkeypatch, fin)
+
+    out = fu._fetch_ratios("FPT")
+
+    assert fin.calls == [("ratio", {"period": "year"})]
+    assert out == {"pe": 12.0, "pb": 1.8, "roe": 18.0, "roa": 1.7, "eps": 3500.0,
+                   "net_margin": 1.5, "gross_margin": 32.0, "debt_ratio": 0.65,
+                   "debt_to_equity": 2.81, "de_period": "2025"}
+
+
+def test_gen6_long_cash_flow_gives_last_complete_year(monkeypatch):
+    import vnstock_fundamental_updater as fu
+    y1, y2 = _CUR - 2, _CUR - 1
+    fin = _Gen6Fin(cash_flow=_long([
+        (str(y1), "CF_NET_OPERATING", "Net cash flows from operating activities", 5e12),
+        (str(y1), "CF_NET_INVESTING", "Net cash flows from investing activities", -1e12),
+        (str(y2), "CF_NET_OPERATING", "Net cash flows from operating activities", 7.25e12),
+        (str(y2), "CF_NET_INVESTING", "Net cash flows from investing activities", -2e12),
+    ]))
+    _patch_fin(monkeypatch, fin)
+
+    assert fu._fetch_cash_flow("FPT") == {"operating_cf": 7250.0, "ocf_period": str(y2)}
+    assert fin.calls == [("cash_flow", {"period": "year", "lang": "en"})]
+
+
+def test_gen6_long_balance_sheet_gives_debt_to_equity(monkeypatch):
+    import vnstock_fundamental_updater as fu
+    fin = _Gen6Fin(balance_sheet=_long([
+        ("2024", "BS_TOTAL_LIABILITIES", "Total liabilities", 800.0),
+        ("2024", "BS_OWNERS_EQUITY", "Owners' equity", 100.0),
+        ("2025", "BS_TOTAL_LIABILITIES", "Total liabilities", 1_120.0),
+        ("2025", "BS_OWNERS_EQUITY", "Owners' equity", 100.0),
+        # dòng tổng chứa CẢ "total liabilities" lẫn "owner…equity" — phải giữ thứ tự taxonomy
+        ("2025", "BS_TOTAL_RESOURCES", "Total liabilities and owners' equity", 1_220.0),
+    ]))
+    _patch_fin(monkeypatch, fin)
+
+    assert fu._fetch_debt_to_equity("VCB") == 11.2
+    assert fin.calls == [("balance_sheet", {"period": "year", "lang": "en"})]
+
+
+def test_gen6_rate_limit_reaches_the_retry_wrapper(monkeypatch):
+    """RateLimitError không được nuốt thành 'statement rỗng' — `_fetch_one` bọc
+    `call_with_rate_limit_retry` cần thấy nó để chờ rồi thử lại."""
+    from vnstock.errors import RateLimitError
+    import vnstock_fundamental_updater as fu
+    _patch_fin(monkeypatch, _Gen6Fin(ratio=RateLimitError("quá trần", code="VNSTOCK_RATE_LIMIT")))
+    with pytest.raises(RateLimitError):
+        fu._fetch_ratios("FPT")
+
+
+def test_gen6_source_error_is_an_empty_statement(monkeypatch):
+    from vnstock.errors import UnsupportedError
+    import vnstock_fundamental_updater as fu
+    _patch_fin(monkeypatch, _Gen6Fin(
+        cash_flow=UnsupportedError("không đọc", code="VNSTOCK_ROUTE_UNSUPPORTED")))
+    assert fu._fetch_cash_flow("FPT") == {}

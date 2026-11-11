@@ -1,7 +1,12 @@
 """vnstock_news.py — News data layer for VNStock Dashboard.
 
-Fetches per-ticker news from vnstock (VCI source, KBS fallback), caches to
-disk, and exposes helpers for AI agents in brief and analysis contexts.
+Fetches per-ticker news from vnstock, caches to disk, and exposes helpers for AI
+agents in brief and analysis contexts.
+
+⚠️ vnstock thế hệ 6 ĐÃ NGỪNG tin theo mã (`Reference().company(t).news()` ném
+`UnsupportedError VNSTOCK_ROUTE_REMOVED`) và dự án không có nguồn tin RSS gắn mã
+(`vnstock_news_feeds` là tin thị trường chung, `ticker=""`). `fetch_ticker_news` vì thế
+trả [] + ghi log MỘT lần (`TICKER_NEWS_UNAVAILABLE`); `refresh_news` giữ cache cũ.
 
 Universe strategy (practical "all market"):
   • VN30 always included (30 stocks)
@@ -274,118 +279,67 @@ def _is_valid_news_item(d: dict) -> bool:
     )
 
 
-def fetch_ticker_news(ticker: str, source: str = "VCI") -> list[dict]:
-    """Fetch news for one ticker. Returns list of dicts (empty on any error).
+TICKER_NEWS_UNAVAILABLE = "thế hệ 6 không còn tin theo mã"
+_unavailable_logged = False
 
-    Priority order (verified empirically against vnstock 4.0.2 + sponsor pkg):
-      1. vnstock free `Vnstock().stock(...).company.news()` — returns ~50
-         articles per ticker with the rich 21-column schema (news_title,
-         news_short_content, news_full_content, public_date, ...). Best
-         coverage and recency.
-      2. vnstock_data.Company(source='KBS').news() as fallback — only
-         returns 1 article per ticker but works when free path fails.
-      3. vnstock_data.Company(source='VCI').news() — currently broken
-         in vnstock 4.0.2 (KeyError: 'data'); skipped.
+
+def _log_unavailable_once(err) -> None:
+    global _unavailable_logged
+    if _unavailable_logged:
+        return
+    _unavailable_logged = True
+    import logging
+    logging.getLogger("vnstock_news").warning(
+        "%s (%s %s)", TICKER_NEWS_UNAVAILABLE, type(err).__name__, getattr(err, "code", ""))
+
+
+def fetch_ticker_news(ticker: str) -> list[dict]:
+    """Tin của một mã qua `Reference().company(t).news()`; [] khi nguồn không có.
+
+    Thế hệ 6 đã ngừng route này (`UnsupportedError`) ⇒ [] và log `TICKER_NEWS_UNAVAILABLE`
+    một lần mỗi tiến trình. Lỗi nguồn khác (mạng, hạn mức…) cũng ra [] như nhánh lỗi cũ.
     """
-    # Free path FIRST — vnstock 4.0.2 returns 50 articles per ticker
-    # with the full schema we want. Try VCI then KBS as source.
-    sources = [source] + ([s for s in ("VCI", "KBS") if s != source])
-    for src in sources:
-        try:
-            from vnstock_auth import get_vnstock
-            stock = get_vnstock(ticker, src)
-            df = stock.company.news()
-            if _is_news_dataframe(df):
-                return _records_from_df(df, ticker, src)
-        except Exception:
-            continue
-
-    # Sponsor fallback — try vnii (new name) then vnstock_data (old name).
-    # KBS returns ~1 article; VCI is broken (KeyError: 'data') in 4.0.2.
-    _vd = None
-    for _mod in ("vnii", "vnstock_data"):
-        try:
-            _vd = __import__(_mod)
-            break
-        except ImportError:
-            continue
-        except Exception:
-            break
-    if _vd is not None:
-        for kwargs in ({"size": 20}, {"page_size": 20}, {}):
-            try:
-                comp = _vd.Company(symbol=ticker, source="KBS")
-                df = comp.news(**kwargs)
-                if _is_news_dataframe(df):
-                    return _records_from_df(df, ticker, "KBS")
-            except TypeError:
-                continue
-            except Exception:
-                break
+    from vnstock.errors import UnsupportedError, VnstockError
+    from vnstock_auth import get_vnstock
+    try:
+        df = get_vnstock(ticker).company.news()
+    except UnsupportedError as e:
+        _log_unavailable_once(e)
+        return []
+    except VnstockError:
+        return []
+    if _is_news_dataframe(df):
+        return _records_from_df(df, ticker, "vnstock")
     return []
 
 
 def diagnose_news_fetch(ticker: str = "VCB") -> dict:
     """Run a diagnostic fetch for one ticker, return raw API output details.
 
-    Used by the news_tab debug expander so the user can see what each
-    code path returns without having to read source code. Returns a dict
-    with one entry per attempted code path: status, latency, shape,
-    columns, sample row.
+    Used by the news_tab debug expander so the user can see what the code path
+    returns without having to read source code.
     """
     import time as _time
-    import inspect as _inspect
     out: dict = {}
-
-    # Sponsor package (vnii or vnstock_data) — try both VCI and KBS
-    _vd_diag = None
-    _vd_mod_name = None
-    for _mod in ("vnii", "vnstock_data"):
-        try:
-            _vd_diag = __import__(_mod)
-            _vd_mod_name = _mod
-            break
-        except ImportError:
-            continue
-        except Exception as e:
-            out[f"{_mod}.import"] = {"error": f"{type(e).__name__}: {e}"}
-            break
-    if _vd_diag is not None:
-        for src in ("VCI", "KBS"):
-            label = f"{_vd_mod_name}.Company(source='{src}').news()"
-            try:
-                comp = _vd_diag.Company(symbol=ticker, source=src)
-                t0 = _time.time()
-                df = comp.news()
-                dt = (_time.time() - t0) * 1000
-                out[label] = {
-                    "latency_ms": round(dt, 0),
-                    "shape": tuple(df.shape) if df is not None and hasattr(df, "shape") else None,
-                    "columns": list(df.columns) if df is not None and hasattr(df, "columns") else [],
-                    "is_news": _is_news_dataframe(df) if df is not None else False,
-                    "sample": df.iloc[0].to_dict() if df is not None and not df.empty else None,
-                }
-            except Exception as e:
-                out[label] = {"error": f"{type(e).__name__}: {e}"}
-    else:
-        out["sponsor_package"] = {"error": "vnii and vnstock_data not importable"}
-
-    # vnstock free
+    label = "Reference().company().news()"
     try:
         from vnstock_auth import get_vnstock
-        stock = get_vnstock(ticker, "VCI")
         t0 = _time.time()
-        df = stock.company.news()
+        df = get_vnstock(ticker).company.news()
         dt = (_time.time() - t0) * 1000
-        out["vnstock.company.news()"] = {
+        out[label] = {
             "latency_ms": round(dt, 0),
             "shape": tuple(df.shape) if df is not None and hasattr(df, "shape") else None,
             "columns": list(df.columns) if df is not None and hasattr(df, "columns") else [],
+            "is_news": _is_news_dataframe(df) if df is not None else False,
             "sample": df.iloc[0].to_dict() if df is not None and not df.empty else None,
         }
     except Exception as e:
-        out["vnstock.company.news()"] = {"error": f"{type(e).__name__}: {e}"}
-
+        from vnstock.errors import UnsupportedError
+        msg = f"{type(e).__name__}: {e}"
+        if isinstance(e, UnsupportedError):
+            msg = f"{TICKER_NEWS_UNAVAILABLE} — {msg}"
+        out[label] = {"error": msg}
     return out
 
 

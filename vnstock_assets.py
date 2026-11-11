@@ -522,7 +522,7 @@ def python_tasks(today: date, fkey: str) -> "list[tuple[str, object]]":
     def mbk():
         got = src.fetch_mbk_central((today - timedelta(days=14)).isoformat(), t)
         if not got:
-            raise RuntimeError("vnstock_data không có / rỗng")
+            raise RuntimeError("mbk rỗng")
         return {"USD_CENTRAL": [_row(d, v, "mbk") for d, v in got]}
 
     return [
@@ -744,7 +744,7 @@ def backfill(*, with_mcp: bool = False, vcb_days: int = 730, now: "datetime | No
              log=print, base=None, meta=None, tasks: "list | None" = None,
              steps: "set[str] | None" = None) -> dict:
     """MỘT LẦN sau khi merge (🖥️ desktop, ngoài giờ pipeline): lịch sử dài từ FRED, Yahoo,
-    Vietcombank (theo ngày), vnstock_data (tỷ giá trung tâm), cache vàng cũ; --with-mcp thêm
+    Vietcombank (theo ngày), mbk (tỷ giá trung tâm — thế hệ 6 không có, bước báo lỗi), cache vàng cũ; --with-mcp thêm
     Finhay (vàng TG từ 2025, vàng đại lý, SJC miếng từ 2015) + đo lệch ngày mbk. Cuối cùng
     MỘT lượt Python như mỗi giờ (đường cong HĐTL, số hôm nay, ước tính, `status.python`) —
     10/10 thiếu bước này nên doctor báo "chưa có lượt nào" dù kho đã đầy. `steps` ⊂
@@ -799,7 +799,7 @@ def backfill(*, with_mcp: bool = False, vcb_days: int = 730, now: "datetime | No
     def mbk_hist():
         raw = src.fetch_mbk_central("2016-01-01", today.isoformat(), shift=False)
         if not raw:
-            raise RuntimeError("vnstock_data không có / rỗng")
+            raise RuntimeError("mbk rỗng")
         wd = Counter(date.fromisoformat(d).weekday() for d, _ in raw)
         log("  mbk THÔ theo thứ (T2…CN): " + " · ".join(str(wd.get(i, 0)) for i in range(7))
             + " · 10 dòng cuối: " + ", ".join(f"{d}({_THU[date.fromisoformat(d).weekday()]})={v:,.0f}"

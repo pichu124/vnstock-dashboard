@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from vnstock_market_analyzer import market_regime
 
@@ -50,40 +51,122 @@ def mini_warehouse(root, tickers=("AAA", "BBB"), n_bars=70):
     return root
 
 
-def fake_vnstock_data(net_per_day: float):
-    """TopStock trả AAA mua ròng `net_per_day` VND MỖI ngày được hỏi; Net BS rỗng."""
-    import types
+def fake_gen6_market(net_per_day: float, calls: "dict | None" = None):
+    """`vnstock.Market` giả (thế hệ 6): `.equity.screener(date=)` trả AAA mua ròng `net_per_day`
+    đồng MỖI phiên được hỏi + BBB không có NN; `.equity(t).trade_history()` rỗng (Net BS rỗng)."""
+    calls = calls if calls is not None else {}
 
-    class _TopStock:
-        def foreign_buy(self, date, limit):
-            return pd.DataFrame({"symbol": ["AAA"], "net_value": [net_per_day]})
-
-        def foreign_sell(self, date, limit):
-            return pd.DataFrame()
-
-    class _Trading:
+    class _Ticker:
         def __init__(self, symbol):
-            pass
+            self.symbol = symbol
 
-        def order_stats(self):
+        def trade_history(self, start=None, end=None):
+            calls.setdefault("trade_history", []).append((self.symbol, start))
             return pd.DataFrame()
 
-    return types.SimpleNamespace(TopStock=_TopStock, Trading=_Trading)
+    class _Equity:
+        def __call__(self, symbol):
+            return _Ticker(symbol)
+
+        def screener(self, date=None, **_):
+            calls.setdefault("screener", []).append(date)
+            return pd.DataFrame({"symbol": ["AAA", "BBB"], "close": [20.0, 21.0],
+                                 "foreign_net_value": [net_per_day, 0.0],
+                                 "foreign_net_volume": [1_000, 0]})
+
+    class _Market:
+        def __init__(self, *_a, **_k):
+            self.equity = _Equity()
+    return _Market
 
 
 def test_runner_leaves_nn_3m_missing_when_feed_has_only_20_sessions(tmp_path, monkeypatch):
-    import sys
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+    import vnstock
 
     import vnstock_runner as vr
 
-    monkeypatch.setitem(sys.modules, "vnstock_data", fake_vnstock_data(1e9))
+    calls: dict = {}
+    monkeypatch.setattr(vnstock, "Market", fake_gen6_market(1e9, calls))
     out = vr.compute_market_overview(str(mini_warehouse(tmp_path)))
 
+    assert len(calls["screener"]) == 20          # một lượt cả thị trường mỗi phiên
+    assert {s for s, _ in calls["trade_history"]} == {"AAA", "BBB"}
     sector = out["sectors"][0]
     assert sector["NN 1M (tỷ)"] == 20.0          # 20 phiên × 1 tỷ
     assert pd.isna(sector["NN 3M (tỷ)"])         # không phải 20.0 chép từ 1M
     aaa = next(t for t in out["tickers"] if t["Mã"] == "AAA")
     assert aaa["NN 1M (tỷ)"] == 20.0 and pd.isna(aaa["NN 3M (tỷ)"])
+
+
+def test_runner_nn_keeps_top_buyers_and_sellers_per_session(monkeypatch):
+    """Mỗi phiên: top `_NN_TOP_N` mua ròng + top `_NN_TOP_N` bán ròng (tập TopStock cũ),
+    mã NN = 0/NaN bỏ; phiên nguồn lỗi bỏ qua, không làm hỏng cả lượt."""
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+    import vnstock
+    from vnstock.errors import NetworkError
+
+    import vnstock_foreign_flow as ff
+    import vnstock_runner as vr
+
+    board = pd.DataFrame({"symbol": ["B1", "B2", "B3", "S1", "S2", "Z0", "NA"],
+                          "foreign_net_value": [5e9, 3e9, 1e9, -4e9, -2e9, 0.0, None],
+                          "foreign_net_volume": [1, 1, 1, -1, -1, 0, None]})
+    seen = []
+
+    def _board(day):
+        seen.append(day)
+        if len(seen) == 1:
+            raise NetworkError("timeout")
+        return board
+    monkeypatch.setattr(ff, "foreign_net_for_date", _board)
+    monkeypatch.setattr(vr, "_NN_TOP_N", 2)
+    captured = {}
+    monkeypatch.setattr(vr, "build_market_overview",
+                        lambda wh, fetch_nn, fetch_net_bs: captured.setdefault("nn", fetch_nn()))
+    vr.compute_market_overview("unused")
+    nn = captured["nn"]
+    assert len(seen) == 20 and nn["date"].nunique() == 19
+    one = nn[nn["date"] == nn["date"].max()]
+    assert dict(zip(one["symbol"], one["net_value"])) == {"B1": 5e9, "B2": 3e9,
+                                                           "S1": -4e9, "S2": -2e9}
+
+
+def test_net_bs_reads_trade_history_columns(tmp_path, monkeypatch):
+    """Net BS = Σ(total_buy_trade_volume − total_sell_trade_volume) của 5/20/60/120 phiên,
+    triệu cp — tên cột hồ sơ v5 của `trade_history` (= `order_stats` cũ)."""
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+    import vnstock
+
+    import vnstock_runner as vr
+
+    days = pd.bdate_range(end="2026-10-16", periods=130)
+    hist = pd.DataFrame({"trading_date": days[::-1],              # nguồn trả mới nhất trước
+                         "total_buy_trade_volume": [3e6] * 130,
+                         "total_sell_trade_volume": [1e6] * 130})
+
+    class _Ticker:
+        def trade_history(self, start=None, end=None):
+            return hist
+
+    class _Equity:
+        def __call__(self, symbol):
+            return _Ticker()
+
+        def screener(self, date=None, **_):
+            return pd.DataFrame()
+
+    class _Market:
+        def __init__(self, *_a, **_k):
+            self.equity = _Equity()
+    monkeypatch.setattr(vnstock, "Market", _Market)
+    captured = {}
+    monkeypatch.setattr(vr, "build_market_overview",
+                        lambda wh, fetch_nn, fetch_net_bs: captured.setdefault(
+                            "nb", fetch_net_bs(["AAA"])))
+    (tmp_path / "_meta").mkdir()
+    vr.compute_market_overview(str(tmp_path))
+    assert captured["nb"] == {"AAA": {"1w": 10.0, "1m": 40.0, "3m": 120.0, "6m": 240.0}}
 
 
 def test_nn_windows_fill_3m_once_feed_covers_60_sessions():

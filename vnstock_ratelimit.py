@@ -30,14 +30,33 @@ _DEFAULT_WAIT = 61          # trần theo PHÚT → hết cửa sổ chắc ch�
 _MAX_WAIT = 300             # vnai còn trần theo GIỜ (retry_after tới 3600) — cap lại
 
 
+def _rate_limit_error_cls():
+    try:
+        from vnstock.errors import RateLimitError
+        return RateLimitError
+    except ImportError:          # CI tối thiểu không cài vnstock
+        return None
+
+
 def is_rate_limit(exc: BaseException) -> bool:
-    """Nhận diện lỗi rate-limit của vnai qua message (cả bản sys.exit)."""
+    """vnstock thế hệ 6: `vnstock.errors.RateLimitError` (nguồn báo 429). Message
+    vnai dòng cũ (cả bản sys.exit) vẫn nhận để không gãy đường gọi chưa chuyển."""
+    cls = _rate_limit_error_cls()
+    if cls is not None and isinstance(exc, cls):
+        return True
     s = str(exc)
     return "rate limit" in s.lower() or "GIỚI HẠN API" in s
 
 
 def wait_seconds(exc: BaseException, default: int = _DEFAULT_WAIT) -> int:
-    """Số giây nên chờ — parse 'Chờ X giây' từ message vnai, +2s đệm."""
+    """Số giây nên chờ, +2s đệm: `retry_after` của RateLimitError thế hệ 6 (từ header
+    Retry-After của nguồn), không có thì parse 'Chờ X giây' từ message vnai."""
+    retry_after = (getattr(exc, "context", None) or {}).get("retry_after")
+    if retry_after is not None:
+        try:
+            return max(1, min(int(float(retry_after)) + 2, _MAX_WAIT))
+        except (TypeError, ValueError):
+            pass
     m = _WAIT_RE.search(str(exc))
     if m:
         try:

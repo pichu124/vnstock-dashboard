@@ -129,6 +129,25 @@ def test_market_news_stale_fetch_warns(meta):
     assert r["status"] == "warn" and "news" in r["fix"]
 
 
+def test_ticker_news_reports_gen6_removed(meta):
+    """Thế hệ 6 ngừng tin theo mã ⇒ badge `off` nói rõ lý do, không réo warn mãi vì cache cũ."""
+    r = doc.check_ticker_news()
+    assert r["status"] == "off" and "thế hệ 6 không còn tin theo mã" in r["message"]
+    (meta / "news_cache.json").write_text("{}", encoding="utf-8")
+    _age_file(meta / "news_cache.json", 10)
+    r = doc.check_ticker_news()
+    assert r["status"] == "off" and "cache cũ" in r["message"]
+
+
+def test_net_foreign_flow_without_source_rule_says_so(monkeypatch):
+    for k in ("VNSTOCK_SOURCE", "VNSTOCK_SOURCE_ROUTES"):
+        monkeypatch.delenv(k, raising=False)
+    import vnstock_foreign_flow as ff
+    monkeypatch.setattr(ff, "fetch_market_net", lambda d: pytest.fail("không được gọi nguồn"))
+    r = doc.net_foreign_flow_api()
+    assert r["status"] == "error" and "VNSTOCK_SOURCE" in r["message"]
+
+
 def test_foreign_flow_fresh_capped_and_stale(meta):
     assert doc.check_foreign_flow()["status"] == "off"
     p = meta / "foreign_net_daily.json"

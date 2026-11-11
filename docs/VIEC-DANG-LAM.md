@@ -26,6 +26,29 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
+## 🔁 Chuyển vnstock thế hệ 6 — CODE XONG 11/11 trên nhánh `vnstock-gen6` · CHỜ KHOÁ NGUỒN (đừng merge vào main trước)
+
+Dòng cũ (vnstock 4.x + vnstock_data) ngừng xác thực từ 10/11/2026. Nhánh `vnstock-gen6` chạy được với vnstock 6.0.0
+nhưng **thế hệ 6 không có nguồn mặc định** ⇒ chưa khai nguồn thì MỌI lệnh gọi dữ liệu báo lỗi `VNSTOCK_INPUT_SOURCE`.
+Merge vào main trước khi xong 4 bước dưới = pipeline đêm đó mất brief.
+
+1. ○ Đăng ký khoá ở nguồn: https://vnstocks.com/docs/vnstock/v6/cai-dat#đăng-ký-khoá-ở-nguồn — chọn nguồn theo
+   nhóm dữ liệu (nến/bảng giá/BCTC/NN ròng/sự kiện mỗi nhóm chỉ vài nguồn đọc được; `vnstock tools --all` cho bảng).
+2. ⇄ CẢ HAI máy — venv mới (KHÔNG đụng venv cũ): `python -m venv $HOME\.venv_6x` →
+   `& "$HOME\.venv_6x\Scripts\Activate.ps1"` → `pip install -r requirements.txt` (trên nhánh `vnstock-gen6`) →
+   `vnstock status` (chưa thấy gói thì TỰ chạy `vnstock login`) → `vnstock keys set <nguồn>` (TỰ gõ khoá, đừng dán vào chat).
+3. ⇄ CẢ HAI máy — `.env`: thêm `VNSTOCK_SOURCE=<nguồn>[,<dự phòng>]` và, nếu một nguồn không đọc được mọi nhóm,
+   `VNSTOCK_SOURCE_ROUTES=<route>=<nguồn>;…` (vd `fundamental.equity.*=<nguồn BCTC>`). Đây là chỗ DUY NHẤT chọn nguồn.
+4. ○ Báo Claude tên nguồn đã chọn ⇒ Claude chạy bộ đối chiếu cột/đơn vị/múi giờ (`vnstock-migration/manifest.json`)
+   trước khi merge. ⚠️ Đổi nguồn giá có thể lệch cơ sở với kho cũ ⇒ cửa V1 cách ly hàng loạt: đo `probe_price_basis` trước.
+5. Sau khi merge: 🖥️ DESKTOP đăng ký lại task (Run as Administrator, shell đã kích hoạt `.venv_6x`):
+   `.\scripts\setup_scheduled_tasks.ps1 -PythonExe "$HOME\.venv_6x\Scripts\python.exe"`; 💻 LAPTOP thêm `-OnlyNewsAlert`.
+   Task đang đăng ký vẫn trỏ venv cũ ⇒ code thế hệ 6 trên vnstock 4.x = ImportError.
+
+Chưa có tương đương ở thế hệ 6 (đã xử như nguồn lỗi, không bịa số): tin theo mã (`company.news`) · lịch sử vốn
+(`capital_history` ⇒ đọc `events()`) · tỷ giá trung tâm mbk (giữ số đã lưu) · vốn điều lệ · NN mua/bán TÁCH riêng
+(chỉ còn RÒNG). `Debt/Assets` nay là tổng nợ/tổng tài sản.
+
 ## 📈 Nâng nhận định phân tích kỹ thuật — P0 + P1 đợt 1 CODE XONG 04/11 · CHỜ USER CHẠY 2 LỆNH (`docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §14)
 
 Nhánh `claude/adoring-bardeen-vpuq5b`. Chưa đổi chữ nào trong brief / số nào trong screener.

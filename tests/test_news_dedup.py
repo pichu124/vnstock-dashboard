@@ -337,6 +337,24 @@ def test_refresh_with_zero_news_keeps_existing_cache(monkeypatch, tmp_path):
     assert len(nn.load_news_cache()) == 5  # bộ nhớ đệm cũng không bị thay bằng []
 
 
+def test_gen6_removed_ticker_news_returns_empty_and_logs_once(monkeypatch, caplog):
+    """Thế hệ 6 ngừng `company.news()` (UnsupportedError VNSTOCK_ROUTE_REMOVED) ⇒ mỗi mã
+    ra [], log "thế hệ 6 không còn tin theo mã" ĐÚNG một lần; refresh giữ cache cũ."""
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+    import logging
+
+    import vnstock_news as nn
+
+    monkeypatch.setattr(nn, "_unavailable_logged", False)
+    with caplog.at_level(logging.WARNING, logger="vnstock_news"):
+        assert nn.fetch_ticker_news("VCB") == []          # vnstock 6.0 thật, không mạng
+        assert nn.fetch_ticker_news("FPT") == []
+    msgs = [r.getMessage() for r in caplog.records if nn.TICKER_NEWS_UNAVAILABLE in r.getMessage()]
+    assert len(msgs) == 1 and "VNSTOCK_ROUTE_REMOVED" in msgs[0]
+    diag = nn.diagnose_news_fetch("VCB")
+    assert nn.TICKER_NEWS_UNAVAILABLE in diag["Reference().company().news()"]["error"]
+
+
 # ─── news_context_block: hôm nay chưa có tin ⇒ chỉ lùi vài ngày lịch ─────────
 
 def _context_block(monkeypatch, items):

@@ -1,7 +1,8 @@
 """
-vnstock_freefloat.py — Tính freefloat thực từ cổ đông lớn (KBS API)
+vnstock_freefloat.py — Freefloat thực (vnstock thế hệ 6, nguồn chọn ở vnstock_auth)
 ====================================================================
-freefloat_pct = 100% - sum(ownership_percentage của cổ đông lớn đã công bố)
+freefloat_pct = free-float nguồn công bố (`Reference().company(t).listing()`);
+nguồn không có ⇒ 100% - Σ `rate` cổ đông lớn (`Reference().company(t).shareholders()`).
 Lưu vào data_warehouse/_meta/freefloat.parquet
 
 Run:
@@ -21,6 +22,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 warnings.filterwarnings("ignore")
+from vnstock_auth import keep_schema_warnings
+
+keep_schema_warnings()
 
 from rich.console import Console
 from rich.progress import (
@@ -42,40 +46,68 @@ def _is_stock(ticker: str) -> bool:
     return ticker.isalpha() and len(ticker) <= 5
 
 
+def _num(row, col) -> float | None:
+    v = pd.to_numeric(row.get(col), errors="coerce")
+    return None if pd.isna(v) else float(v)
+
+
+def _listing_freefloat_pct(ticker: str) -> float | None:
+    """Free-float nguồn công bố, `Reference().company(t).listing()`.
+
+    Ưu tiên `free_float_shares / outstanding_shares` (không phụ thuộc đơn vị), rồi
+    `free_float_percent` (đơn vị `percent` = điểm phần trăm 0–100). Nguồn không có route
+    này (`UnsupportedError`) hoặc thiếu số ⇒ None (chỗ gọi dùng cách tính dự phòng). Lỗi
+    nguồn khác (mạng, hạn mức, khoá…) NÉM lên: đừng thay số công bố bằng số ước tính.
+    """
+    from vnstock import Reference
+    from vnstock.errors import UnsupportedError
+    try:
+        li = Reference().company(ticker).listing()
+    except UnsupportedError:
+        return None
+    if li is None or li.empty:
+        return None
+    row = li.iloc[0]
+    ff_sh, out_sh = _num(row, "free_float_shares"), _num(row, "outstanding_shares")
+    if ff_sh is not None and out_sh:
+        return 100.0 * ff_sh / out_sh
+    return _num(row, "free_float_percent")
+
+
 def fetch_freefloat_for_ticker(ticker: str) -> dict | None:
     """
-    Gọi company.shareholders() từ KBS, tính freefloat.
-    Trả về dict hoặc None nếu lỗi / không có data.
+    Free-float của một mã: số của nguồn ở `company(t).listing()`; nguồn không có thì
+    100% − Σ `rate` cổ đông lớn ở `company(t).shareholders()` (cách tính cũ).
+    `shareholders_count` = số cổ đông lớn công bố. Trả None nếu lỗi / không có data.
     """
+    from vnstock import Reference
+    from vnstock.errors import VnstockError
+    from vnstock_auth import ensure_api_key
+
+    ensure_api_key()
     try:
-        from vnstock_auth import get_vnstock
-        vn = get_vnstock(ticker, source="KBS")
-        sh = vn.company.shareholders()
-        if sh is None or sh.empty:
-            return None
-
-        # KBS columns: name, update_date, shares_owned, ownership_percentage
-        pct_col = None
-        for col in sh.columns:
-            cl = col.lower()
-            if "ownership_percentage" == col or "percentage" in cl or "ratio" in cl:
-                pct_col = col
-                break
-        if pct_col is None:
-            return None
-
-        total_pct = float(
-            pd.to_numeric(sh[pct_col], errors="coerce").fillna(0).sum()
-        )
-        freefloat_pct = round(max(0.0, min(100.0, 100.0 - total_pct)), 2)
-        return {
-            "ticker": ticker,
-            "freefloat_pct": freefloat_pct,
-            "shareholders_count": int(len(sh)),
-            "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        }
-    except Exception:
+        # cột v5: symbol, name, shareholder_type, total_shares, rate, date
+        sh = Reference().company(ticker).shareholders()
+    except VnstockError:
         return None
+    if sh is None or sh.empty:
+        return None
+
+    try:
+        pct = _listing_freefloat_pct(ticker)
+    except VnstockError:
+        return None              # lượt này lỗi ⇒ không ghi số (giữ số cũ trong kho)
+    if pct is None:
+        if "rate" not in sh.columns:
+            return None
+        # Hồ sơ v5: `rate` là PHÂN SỐ (hợp đồng: ownership_percent × 0.01) ⇒ Σ×100 ra điểm %.
+        pct = 100.0 - 100.0 * float(pd.to_numeric(sh["rate"], errors="coerce").fillna(0).sum())
+    return {
+        "ticker": ticker,
+        "freefloat_pct": round(max(0.0, min(100.0, pct)), 2),
+        "shareholders_count": int(len(sh)),
+        "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
 
 
 class FreefloatUpdater:
@@ -142,7 +174,7 @@ class FreefloatUpdater:
 
         console.log(
             f"  Freefloat: {len(tickers)} tickers to fetch "
-            f"({'force-refresh' if force else 'new only'}, KBS source)"
+            f"({'force-refresh' if force else 'new only'})"
         )
 
         if not tickers:

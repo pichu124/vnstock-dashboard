@@ -358,7 +358,8 @@ class TestSourcesRegistry:
         assert "tcbs" in E.SOURCES
 
     def test_every_source_name_is_lowercase_and_short(self):
-        assert all(s.islower() and len(s) <= 5 for s in E.SOURCES)
+        # cột NGUỒN của bảng --probe-all rộng 8 ký tự
+        assert all(s.islower() and len(s) <= 8 for s in E.SOURCES)
 
 
 class TestNoNetworkAtImport:
@@ -583,27 +584,6 @@ class TestMergeFrames:
         a = S.cafef_to_frame(_CAFEF_PAGE.replace("2016", "2015"))
         b = S.cafef_to_frame(_CAFEF_PAGE)
         assert S.merge_frames([a, b]).attrs.get("unit_note")
-
-
-class TestSignatureSafeCall:
-    """Vết 26/08: `vnstock` 4.0.4 trên máy user KHÔNG có `display_mode` trong
-    `kbs…balance_sheet`, bản trong container thì CÓ. Truyền cứng ⇒ TypeError
-    trên đúng cái máy duy nhất chạy được mạng."""
-
-    def test_an_unsupported_kwarg_is_dropped_instead_of_raising(self):
-        def f(period=None):
-            return period
-        assert E._call_with_supported_kwargs(f, period="quarter",
-                                             display_mode=None) == "quarter"
-
-    def test_a_supported_kwarg_is_passed_through(self):
-        def f(period=None, show_log=False):
-            return (period, show_log)
-        assert E._call_with_supported_kwargs(
-            f, period="quarter", show_log=True) == ("quarter", True)
-
-    def test_a_function_taking_nothing_is_called_bare(self):
-        assert E._call_with_supported_kwargs(lambda: "ok", period="quarter") == "ok"
 
 
 class TestCrosscheckYears:

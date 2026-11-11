@@ -353,7 +353,8 @@ def test_central_dating_live_in_show_and_doctor(tmp_path, monkeypatch):
     va.write("USD_CENTRAL", [va._row(d, v, "mbk") for d, v in lagged.items()], today=TODAY, fetched_at=T)
     assert "LÙI 1 phiên · giả thuyết lệch -1" in va.show(today=TODAY)
     r = doc.check_assets(NOW)
-    assert "tỷ giá trung tâm lệch ngày" in r["message"] and "--steps mbk" in r["fix"]
+    assert "tỷ giá trung tâm lệch ngày" in r["message"]
+    assert "thế hệ 6 không có nguồn tỷ giá trung tâm" in r["fix"]       # không còn lệnh nạp lại
     _, ok = ruler_case(0)
     va.write("USD_CENTRAL", [va._row(d, v, "mbk") for d, v in ok.items()], today=TODAY, fetched_at=T)
     assert va.central_dating()["verdict"] == "mbk ĐÚNG ngày"

@@ -159,20 +159,20 @@ _VNMID_LITE_FALLBACK: list[str] = ["GMD", "PNJ", "NLG", "HSG", "VHC", "DGC", "VI
 def _fetch_group_live(group: str) -> list[str]:
     """Fetch current index group composition from vnstock API.
 
-    Returns empty list on any error (caller should use fallback).
+    Thế hệ 6: mặt tiền `listing.symbols_by_group` → `Reference().index(g).members()`,
+    trả **pd.Series** mã (không có `.columns`) — bóc bằng `vnstock_vn30.extract_symbols`.
+    Returns empty list on a vnstock error or a thin answer (caller should use fallback).
     """
+    from vnstock.errors import VnstockError
+    from vnstock_auth import get_vnstock
+    from vnstock_vn30 import extract_symbols
     try:
-        from vnstock_auth import get_vnstock
-        df = get_vnstock("VCB", "VCI").listing.symbols_by_group(group)
-        if df is not None and not df.empty:
-            col = next((c for c in ("ticker", "symbol", "code") if c in df.columns), None)
-            if col:
-                tickers = [str(v).strip().upper() for v in df[col] if v]
-                if len(tickers) >= 10:
-                    return tickers
-    except Exception:
-        pass
-    return []
+        raw = get_vnstock("VCB").listing.symbols_by_group(group)
+    except VnstockError as e:
+        print(f"[universe] {group}: {getattr(e, 'code', None) or type(e).__name__} — dùng danh sách dự phòng")
+        return []
+    tickers = [s.upper() for s in (extract_symbols(raw) or [])]
+    return tickers if len(tickers) >= 10 else []
 
 
 def _avg_volume_30d(ticker: str) -> float:
@@ -288,7 +288,7 @@ def _training_universe(lite: bool = False) -> list[str]:
     """Build a dynamic stratified training universe.
 
     Sources (evaluated at call time, not at import time):
-      1. Live vnstock API → symbols_by_group('VN30' / 'VNMID')
+      1. Live vnstock API → symbols_by_group('VN30' / 'VNMID') (Reference().index(g).members())
       2. Hardcoded fallbacks (_VNMID_FALLBACK, vnstock_brief.VN30_TICKERS)
 
     Selection logic:

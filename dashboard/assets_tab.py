@@ -355,7 +355,7 @@ def _render_usd(va, av, start) -> None:
             ("Ước tính trong ngày", est_s, _C(2), "dot")], height=240)
     cv = va.central_dating()
     if cv.get("n"):
-        st.caption(f"Ngày tỷ giá trung tâm (kho, nguồn vnstock_data mbk đã dời 1 ngày lịch) so giá "
+        st.caption(f"Ngày tỷ giá trung tâm (kho đã lưu từ mbk dòng cũ, dời 1 ngày lịch — thế hệ 6 không còn nguồn này) so giá "
                    f"tham khảo NHNN {cv['n']} phiên: {cv['verdict']}. Giá tham khảo NHNN (SSI \"SBVN\") "
                    "KHÔNG phải tỷ giá trung tâm — ~70% phiên bằng trung tâm phiên trước.")
 

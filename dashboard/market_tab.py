@@ -827,9 +827,9 @@ def render_market_tab() -> None:
                                mime="text/csv", key="mkt_export_csv")
 
             if not has_foreign:
-                _nn_src = " — cần vnstock API `Trading.foreign_trade()`" if _ui.diag_on() else ""
+                _nn_src = " — cần `Market().equity.screener` (NN ròng theo mã, vnstock thế hệ 6)" if _ui.diag_on() else ""
                 st.caption(f"⚠️ Dữ liệu dòng ngoại (NN) chưa có{_nn_src}. "
-                           "Vốn hoá là ước tính từ giá × cổ phiếu lưu hành. Freefloat từ dữ liệu cổ đông lớn (KBS).")
+                           "Vốn hoá là ước tính từ giá × cổ phiếu lưu hành. Freefloat từ dữ liệu niêm yết/cổ đông lớn (vnstock).")
 
         # ── Drill-down: chi tiết công ty theo ngành ───────────────────────────
         if _selected_nganh != "Tổng quan theo ngành":

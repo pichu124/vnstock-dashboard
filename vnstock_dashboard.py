@@ -33,7 +33,7 @@ if not log.handlers:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-from vnstock_auth import ensure_api_key, get_api_key
+from vnstock_auth import ensure_api_key, get_api_key, keep_schema_warnings
 from vnstock_parquet_io import write_json_atomic
 
 import numpy as np
@@ -99,6 +99,7 @@ def _is_stock(s: str) -> bool:
     return not (_CW_VN.match(s) or _CW_OLD.match(s) or is_futures(s))
 
 warnings.filterwarnings("ignore")
+keep_schema_warnings()  # SchemaChangeWarning của vnstock thế hệ 6 phải vẫn hiện
 
 st.set_page_config(
     page_title="VnStock Dashboard",
@@ -161,7 +162,7 @@ def _load_industry_map() -> dict:
 _NN_CACHE_PATH = Path("data_warehouse/_meta/nn_flow_cache.json")
 _NN_CACHE_MAX_AGE = 600  # 10 phút — NN data không thay đổi liên tục
 
-# Diagnostic info about foreign_buy/sell API calls (for NN Mua = 0 debugging).
+# Trạng thái lượt tải NN ròng gần nhất (chế độ chẩn đoán tab Dòng tiền).
 # Uses module-level dict because function attributes don't survive Streamlit
 # @st.cache_data wrappers.
 _NN_DIAG: dict = {}
@@ -179,11 +180,6 @@ def _load_nn_from_disk() -> pd.DataFrame:
         df = pd.DataFrame(data)
         if not df.empty:
             df["date"] = pd.to_datetime(df["date"])
-            # Older caches may miss buy_value / sell_value — default to 0 so
-            # downstream aggregations don't crash on KeyError.
-            for col in ("buy_value", "sell_value"):
-                if col not in df.columns:
-                    df[col] = 0.0
         return df
     except (OSError, json.JSONDecodeError, ValueError) as e:
         log.warning("NN flow cache corrupt: %s", e)
@@ -205,18 +201,20 @@ def _save_nn_to_disk(df: pd.DataFrame):
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.DataFrame:
+def _fetch_foreign_net_flow(trading_days: int = 20) -> pd.DataFrame:
     """
-    Fetch NN ròng per stock per day qua TopStock().foreign_buy/sell.
+    NN ròng TỪNG MÃ theo ngày: mỗi ngày làm việc MỘT lượt
+    `vnstock_foreign_flow.foreign_net_for_date` (screener thế hệ 6, cả thị trường).
 
     Cache strategy (3 tầng):
       1. Disk: data_warehouse/_meta/nn_flow_cache.json (persist 10 phút)
          → load tức thì khi restart Streamlit hoặc refresh browser
       2. Streamlit: @st.cache_data(ttl=600) — 10 phút in-memory
          → load tức thì khi chuyển tab / đổi filter
-      3. API: gọi TopStock mỗi 10 phút (~40 calls ≈ 20 giây)
+      3. API: `trading_days` lượt screener mỗi 10 phút
 
-    Return DataFrame [symbol, date, net_value (VND)].
+    Return DataFrame [symbol, date, net_value (VND)]. Thế hệ 6 chỉ có RÒNG theo mã —
+    không có cột mua/bán tách riêng (`_aggregate_nn_buy_sell_by_window` trả {}).
     """
     # Tầng 1: thử disk cache trước
     cached = _load_nn_from_disk()
@@ -227,18 +225,21 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
     # Tầng 3: fetch từ API
     from datetime import date as _d, timedelta as _td
 
+    empty = pd.DataFrame(columns=["symbol", "date", "net_value"])
     try:
-        from vnstock_data import TopStock
-    except ImportError:
-        log.warning("vnstock_data not installed — NN flow unavailable")
-        return pd.DataFrame(columns=["symbol", "date", "net_value"])
+        from vnstock.errors import NetworkError, VnstockError
+        from vnstock_foreign_flow import foreign_net_for_date
+        from vnstock_ratelimit import call_with_rate_limit_retry
+    except ImportError as e:
+        log.warning("NN flow unavailable — %s", e)
+        return empty
 
-    ts = TopStock()
-    all_rows = []
+    frames = []
     errors = []
     today = _d.today()
     days_fetched = 0
     calendar_day = 0
+    stopped_early = False      # dừng giữa chừng ⇒ không cache (cửa sổ 20D không được là 2 phiên)
 
     while days_fetched < trading_days and calendar_day < trading_days * 2:
         dt = today - _td(days=calendar_day)
@@ -249,105 +250,46 @@ def _fetch_foreign_net_flow(trading_days: int = 20, limit: int = 100) -> pd.Data
             continue
 
         dt_str = dt.strftime("%Y-%m-%d")
-        day_rows: dict[str, dict] = {}
-        # Use explicit labels — `fetch_fn is ts.foreign_buy` doesn't work
-        # because bound methods are created fresh on each attribute access,
-        # so `fn_at_tuple_time is fn_at_compare_time` is always False.
-        for _side, fetch_fn in (("buy", ts.foreign_buy), ("sell", ts.foreign_sell)):
-            is_buy_endpoint = (_side == "buy")
-            try:
-                df = fetch_fn(date=dt_str, limit=limit)
-                # Capture state on first attempt
-                if days_fetched == 0 and f"{_side}_state" not in _NN_DIAG:
-                    _NN_DIAG[f"{_side}_state"] = (
-                        "empty" if (df is None or df.empty)
-                        else f"ok ({len(df)} rows)"
-                    )
-                if df is not None and not df.empty:
-                    if days_fetched == 0 and f"{_side}_cols" not in _NN_DIAG:
-                        sample_row = dict(df.iloc[0]) if len(df) > 0 else {}
-                        sample_row = {k: str(v)[:50] for k, v in sample_row.items()}
-                        _NN_DIAG[f"{_side}_cols"] = list(df.columns)
-                        _NN_DIAG[f"{_side}_sample"] = sample_row
-                        _NN_DIAG[f"{_side}_rows"] = len(df)
-                        log.info("TopStock %s cols: %s",
-                                 f"foreign_{_side}", list(df.columns))
-                    for _, row in df.iterrows():
-                        sym = str(row.get("symbol", ""))
-                        if not sym:
-                            continue
-                        # Extract the largest absolute numeric value from
-                        # the row (excluding symbol/date columns). This is
-                        # more robust than guessing column names, which vary
-                        # across vnstock/vnstock_data versions.
-                        val = 0.0
-                        for k in ("buy_value", "sell_value", "net_value",
-                                  "value", "total_value", "netvalue",
-                                  "buyvalue", "sellvalue"):
-                            v = row.get(k)
-                            if v is not None:
-                                try:
-                                    fv = abs(float(v))
-                                    if fv > val:
-                                        val = fv
-                                except (TypeError, ValueError):
-                                    pass
-                        # Fallback: pick largest numeric column value
-                        if val == 0:
-                            for k, v in row.items():
-                                if k == "symbol" or "date" in str(k).lower():
-                                    continue
-                                try:
-                                    fv = abs(float(v))
-                                    if fv > val:
-                                        val = fv
-                                except (TypeError, ValueError):
-                                    pass
-                        entry = day_rows.setdefault(
-                            sym, {"buy_value": 0.0, "sell_value": 0.0, "net_value": 0.0}
-                        )
-                        if is_buy_endpoint:
-                            entry["buy_value"] = max(entry["buy_value"], val)
-                        else:
-                            entry["sell_value"] = max(entry["sell_value"], val)
-            except Exception as e:
-                if f"{_side}_state" not in _NN_DIAG:
-                    _NN_DIAG[f"{_side}_state"] = f"exception: {type(e).__name__}: {str(e)[:150]}"
-                errors.append(f"{fetch_fn.__name__}({dt_str}): {e}")
-                continue
-
-        for sym, ent in day_rows.items():
-            # Always compute net from buy - sell (more reliable than
-            # trusting the API's net_value which gets overwritten by
-            # whichever endpoint runs last).
-            ent["net_value"] = ent["buy_value"] - ent["sell_value"]
-            all_rows.append({
-                "symbol": sym,
-                "date": dt_str,
-                "buy_value": ent["buy_value"],
-                "sell_value": ent["sell_value"],
-                "net_value": ent["net_value"],
-            })
-
+        try:
+            # ~30 trang screener/ngày: chạm hạn mức là chuyện thường ⇒ chờ theo retry_after,
+            # MỘT lượt (trang UI không được treo nhiều phút dưới spinner).
+            df = call_with_rate_limit_retry(foreign_net_for_date, dt_str, retries=1)
+        except NetworkError as e:  # mạng chập chờn — ngày sau có thể được
+            errors.append(f"{dt_str}: {type(e).__name__}: {e}")
+            stopped_early = True   # cửa sổ thủng một phiên ⇒ không cache
+            days_fetched += 1
+            continue
+        except RuntimeError as e:  # hạn mức không hạ sau lượt chờ (vnstock_ratelimit) ⇒ dừng
+            _NN_DIAG["state"] = f"{dt_str}: rate limit: {str(e)[:150]}"
+            errors.append(_NN_DIAG["state"])
+            stopped_early = True
+            break
+        except VnstockError as e:  # nguồn/khoá/quyền/hạn mức: gọi tiếp chỉ lặp lỗi ⇒ dừng
+            _NN_DIAG["state"] = f"{dt_str}: {type(e).__name__}: {str(e)[:150]}"
+            errors.append(_NN_DIAG["state"])
+            stopped_early = True
+            break
+        if days_fetched == 0:
+            _NN_DIAG["state"] = f"ok ({len(df)} mã, {dt_str})"
+        df = df.dropna(subset=["foreign_net_value"])
+        if not df.empty:
+            frames.append(pd.DataFrame({"symbol": df["symbol"], "date": dt_str,
+                                        "net_value": df["foreign_net_value"]}))
         days_fetched += 1
 
     if errors:
         log.warning("NN flow fetch errors (%d): %s", len(errors), errors[:3])
 
-    if not all_rows:
+    if not frames:
         log.warning("NN flow: 0 records fetched from API (days=%d)", trading_days)
-        return pd.DataFrame(columns=["symbol", "date", "net_value"])
+        return empty
 
-    result = pd.DataFrame(all_rows)
+    result = pd.concat(frames, ignore_index=True)
     result["date"] = pd.to_datetime(result["date"])
-    for col in ("buy_value", "sell_value", "net_value"):
-        if col in result.columns:
-            result[col] = pd.to_numeric(result[col], errors="coerce").fillna(0)
-        else:
-            result[col] = 0.0
+    result["net_value"] = pd.to_numeric(result["net_value"], errors="coerce").fillna(0)
 
-    # Persist to disk for fast reload — chỉ save nếu có data thật
-    if len(result) > 5:
+    # Persist to disk for fast reload — chỉ save nếu có data thật VÀ đủ số phiên đã hỏi
+    if len(result) > 5 and not stopped_early:
         _save_nn_to_disk(result)
         log.info("NN flow: saved %d records to disk cache", len(result))
     return result
@@ -481,12 +423,16 @@ def _compute_gtgd_by_window(window_days: int) -> dict:
 
 _ORDER_CACHE_PATH = Path("data_warehouse/_meta/order_stats_cache.json")
 _ORDER_CACHE_MAX_AGE = 1800  # 30 phút
+# Cửa sổ `trade_history` (ngày lịch ≈ 20 phiên): phiên cuối so với TB các phiên trước.
+_ORDER_STATS_LOOKBACK_DAYS = 30
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def _fetch_order_stats_batch(tickers: tuple) -> dict:
     """
-    Fetch order_stats() cho danh sách tickers (top GTGD).
+    Thống kê lệnh đặt từng phiên (`Market().equity(t).trade_history(start, end)`, thế hệ 6 —
+    thay `Trading.order_stats()`; cột hồ sơ v5 giữ tên cũ `total_buy_trade[_volume]`,
+    `total_sell_trade[_volume]`, `trading_date`) cho danh sách tickers (top GTGD).
     Return {ticker: {"big_order_score": float, "buy_sell_ratio": float}}.
     Disk cache 30 phút, Streamlit cache 30 phút.
     """
@@ -507,17 +453,27 @@ def _fetch_order_stats_batch(tickers: tuple) -> dict:
         return hits
 
     try:
-        from vnstock_data import Trading
+        from vnstock import Market
+        from vnstock.errors import NetworkError, VnstockError
     except ImportError:
         return hits
 
+    ensure_api_key()
+    end = datetime.now().date()
+    start = (end - pd.Timedelta(days=_ORDER_STATS_LOOKBACK_DAYS)).isoformat()
+    market = Market()
     result = {}
     for tk in missing:
         try:
-            t = Trading(symbol=tk)
-
-            # order_stats: avg order size trend
-            os_df = t.order_stats()
+            # thống kê lệnh đặt từng phiên: avg order size trend
+            os_df = market.equity(tk).trade_history(start=start, end=end.isoformat())
+        except NetworkError as e:  # mạng chập chờn — mã sau có thể được
+            log.warning("Order stats %s: %s", tk, str(e)[:120])
+            continue
+        except VnstockError as e:  # nguồn/khoá/quyền/hạn mức: mã nào cũng y hệt ⇒ dừng
+            log.warning("Order stats dừng ở %s: %s: %s", tk, type(e).__name__, str(e)[:120])
+            break
+        try:
             if os_df is not None and not os_df.empty and len(os_df) >= 5:
                 os_df = os_df.sort_values("trading_date").reset_index(drop=True)
                 buy_vol = pd.to_numeric(os_df["total_buy_trade_volume"], errors="coerce").fillna(0)
@@ -549,7 +505,8 @@ def _fetch_order_stats_batch(tickers: tuple) -> dict:
                     "avg_order_today": round(today_size, 0),
                     "avg_order_hist": round(hist_size, 0),
                 }
-        except Exception:
+        except (KeyError, TypeError, ValueError) as e:  # bảng thiếu cột — mã đó hiện "—"
+            log.warning("Order stats %s: %s: %s", tk, type(e).__name__, str(e)[:120])
             continue
 
     # Save to disk (gộp với cache còn hạn)
@@ -601,7 +558,7 @@ def _batch_load_live_quotes(tickers: list) -> dict:
 
             # Buy/Sell ratio
             buy_ratio = 0.5
-            # Method 1: volume_profile (from price_depth)
+            # Method 1: volume_profile (lệnh đã khớp theo giá) nếu quote có
             vp = q.get("volume_profile", [])
             if vp:
                 tb = sum(float(lv.get("buy_vol", 0) or 0) for lv in vp)
@@ -1091,58 +1048,40 @@ def list_live_futures() -> list[str]:
 @st.cache_data(ttl=10, show_spinner=False)
 def fetch_volume_profile_direct(ticker: str) -> list:
     """
-    Fetch Volume Profile trực tiếp từ Quote.price_depth() — on-demand.
-    Cache 10 giây để tránh spam API khi user refresh liên tục.
-    Dùng cho stocks (thay vì WSS cycle). Futures vẫn dùng WSS.
+    Volume Profile (KL khớp theo giá, tách mua/bán chủ động) on-demand:
+    `Market().equity(t).volume_profile()` (thế hệ 6, cột hồ sơ v5 `price, buy_volume,
+    sell_volume, unknown_volume, total_volume`) → khoá `buy_vol/sell_vol/unknown_vol/total_vol`
+    mà phần vẽ đọc. Cache 10 giây để tránh spam API khi user refresh liên tục.
+    Dùng cho stocks; thế hệ 6 không có volume profile cho HĐTL.
     """
     try:
-        from vnstock_data import Quote
-        q = Quote(symbol=ticker)
-        df = None
-        for call in (
-            lambda: q.price_depth(),
-            lambda: q.price_depth(limit=50),
-        ):
-            try:
-                df = call()
-                if df is not None and hasattr(df, "empty") and not df.empty:
-                    break
-            except TypeError:
-                continue
-            except Exception:
-                continue
-
-        if df is None or not hasattr(df, "empty") or df.empty:
-            return []
-
-        df = df.copy()
-        df.columns = [str(c).lower() for c in df.columns]
-        if "price" not in df.columns or "totalvol" not in df.columns:
-            return []
-
-        profile = []
-        for _, row in df.iterrows():
-            try:
-                profile.append({
-                    "price": float(row["price"]),
-                    "buy_vol": float(row.get("buyvol", 0) or 0),
-                    "sell_vol": float(row.get("sellvol", 0) or 0),
-                    "unknown_vol": float(row.get("unknownvol", 0) or 0),
-                    "total_vol": float(row.get("totalvol", 0) or 0),
-                })
-            except Exception:
-                continue
-
-        if not profile:
-            return []
-
-        # Top 20 theo total_vol, sort theo price giảm dần
-        profile.sort(key=lambda r: r["total_vol"], reverse=True)
-        top = profile[:20]
-        top.sort(key=lambda r: r["price"], reverse=True)
-        return top
-    except Exception:
+        from vnstock import Market
+        ensure_api_key()
+        df = Market().equity(ticker).volume_profile()
+    except Exception as e:  # VnstockError (nguồn/khoá/mạng) — khung VP ẩn, tab vẫn chạy
+        log.warning("Volume profile %s: %s: %s", ticker, type(e).__name__, str(e)[:120])
         return []
+    if df is None or df.empty or not {"price", "total_volume"} <= set(df.columns):
+        return []
+
+    profile = []
+    for _, row in df.iterrows():
+        try:
+            profile.append({
+                "price": float(row["price"]),
+                "buy_vol": float(row.get("buy_volume", 0) or 0),
+                "sell_vol": float(row.get("sell_volume", 0) or 0),
+                "unknown_vol": float(row.get("unknown_volume", 0) or 0),
+                "total_vol": float(row.get("total_volume", 0) or 0),
+            })
+        except (TypeError, ValueError):
+            continue
+
+    # Top 20 theo total_vol, sort theo price giảm dần
+    profile.sort(key=lambda r: r["total_vol"], reverse=True)
+    top = profile[:20]
+    top.sort(key=lambda r: r["price"], reverse=True)
+    return top
 
 
 # Lõi tính Value Area/POC đã tách sang dashboard/volume_profile.py (12/08)
@@ -1548,24 +1487,15 @@ def list_available_bar_dates() -> list[str]:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_intraday(ticker: str, interval: str = "15m") -> pd.DataFrame:
-    """Fetch intraday OHLCV từ VCI. interval: '1m','5m','15m','30m','1H'"""
+    """Intraday OHLCV qua mặt tiền `get_vnstock(t).quote.history` (thế hệ 6, giờ VN không múi).
+    interval: '1m','5m','15m','30m','1H'"""
     try:
         from datetime import date as _d, timedelta as _td
         lookback = {"1m":5,"5m":30,"15m":60,"30m":60,"1H":90}.get(interval, 10)
         end   = _d.today().strftime("%Y-%m-%d")
         start = (_d.today() - _td(days=lookback)).strftime("%Y-%m-%d")
-        # Use vnstock 4.x Quote API (vnstock.explorer path removed in 4.x)
-        try:
-            from vnstock_auth import get_vnstock
-            df = get_vnstock(ticker).quote.history(
-                start=start, end=end, interval=interval)
-        except Exception:
-            try:
-                from vnstock.explorer.vci.quote import Quote as _VCIQuote
-                _q = _VCIQuote(symbol=ticker, show_log=False)
-                df = _q.history(start=start, end=end, interval=interval)
-            except Exception:
-                df = None
+        from vnstock_auth import get_vnstock
+        df = get_vnstock(ticker).quote.history(start=start, end=end, interval=interval)
         if df is None or df.empty:
             return pd.DataFrame()
         needed = ["time","open","high","low","close","volume"]
@@ -1615,7 +1545,18 @@ def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 
 _FUND_CACHE_DIR = Path("data_warehouse/_meta/fund_cache")
-_FUND_CACHE_VER = 4
+_FUND_CACHE_VER = 6   # 5: thế hệ 6 (listing + ratio theo tên cột); 6: bỏ ROA/biên ×100 nhầm của bản 5
+
+# `Fundamental().equity(t).ratio()` thế hệ 6 (hồ sơ v5) → khoá tab Phân tích đọc.
+_RATIO_GEN6_KEYS = {
+    "pe": "pe", "pb": "pb", "eps": "eps", "book_value": "book_value_per_share",
+    "market_cap": "market_cap", "dividend_yield": "dividend_yield",
+    "roe": "roe", "roa": "roa", "gross_margin": "gross_margin",
+    "operating_margin": "ebit_margin", "net_margin": "net_margin",
+    "debt_ratio": "debt_to_assets", "debt_to_equity": "liabilities_to_equity",
+    "current_ratio": "current_ratio", "quick_ratio": "quick_ratio",
+    "asset_turnover": "asset_turnover",
+}
 
 
 def _get_warehouse_last_close(ticker: str) -> float | None:
@@ -1630,9 +1571,10 @@ def _get_warehouse_last_close(ticker: str) -> float | None:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_fundamental(ticker: str) -> dict:
-    """Load comprehensive fundamental data from vnstock.
-    Fetches company.overview() + finance.ratio() for maximum coverage.
-    Disk-cached per ticker (24h), Streamlit-cached (1h).
+    """Dữ liệu cơ bản (vnstock thế hệ 6): `Reference().company(t).listing()` (số cổ phiếu) +
+    `Fundamental().equity(t).ratio(period="year")` (định giá, sinh lời, đòn bẩy).
+    Trường thế hệ 6 không có (tăng trưởng DT/LN, KL khớp TB 10 phiên) không có khoá ⇒ tab
+    không hiện dòng đó. Disk-cached per ticker (24h), Streamlit-cached (1h).
     """
     # Disk cache: 24 giờ — fundamental data thay đổi chậm
     _fpath = _FUND_CACHE_DIR / f"{ticker.upper()}.json"
@@ -1649,256 +1591,58 @@ def load_fundamental(ticker: str) -> dict:
     result = {}
     failed = []  # khối lỗi ⇒ kết quả thiếu, KHÔNG khoá 24h vào cache đĩa
     try:
+        from vnstock import Fundamental, Reference
         from vnstock_auth import ensure_api_key
         ensure_api_key()
 
-        # Ưu tiên vnstock_data sponsor (ổn định, không KeyError: 'data')
-        _stock = None
-        _use_sponsor = False
-        try:
-            from vnstock_data import Company as _Company, Finance as _Finance
-            _company = _Company(symbol=ticker)
-            # Finance cần source param
+        def _num(v):
             try:
-                _finance = _Finance(symbol=ticker, source="VCI")
-            except TypeError:
-                _finance = _Finance(symbol=ticker)
-            _use_sponsor = True
-        except Exception:
-            try:
-                from vnstock_auth import get_vnstock
-                _stock = get_vnstock(ticker)
-            except Exception:
-                pass
+                f = float(v)
+            except (TypeError, ValueError):
+                return None
+            return None if pd.isna(f) else f
 
-        # ── 1. Company Overview — market cap, shares, EPS, P/E, etc. ─────
+        # ── 1. Niêm yết — số cổ phiếu. Thế hệ 6: `company(t).info()` chỉ còn tên/ngành/giới thiệu
+        #       (mất vốn hoá, KLCP, P/E… của `overview()` cũ) ⇒ số cổ phiếu lấy từ `listing()`.
         try:
-            overview = _company.overview() if _use_sponsor else _stock.company.overview()
-            if overview is not None and not overview.empty:
-                row = overview.iloc[0] if len(overview) > 0 else None
-                if row is not None:
-                    def _ov(df_row, *keys):
-                        # Strip parens content (e.g. "EPS (VND)" → "eps") so
-                        # short keys still match exactly. Also drop common
-                        # punctuation that varies across sources.
-                        import re as _re
-                        def _norm(s: str) -> str:
-                            s = str(s).lower()
-                            s = _re.sub(r"\([^)]*\)", "", s)
-                            for ch in (" ", "_", "/", "-", ".", "%", ",", "(", ")"):
-                                s = s.replace(ch, "")
-                            return s
-                        col_cache = [(_c, _norm(str(_c))) for _c in overview.columns]
-
-                        def _try(col_name):
-                            try:
-                                v = df_row[col_name]
-                                if v is not None and not pd.isna(v):
-                                    return float(v)
-                            except Exception:
-                                pass
-                            return None
-
-                        # Pass 1: exact match
-                        for k in keys:
-                            kl = _norm(k)
-                            for col, cl in col_cache:
-                                if cl == kl:
-                                    v = _try(col)
-                                    if v is not None:
-                                        return v
-                        # Pass 2: prefix/suffix match
-                        for k in keys:
-                            kl = _norm(k)
-                            for col, cl in col_cache:
-                                if cl.startswith(kl) or cl.endswith(kl):
-                                    v = _try(col)
-                                    if v is not None:
-                                        return v
-                        # Pass 3: substring (only keys >= 5 chars to avoid false positives)
-                        for k in keys:
-                            kl = _norm(k)
-                            if len(kl) < 5:
-                                continue
-                            for col, cl in col_cache:
-                                if kl in cl:
-                                    v = _try(col)
-                                    if v is not None:
-                                        return v
-                        return None
-
-                    result["market_cap"] = _ov(row, "vonhoathitruong", "marketcap", "market_cap")
-                    result["shares_outstanding"] = _ov(row, "klcpluuhanh", "sharesoutstanding", "outstanding")
-                    result["shares_listed"] = _ov(row, "klcpniemyet", "shareslisted", "issueshare")
-                    result["avg_vol_10"] = _ov(row, "khoplenh10phien", "avgvolume", "avg_vol", "averagevolume")
-                    result["pe"] = _ov(row, "pe", "pricetoearning")
-                    result["pb"] = _ov(row, "pb", "pricetobook")
-                    result["eps"] = _ov(row, "eps", "earningpershare")
-                    result["book_value"] = _ov(row, "giatrisosach", "bookvalue", "bvps")
-                    result["dividend_yield"] = _ov(row, "tysuatcotuc", "dividendyield")
-
-                    # Sanity checks — reject obviously wrong values
-                    if result.get("pe") is not None and abs(result["pe"]) > 500:
-                        result["pe"] = None
-                    if result.get("pb") is not None and abs(result["pb"]) > 100:
-                        result["pb"] = None
-                    if result.get("eps") is not None and abs(result["eps"]) > 1e6:
-                        result["eps"] = None
-
-                    result["_overview_cols"] = [str(c) for c in overview.columns[:30]]
+            listing = Reference().company(ticker).listing()
+            if listing is not None and not listing.empty:
+                row = listing.iloc[0]
+                result["shares_outstanding"] = _num(row.get("outstanding_shares"))
+                result["shares_listed"] = _num(row.get("listed_shares"))
+                result["_overview_cols"] = [str(c) for c in listing.columns[:30]]
         except Exception as e:
-            failed.append("overview")
-            log.warning("load_fundamental %s: khối overview lỗi: %s", ticker, e)
+            failed.append("listing")
+            log.warning("load_fundamental %s: khối listing lỗi: %s", ticker, e)
 
-        # ── 2. Finance Ratios — ROE, ROA, margins, growth, etc. ──────────
+        # ── 2. Chỉ số tài chính năm — `Fundamental().equity(t).ratio(period="year")` ────────
         try:
-            ratios = None
-            _ratio_errs = []
-            _ratio_kws = [
-                {"period": "year", "lang": "vi"},
-                {"period": "year", "lang": "en"},
-                {"period": "year"},
-                {"period": "annual"},
-                {"period": "quarter", "lang": "vi"},
-            ]
-            for _kw in _ratio_kws:
-                try:
-                    if _use_sponsor:
-                        ratios = _finance.ratio(**_kw)
-                    else:
-                        ratios = _stock.finance.ratio(**_kw)
-                    if ratios is not None and not ratios.empty:
-                        break
-                except Exception as e:
-                    _ratio_errs.append(e)
-                    continue
-            if len(_ratio_errs) == len(_ratio_kws):  # mọi kiểu gọi đều ném ≠ mã không có data
-                raise _ratio_errs[-1]
-
+            ratios = Fundamental().equity(ticker).ratio(period="year")
             if ratios is not None and not ratios.empty:
-                # Flatten MultiIndex columns to strings for reliable matching.
-                # VCI returns tuples like ("Định giá", "P/E") — flatten to
-                # "Định giá_P/E" so _norm matching works consistently.
-                if isinstance(ratios.columns, pd.MultiIndex):
-                    ratios.columns = [
-                        "_".join(str(c) for c in col if str(c) not in ("", "nan")).strip("_")
-                        for col in ratios.columns
-                    ]
-                else:
-                    ratios.columns = [
-                        "_".join(str(c) for c in col).strip("_") if isinstance(col, tuple)
-                        else str(col)
-                        for col in ratios.columns
-                    ]
+                # Năm mới nhất trước (không dựa vào thứ tự dòng của nguồn); ô trống ở năm
+                # mới nhất lấy năm liền trước, tối đa 3 năm.
+                order = [c for c in ("year", "quarter") if c in ratios.columns]
+                if order:
+                    ratios = ratios.sort_values(order, ascending=False, na_position="last")
+                rows = [ratios.iloc[i] for i in range(min(3, len(ratios)))]
+                for key, col in _RATIO_GEN6_KEYS.items():
+                    if col in ratios.columns:
+                        result[key] = next((v for v in (_num(r[col]) for r in rows)
+                                            if v is not None), None)
 
-                # Try up to 3 most-recent rows (iloc[0] may have NaN for
-                # some fields — e.g. partial-year data).
-                _ratio_rows = [ratios.iloc[i] for i in range(min(3, len(ratios)))]
-                skip = ("year", "năm", "period", "quarter", "quý",
-                        "index", "ticker", "symbol", "len")
+                # Sanity checks — reject obviously wrong values
+                if result.get("pe") is not None and abs(result["pe"]) > 500:
+                    result["pe"] = None
+                if result.get("pb") is not None and abs(result["pb"]) > 100:
+                    result["pb"] = None
+                if result.get("eps") is not None and abs(result["eps"]) > 1e6:
+                    result["eps"] = None
 
-                def _rv(*keys):
-                    import re as _re
-                    def _norm(s: str) -> str:
-                        s = str(s).lower()
-                        s = _re.sub(r"\([^)]*\)", "", s)
-                        for ch in (" ", "_", "/", "-", ".", "%", ",", "(", ")"):
-                            s = s.replace(ch, "")
-                        return s
-                    col_cache = []
-                    for col in ratios.columns:
-                        cc = _norm(str(col))
-                        if any(sp in cc for sp in skip):
-                            continue
-                        col_cache.append((col, cc))
-
-                    def _try_rv(col_name):
-                        for rrow in _ratio_rows:
-                            try:
-                                v = rrow[col_name]
-                                if v is not None and not pd.isna(v):
-                                    fv = float(v)
-                                    if abs(fv) > 1e9:
-                                        continue
-                                    return fv
-                            except Exception:
-                                continue
-                        return None
-
-                    # Pass 1: exact match
-                    for k in keys:
-                        kl = _norm(k)
-                        for col, cc in col_cache:
-                            if cc == kl:
-                                v = _try_rv(col)
-                                if v is not None:
-                                    return v
-                    # Pass 2: prefix/suffix
-                    for k in keys:
-                        kl = _norm(k)
-                        for col, cc in col_cache:
-                            if cc.startswith(kl) or cc.endswith(kl):
-                                v = _try_rv(col)
-                                if v is not None:
-                                    return v
-                    # Pass 3: substring (long keys only)
-                    for k in keys:
-                        kl = _norm(k)
-                        if len(kl) < 5:
-                            continue
-                        for col, cc in col_cache:
-                            if kl in cc:
-                                v = _try_rv(col)
-                                if v is not None:
-                                    return v
-                    return None
-
-                # Only fill if overview didn't provide.
-                # Keys include actual VCI Vietnamese column names after _norm:
-                #   'Biên LN gộp (%)' → "biênlngộp"
-                #   'Biên LN sau thuế (%)' → "biênlnsauthuế"
-                #   'Biên EBIT (%)' → "biênebit"
-                #   'Nợ/Vốn chủ' → "nợvốnchủ"
-                #   'Tỷ suất cổ tức (%)' → "tỷsuấtcổtức"
-                if result.get("pe") is None:
-                    result["pe"] = _rv("pe", "pricetoearning")
-                if result.get("pb") is None:
-                    result["pb"] = _rv("pb", "pricetobook")
-                if result.get("eps") is None:
-                    result["eps"] = _rv("eps", "earningpershare")
-                if result.get("book_value") is None:
-                    result["book_value"] = _rv("bvps", "bookvaluepershare", "giátrịsổsách")
-                if result.get("market_cap") is None:
-                    _rmcap = _rv("vốnhóa")
-                    if _rmcap and _rmcap > 0:
-                        result["market_cap"] = _rmcap
-                if result.get("dividend_yield") is None:
-                    result["dividend_yield"] = _rv("tỷsuấtcổtức", "dividendyield")
-                result["roe"] = _rv("roe", "returnonequity")
-                result["roa"] = _rv("roa", "returnonasset")
-                result["net_margin"] = _rv("biênlnsauthuế", "biênlãithuần", "biênlợinhuậnròng",
-                                            "netmargin", "netprofitmargin")
-                result["gross_margin"] = _rv("biênlngộp", "biênlợinhuậngộp",
-                                              "grossmargin", "grossprofitmargin")
-                result["operating_margin"] = _rv("biênebit", "biênlợinhuậnhoạtđộng",
-                                                  "operatingmargin", "ebitmargin")
-                result["debt_ratio"] = _rv("nợtổngtàisản", "debttoasset", "debtratio")
-                result["debt_to_equity"] = _rv("nợvốnchủ", "nợtrênvốnchủ",
-                                                "debttoequity", "đònbẩytàichính")
-                result["current_ratio"] = _rv("thanhtoánhiệnhành", "currentratio")
-                result["quick_ratio"] = _rv("thanhtoánnhanh", "quickratio", "acidtest")
-                result["asset_turnover"] = _rv("vòngquaytàisản", "assetturnover", "totalassetturnover")
-                result["revenue_growth"] = _rv("tăngtrưởngdoanhthu", "revenuegrowth")
-                result["profit_growth"] = _rv("tăngtrưởnglợinhuận", "profitgrowth", "netincomegrowth")
-
-                # Convert ratio to percentage
-                for key in ("roe", "roa", "net_margin", "gross_margin", "operating_margin",
-                             "dividend_yield", "revenue_growth", "profit_growth"):
-                    if result.get(key) is not None and abs(result[key]) <= 2:
-                        result[key] = round(result[key] * 100, 2)
+                # ROE/ROA/biên/tỷ suất cổ tức: `ratio()` thế hệ 6 ĐÃ là điểm phần trăm (hợp đồng
+                # nguồn `roe * 100`, cả hồ sơ v5) ⇒ KHÔNG nhân 100 lần nữa (ROA 1,7 không phải 0,017).
 
                 # Derive EPS and BVPS from P/E, P/B + warehouse last close
-                # when VCI ratio data doesn't include an EPS column.
+                # when the ratio table has no EPS / BVPS value.
                 if result.get("eps") is None or result.get("book_value") is None:
                     _last_close = _get_warehouse_last_close(ticker)
                     if _last_close and _last_close > 0:
@@ -1912,7 +1656,7 @@ def load_fundamental(ticker: str) -> dict:
                     result["earnings_yield"] = round(100.0 / result["pe"], 2)
 
                 result["_ratio_cols"] = [str(c) for c in ratios.columns[:30]]
-        except Exception as e:
+        except Exception as e:  # VnstockError (UnsupportedError khi nguồn không đọc ratio…)
             failed.append("ratio")
             log.warning("load_fundamental %s: khối ratio lỗi: %s", ticker, e)
 
@@ -2966,7 +2710,7 @@ def _load_all_market_data() -> tuple:
         from vnstock_runner import build_market_overview
         data = build_market_overview(
             str(PRICES_DIR.parent),
-            fetch_nn=lambda: _fetch_foreign_net_flow(trading_days=20, limit=100))
+            fetch_nn=lambda: _fetch_foreign_net_flow(trading_days=20))
     except Exception:
         log.exception("Market overview Tầng 2 lỗi")
         return pd.DataFrame(), {}, pd.DataFrame()

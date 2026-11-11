@@ -1,11 +1,13 @@
 """Tests for vnstock_foreign_flow — full-market NN ròng cache + freshness loader.
 
-The live API fetch (fetch_market_net via vnstock_data.TopStock) needs network and
-is not exercised here; we test the cache/freshness/loader logic and the
-per-symbol value extraction with synthetic data.
+Nguồn thế hệ 6 (`Market().equity.screener(date=…)`) được giả bằng `fake_screener_market`
+— không test nào ra mạng.
 """
 import importlib
 import json
+
+import pandas as pd
+import pytest
 
 import vnstock_foreign_flow as ff
 
@@ -16,13 +18,77 @@ def _use_tmp_cache(tmp_path, monkeypatch):
     return p
 
 
-def test_largest_value_prefers_value_columns_over_volume():
-    # buy_value should win over a huge share-count "volume" column
-    row = {"symbol": "VCB", "date": "2026-06-12", "buy_value": 1.2e11,
-           "sell_value": 5.0e10, "volume": 9.9e8}
-    assert ff._largest_value(row) == 1.2e11
-    # fallback to largest numeric when no named value column present
-    assert ff._largest_value({"symbol": "X", "foo": 3.0, "bar": 7.0}) == 7.0
+def fake_screener_market(frames: dict, calls: list | None = None):
+    """`Market` giả: `.equity.screener(date=d)` trả `frames[d]` (thiếu ⇒ bảng rỗng)."""
+    class _Equity:
+        def screener(self, date=None, **_):
+            if calls is not None:
+                calls.append(date)
+            got = frames.get(date)
+            if isinstance(got, Exception):
+                raise got
+            return got if got is not None else pd.DataFrame()
+
+    class _Market:
+        def __init__(self, *_a, **_k):
+            self.equity = _Equity()
+    return _Market
+
+
+_BOARD = pd.DataFrame({
+    "symbol": ["vcb", "FPT", "HPG", "AAA", "BBB"],
+    "name": ["Vietcombank", "FPT", "Hòa Phát", "An Phát", "B"],
+    "close": [60.0, 100.0, 25.0, 8.0, 5.0],
+    "foreign_net_value": [12e9, -3.5e9, -0.5e9, 0.0, None],
+    "foreign_net_volume": [200_000, -35_000, -20_000, 0, None],
+    "foreign_room": [1.0, 2.0, 3.0, 4.0, 5.0],
+})
+
+
+def test_foreign_net_for_date_maps_screener_columns(monkeypatch):
+    import vnstock
+    calls = []
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-06-12": _BOARD}, calls))
+    df = ff.foreign_net_for_date("2026-06-12")
+    assert calls == ["2026-06-12"]                       # MỘT lượt cả thị trường, đúng phiên
+    assert list(df.columns) == ["symbol", "foreign_net_value", "foreign_net_volume"]
+    assert list(df["symbol"]) == ["VCB", "FPT", "HPG", "AAA", "BBB"]
+    assert df.loc[0, "foreign_net_value"] == 12e9        # đồng, không đổi đơn vị
+    assert df.loc[1, "foreign_net_volume"] == -35_000
+
+
+def test_foreign_net_for_date_raises_vnstock_error_untouched(monkeypatch):
+    import vnstock
+    from vnstock.errors import InputError
+    err = InputError("Chưa chọn nguồn")
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-06-12": err}))
+    with pytest.raises(InputError):
+        ff.foreign_net_for_date("2026-06-12")
+
+
+def test_fetch_market_net_sums_full_board_in_ty(monkeypatch):
+    import vnstock
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-06-12": _BOARD}))
+    rec = ff.fetch_market_net("2026-06-12")
+    assert rec == {"date": "2026-06-12", "net": 8.0, "buy": 12.0, "sell": 4.0,
+                   "n_symbols": 3}                       # 0 và NaN không tính là có NN
+
+
+def test_fetch_market_net_none_on_source_error_or_empty(monkeypatch):
+    import vnstock
+    from vnstock.errors import NetworkError
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market(
+        {"2026-06-12": NetworkError("timeout")}))
+    assert ff.fetch_market_net("2026-06-12") is None
+    assert ff.fetch_market_net("2026-06-13") is None     # nguồn không có phiên
+
+
+def test_refresh_keeps_cached_day_when_source_fails(tmp_path, monkeypatch):
+    p = _use_tmp_cache(tmp_path, monkeypatch)
+    p.write_text(json.dumps({"2026-06-11": {"net": -504.0, "n_symbols": 420}}),
+                 encoding="utf-8")
+    monkeypatch.setattr(ff, "fetch_market_net", lambda d: None)
+    assert ff.refresh(days=3) == {"2026-06-11": {"net": -504.0, "n_symbols": 420}}
 
 
 def test_load_market_net_1d_is_date_aware_and_omits_missing(tmp_path, monkeypatch):

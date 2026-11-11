@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+import pytest
 
 import vnstock_events as ev
 from vnstock_brief import _upcoming_events_block, _upcoming_window_start, build_prompt
@@ -396,3 +397,55 @@ def test_maybe_refresh_events_skips_while_in_backoff(tmp_path, monkeypatch, caps
     ev._write_backoff(3)
     assert vb._maybe_refresh_events() == 0
     assert "bỏ qua auto-refresh sự kiện" in capsys.readouterr().out
+
+
+# ─── Thế hệ 6: Reference().company(t).events() → cột đọc của `_extract_upcoming` ───
+
+def _gen6_reference(frames: dict, calls: list):
+    """`vnstock.Reference` giả: `.company(t).events()` trả `frames[t]` (Exception ⇒ ném)."""
+    class _Company:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def events(self, start=None, end=None):
+            calls.append((self.symbol, start, end))
+            got = frames[self.symbol]
+            if isinstance(got, Exception):
+                raise got
+            return got
+
+    class _Reference:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def company(self, symbol):
+            return _Company(symbol)
+    return _Reference
+
+
+def test_refresh_reads_gen6_events_columns(tmp_path, monkeypatch):
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+    import vnstock
+    from vnstock.errors import NetworkError
+
+    p = tmp_path / "upcoming_events.parquet"
+    pd.DataFrame([{"ticker": "VCB", "ex_date": "2099-01-05", "title": "cũ",
+                   "category": "DIVIDEND"}]).to_parquet(p, index=False)
+    monkeypatch.setattr(ev, "UPCOMING_EVENTS_PATH", p)
+    monkeypatch.setattr(ev, "_META", tmp_path)
+    fpt = pd.DataFrame({
+        "symbol": ["FPT", "FPT"],
+        "event_title": ["Trả cổ tức bằng tiền mặt 2.000 đồng/cp", "Cổ tức 2020"],
+        "ex_right_date": ["2099-06-15", "2020-06-15"],
+        "record_date": ["2099-06-16", "2020-06-16"],
+        "event_type": ["cash_dividend", "cash_dividend"],      # enum thật thế hệ 6
+        "ratio": [None, None], "ratio_text": [None, None], "value": [2000.0, 1000.0],
+    })
+    calls: list = []
+    monkeypatch.setattr(vnstock, "Reference", _gen6_reference(
+        {"FPT": fpt, "VCB": NetworkError("timeout")}, calls))
+    out = ev.refresh_upcoming(tickers=["FPT", "VCB"])
+    assert [c[0] for c in calls] == ["FPT", "VCB"]
+    rows = {(r.ticker, r.ex_date, r.title, r.category) for r in out.itertuples()}
+    assert rows == {("FPT", "2099-06-15", "Trả cổ tức bằng tiền mặt 2.000 đồng/cp", "CASH_DIVIDEND"),
+                    ("VCB", "2099-01-05", "cũ", "DIVIDEND")}   # VCB lỗi nguồn ⇒ giữ bản cũ

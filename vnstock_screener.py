@@ -32,6 +32,9 @@ from rich.table import Table
 from vnstock_indicators import rsi_default, trend_ma
 
 warnings.filterwarnings("ignore")
+from vnstock_auth import keep_schema_warnings  # noqa: E402
+
+keep_schema_warnings()   # SchemaChangeWarning của vnstock 6 KHÔNG được nuốt theo "ignore" toàn cục
 console = Console()
 
 

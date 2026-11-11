@@ -2,9 +2,13 @@
 vnstock_events.py — Lịch sự kiện doanh nghiệp sắp tới.
 
 Tổng hợp corp-action events (GDKHQ cổ tức tiền mặt / chia tách / thưởng CP) cho
-một rổ mã — tái dùng máy fetch của ``vnstock_adjust`` (Company.events() /
-dividends()) — lọc các sự kiện có ``ex_date`` trong tương lai gần và cache vào
+một rổ mã — ``Reference().company(t).events()`` của vnstock thế hệ 6 — lọc các sự
+kiện có ``ex_date`` trong tương lai gần và cache vào
 ``data_warehouse/_meta/upcoming_events.parquet`` để brief nạp nhanh.
+
+Vì sao gọi THEO MÃ mà không dùng ``Reference().equity.corporate_actions()`` (một lượt
+cả thị trường): bảng đó không có ``event_type`` và chỉ một nguồn hỗ trợ; gọi theo mã giữ
+được cửa merge-safe từng mã (mã lỗi giữ sự kiện cũ) + ngân sách/backoff bên dưới.
 
 Đây là phần "sự kiện kinh tế sắp tới" KHẢ THI NGAY (không cần nguồn ngoài). Tin
 vĩ mô / lịch CPI-Fed-SBV là nguồn khác, chưa tích hợp.
@@ -30,9 +34,13 @@ _META = Path("data_warehouse/_meta")
 UPCOMING_EVENTS_PATH = _META / "upcoming_events.parquet"
 _COLS = ["ticker", "ex_date", "title", "category"]
 
-# VCI company.events() noise we skip (insider/major-shareholder registrations) —
-# keep the block about corp actions (cổ tức/chia tách/ĐHCĐ/phát hành).
+# Noise we skip (insider/major-shareholder registrations) — keep the block about
+# corp actions (cổ tức/chia tách/ĐHCĐ/phát hành).
 _SKIP_CATEGORIES = {"MAJOR_SHAREHOLDER_TRADING"}
+
+# Cột thế hệ 6 (hồ sơ v5) → tên `_extract_upcoming` đọc (bảng sự kiện dòng cũ).
+_GEN6_EVENT_COLS = {"event_type": "category", "ex_right_date": "exright_date",
+                    "event_title": "event_title_vi"}
 
 
 def _to_date(v):
@@ -44,13 +52,19 @@ def _to_date(v):
 
 
 def _fetch_vci_events(ticker: str) -> "pd.DataFrame | None":
-    """Raw VCI company.events() — the source that exposes upcoming corp actions
-    (vnstock_data.Company.events() is empty at this tier)."""
+    """Sự kiện quyền của một mã: ``Reference().company(t).events()`` (thế hệ 6; tên hàm
+    giữ từ thời VCI vì test/chỗ gọi tiêm qua nó). Cột đổi về tên `_extract_upcoming`
+    đọc. None = nguồn lỗi (lỗi vnstock có kiểu) ⇒ chỗ gọi giữ cache cũ của mã."""
+    from vnstock.errors import VnstockError
+    from vnstock_auth import get_vnstock
     try:
-        from vnstock_auth import get_vnstock
-        return get_vnstock(ticker, "VCI").company.events()
-    except Exception:
+        df = get_vnstock(ticker).company.events()
+    except VnstockError as e:
+        print(f"  [{ticker}] events lỗi: {type(e).__name__} {getattr(e, 'code', '')}")
         return None
+    if df is None:
+        return None
+    return df.rename(columns=_GEN6_EVENT_COLS)
 
 
 def _extract_upcoming(df, ticker: str, today) -> list[dict]:
@@ -216,7 +230,7 @@ def in_backoff(now: "datetime | None" = None) -> "str | None":
     now = now or datetime.now()
     if now >= until:
         return None
-    return (f"VCI trắng tay lúc {str(d.get('at', '?'))[11:16]} ({d.get('failed', '?')} mã lỗi) "
+    return (f"nguồn sự kiện trắng tay lúc {str(d.get('at', '?'))[11:16]} ({d.get('failed', '?')} mã lỗi) "
             f"— đợi tới {until.strftime('%H:%M')} rồi thử lại")
 
 
@@ -291,13 +305,13 @@ def refresh_upcoming(
             elapsed = time.monotonic() - t_start
             if budget_s and elapsed >= budget_s:
                 rest = len(tickers) - i - 1
-                print(f"[events] VCI lỗi và đã {elapsed:,.0f}s ≥ ngân sách {budget_s:,.0f}s "
+                print(f"[events] nguồn lỗi và đã {elapsed:,.0f}s ≥ ngân sách {budget_s:,.0f}s "
                       f"→ dừng, giữ cache cũ cho {rest} mã còn lại (30/09: thư viện tự "
                       f"thử lại ~6 lần/mã, 3 mã = 18 timeout = 10′)")
                 break
             if max_consecutive_failures and streak >= max_consecutive_failures:
                 rest = len(tickers) - i - 1
-                print(f"[events] VCI lỗi {streak} mã liên tiếp → dừng, giữ cache "
+                print(f"[events] nguồn lỗi {streak} mã liên tiếp → dừng, giữ cache "
                       f"cũ cho {rest} mã còn lại (đêm 22/09: 52 mã × 30s = 28′)")
                 break
             continue

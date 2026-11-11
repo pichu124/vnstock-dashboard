@@ -859,6 +859,9 @@ def cmd_test(args) -> int:
             "tests/test_brief_ta_card.py",  # thẻ vào brief + guard chữ kỹ thuật (P2c+P3 PTKT)
             "tests/test_replay_ta_brief.py",  # chạy lại lịch sử brief có thẻ (PTKT §14 câu 2)
             "tests/test_setup_scheduled_tasks.py",  # -OnlyNewsAlert: tin mỗi giờ chạy ở laptop
+            "tests/test_vnstock_auth_gen6.py",  # vnstock thế hệ 6: nguồn tập trung + mặt tiền get_vnstock
+            "tests/test_freefloat.py",  # vnstock thế hệ 6: free-float từ company.listing()/shareholders()
+            "tests/test_session_stats.py",  # vnstock thế hệ 6: GTGD chỉ số từ Market().index(s).trade_history
             "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",

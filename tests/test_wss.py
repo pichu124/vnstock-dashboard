@@ -154,3 +154,149 @@ class TestBarAggregatorSanityCheck:
         agg.add_tick("X", pd.Timestamp("2026-04-20 10:01:00"), 100.0,
                       volume=MAX_SINGLE_TICK_VOLUME + 1)   # over
         assert agg.suspect_count == 1
+
+
+# ── Thế hệ 6: bảng giá / HĐTL / chỉ số / danh sách mã (mock, không mạng) ──────
+
+def _svc_capturing_ticks(monkeypatch):
+    """VnStockWSS không chạy luồng; `_handle_tick` chỉ GOM tick để soi."""
+    import vnstock_wss as w
+    svc = w.VnStockWSS.__new__(w.VnStockWSS)
+    svc.last_error = None
+    svc._last_accum_vol, svc._last_accum_date = {}, {}
+    ticks: list = []
+    monkeypatch.setattr(w.VnStockWSS, "_handle_tick", lambda self, t: ticks.append(t))
+    return svc, ticks
+
+
+def _board_row(symbol, close, ref, total_volume, **extra):
+    """Một dòng `Market().equity.quote` hồ sơ v5 (giá ĐỒNG), đủ cột dễ nhầm với volume."""
+    return {
+        "symbol": symbol, "exchange": "HOSE", "reference_price": ref,
+        "ceiling_price": ref * 1.07, "floor_price": ref * 0.93, "open_price": ref,
+        "high_price": close + 200, "low_price": close - 300, "close_price": close,
+        "bid_price_1": close - 100, "bid_vol_1": 1500, "bid_price_2": close - 200,
+        "bid_vol_2": 800, "bid_price_3": None, "bid_vol_3": None,
+        "ask_price_1": close + 100, "ask_vol_1": 700, "ask_price_2": None,
+        "ask_vol_2": None, "ask_price_3": None, "ask_vol_3": None,
+        "foreign_buy_volume": 999_999, "foreign_sell_volume": 888_888,
+        "time": "2026-11-11 10:15:00", "total_volume": total_volume,
+        "total_value": 1e12, "last_volume": 77_000, **extra,
+    }
+
+
+class _FakeNode:
+    def __init__(self, df=None, exc=None):
+        self.df, self.exc, self.calls = df, exc, []
+
+    def _ret(self, name, *a, **k):
+        self.calls.append((name, a, k))
+        if self.exc is not None:
+            raise self.exc
+        return self.df
+
+    def quote(self, *a, **k):
+        return self._ret("quote", *a, **k)
+
+
+class _FakeMarket:
+    """`Market()` giả: `.equity.quote(symbols)` · `.futures(s).quote()` · `.index(s).quote()`."""
+    board = futures = index = None
+
+    def __init__(self, *a, **k):
+        cls = type(self)
+        self.equity = cls.board
+        self.futures = lambda s: cls.futures
+        self.index = lambda s: cls.index
+
+
+def _patch_market(monkeypatch, **nodes):
+    import vnstock
+    fake = type("_M", (_FakeMarket,), nodes)
+    monkeypatch.setattr(vnstock, "Market", fake)
+    return fake
+
+
+def test_price_board_reads_gen6_quote_columns(monkeypatch):
+    """Bảng giá thế hệ 6: giá = close_price, KL phiên = total_volume — KHÔNG phải
+    `foreign_buy_volume`/`last_volume` (dò chuỗi con "volume"/"last" cũ trúng chúng)."""
+    pytest.importorskip("vnstock")
+    board = _FakeNode(pd.DataFrame([_board_row("FPT", 77_700, 76_000, 1_234_500)]))
+    _patch_market(monkeypatch, board=board)
+    svc, ticks = _svc_capturing_ticks(monkeypatch)
+
+    assert svc._fetch_batch_price_board(["FPT"]) is True
+    assert board.calls == [("quote", (["FPT"],), {})]
+    (t,) = ticks
+    assert t["ticker"] == "FPT" and t["type"] == "stock"
+    assert t["price"] == 77_700 and t["volume"] == 1_234_500
+    assert t["high"] == 77_900 and t["low"] == 77_400
+    assert t["chg_pct"] == round((77_700 - 76_000) / 76_000 * 100, 2)
+    assert t["bids"] == [{"price": 77_600, "volume": 1500}, {"price": 77_500, "volume": 800}]
+    assert t["asks"] == [{"price": 77_800, "volume": 700}]
+    assert t["bid"] == 77_600 and t["ask"] == 77_800
+
+
+def test_price_board_vnstock_error_is_recorded_not_raised(monkeypatch):
+    """Chưa chọn nguồn (InputError VNSTOCK_INPUT_SOURCE) ⇒ False + last_error, không ném."""
+    pytest.importorskip("vnstock")
+    from vnstock.errors import InputError
+    _patch_market(monkeypatch, board=_FakeNode(exc=InputError("Chưa chọn nguồn")))
+    svc, ticks = _svc_capturing_ticks(monkeypatch)
+    assert svc._fetch_batch_price_board(["FPT"]) is False
+    assert ticks == [] and "Chưa chọn nguồn" in svc.last_error
+
+
+def test_futures_quote_keeps_friendly_name_and_depth(monkeypatch):
+    """HĐTL: `Market().futures(s).quote()`; nguồn trả mã nội bộ 41I… nhưng file quote
+    phải mang tên đã đăng ký (VN30F1M) để dashboard tìm thấy."""
+    pytest.importorskip("vnstock")
+    row = _board_row("41I1G4000", 1_850.5, 1_840.0, 210_000)
+    _patch_market(monkeypatch, futures=_FakeNode(pd.DataFrame([row])))
+    svc, ticks = _svc_capturing_ticks(monkeypatch)
+
+    assert svc._fetch_futures_quote("VN30F1M") is True
+    (t,) = ticks
+    assert t["ticker"] == "VN30F1M" and t["type"] == "futures"
+    assert t["price"] == 1_850.5 and t["volume"] == 210_000
+    assert t["bids"][0] == {"price": 1_750.5, "volume": 1500}
+
+
+def test_index_quote_reads_gen6_columns(monkeypatch):
+    pytest.importorskip("vnstock")
+    df = pd.DataFrame([{
+        "symbol": "VNINDEX", "reference_price": 1_250.0, "high_price": 1_270.0,
+        "low_price": 1_245.0, "close_price": 1_262.5, "total_volume": 650_000_000,
+        "time": "2026-11-11 10:15:00", "price_change": 12.5, "percent_change": 0.01,
+        "advances": 200, "declines": 150, "accumulated_volume": 1, "put_through_volume": 2,
+    }])
+    _patch_market(monkeypatch, index=_FakeNode(df))
+    svc, ticks = _svc_capturing_ticks(monkeypatch)
+
+    svc._fetch_index_quote("VNINDEX")
+    (t,) = ticks
+    assert t["ticker"] == "VNINDEX" and t["type"] == "index"
+    assert t["price"] == 1_262.5 and t["volume"] == 650_000_000
+    assert t["high"] == 1_270.0 and t["low"] == 1_245.0
+    assert t["chg_pct"] == pytest.approx(1.0)        # từ reference_price, không đoán đơn vị %
+
+
+def test_listed_symbols_from_reference_equity_list(monkeypatch):
+    pytest.importorskip("vnstock")
+    import vnstock
+
+    import vnstock_wss as w
+    asked = []
+
+    class _Eq:
+        def list(self, exchange=None):
+            asked.append(exchange)
+            return pd.DataFrame({"symbol": {"HOSE": ["fpt", "VCB"], "HNX": ["SHS"],
+                                            "UPCOM": ["BSR", "VN30F2412"]}[exchange],
+                                 "exchange": exchange})
+
+    monkeypatch.setattr(vnstock, "Reference", lambda *a, **k: type("_R", (), {"equity": _Eq()})())
+    monkeypatch.setattr(w, "_ALL_LISTED_CACHE", [])
+    monkeypatch.setattr(w, "_ALL_LISTED_DATE", "")
+    assert w.get_all_listed_symbols() == ["BSR", "FPT", "SHS", "VCB"]
+    assert asked == ["HOSE", "HNX", "UPCOM"]

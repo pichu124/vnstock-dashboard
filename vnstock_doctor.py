@@ -787,16 +787,12 @@ def check_market_news() -> dict:
 
 
 def check_ticker_news() -> dict:
-    """Tin theo mã (vnstock company.news) — tuổi cache."""
+    """Tin theo mã — vnstock thế hệ 6 đã ngừng `company.news()`, cache không còn được làm mới."""
+    from vnstock_news import TICKER_NEWS_UNAVAILABLE
     name = "Tin theo mã (news cache)"
-    p = _META / "news_cache.json"
-    age = _mtime_age_days(p)
-    if age is None:
-        return _result("ticker_news", name, "off", "chưa có news_cache.json",
-                       "python run.py news")
-    status = "ok" if age <= 3 else "warn"
-    return _result("ticker_news", name, status, f"cập nhật {_fmt_age(age)}",
-                   "python run.py news" if status != "ok" else "")
+    age = _mtime_age_days(_META / "news_cache.json")
+    detail = TICKER_NEWS_UNAVAILABLE + (f" — cache cũ {_fmt_age(age)}" if age is not None else "")
+    return _result("ticker_news", name, "off", detail, "")
 
 
 def check_foreign_flow() -> dict:
@@ -1095,8 +1091,8 @@ def check_assets(now: "datetime | None" = None) -> dict:
         b = cv["by_lag"][str(cv["best_lag"])]
         issues.append(f"tỷ giá trung tâm lệch ngày so giá tham khảo NHNN: {cv['verdict']} "
                       f"(khớp {b['hit']}/{b['n']} phiên)")
-        fixes.append("🖥️ DESKTOP: python run.py assets --backfill --steps mbk (nạp lại, ngày đã dời) — "
-                     "còn lệch ⇒ vnstock_data đổi cách ghi ngày, báo Claude")
+        fixes.append("số mbk cũ trong kho — vnstock thế hệ 6 không có nguồn tỷ giá trung tâm để "
+                     "nạp lại, báo Claude")
     try:
         gate = va.gate_summary(va.agreement_all(today=now.date(), meta=_META))
     except Exception:                                              # noqa: BLE001
@@ -1400,22 +1396,28 @@ def net_nso() -> dict:
 
 
 def net_foreign_flow_api() -> dict:
-    """API TopStock foreign buy/sell cho phiên giao dịch trước."""
+    """NN ròng cả thị trường (`Market().equity.screener`, vnstock thế hệ 6) phiên trước."""
     name = "Foreign-flow API (mạng)"
+    from vnstock_auth import ROUTES_ENV, SOURCE_ENV, sources_configured
     from vnstock_foreign_flow import fetch_market_net
     d = _prev_trading_day().isoformat()
+    if not sources_configured():
+        return _result("net_foreign_flow", name, "error",
+                       f"chưa khai nguồn vnstock thế hệ 6 ({SOURCE_ENV}/{ROUTES_ENV} trống)",
+                       f"đặt {SOURCE_ENV} trong .env + `vnstock keys set <nguồn>`")
     rec = fetch_market_net(d)
     if not rec:
         return _result("net_foreign_flow", name, "error",
-                       f"API không trả dữ liệu cho {d}",
-                       "kiểm tra vnstock_data/sponsor API + mạng; "
+                       f"nguồn không trả dữ liệu cho {d}",
+                       f"kiểm luật nguồn {SOURCE_ENV}/{ROUTES_ENV} (route market.equity.screener) "
+                       "+ khoá nguồn (`vnstock keys check`) + mạng; "
                        "python vnstock_foreign_flow.py --diag " + d)
     n = rec.get("n_symbols", 0)
     msg = f"{d}: net {rec.get('net')} tỷ, {n} mã"
     if n <= 120:
         return _result("net_foreign_flow", name, "warn",
-                       msg + " · số mã ≤120 — API có thể cap limit",
-                       "tăng --limit hoặc đổi nguồn (xem TODO #0/#1 trong CLAUDE.md)")
+                       msg + " · số mã ≤120 — nguồn trả thiếu bảng",
+                       f"đổi nguồn cho route market.equity.screener ({ROUTES_ENV})")
     return _result("net_foreign_flow", name, "ok", msg)
 
 

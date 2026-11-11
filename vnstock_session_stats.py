@@ -2,10 +2,10 @@
 vnstock_session_stats.py — Session stats helpers (no Streamlit dependency).
 
 Realtime architecture (Option A — calibrated estimate):
-  • Backfill (past days): Trading.price_history(VNINDEX/VN30/HNXINDEX/UPCOM,
-    source='VCI') gives EOD-accurate `total_value` per trading day. EOD
-    batch posts ~24h after market close.
-  • Today (during trading): Quote.history(INDEX, interval='1m') provides
+  • Backfill (past days): Market().index(s).trade_history(start, end)
+    (vnstock thế hệ 6; nguồn theo luật VNSTOCK_SOURCE) gives EOD-accurate
+    `total_value` per trading day. EOD batch posts ~24h after market close.
+  • Today (during trading): get_vnstock(INDEX).quote.history(interval='1m') provides
     the cumulative market volume from 9:00; multiply by per-index
     calibrated avg_price/share computed from last N days of price_history.
     Accuracy ~95-98% during the day; auto-corrected to the exact value
@@ -13,7 +13,7 @@ Realtime architecture (Option A — calibrated estimate):
   • Each row carries a `status` field: "exact" (from price_history) or
     "estimate" (from calibrated formula). UI uses this to show 🟢/🟡.
 
-NOTE: vnstock_data does NOT expose realtime total_value for indices.
+NOTE: the old vnstock_data line did NOT expose realtime total_value for indices.
 We exhaustively tested SSI iboard, cafef, and vnstock library endpoints —
 see _test_market_sources.py history. The only realtime-accurate paths
 require either reverse-engineering iboard.ssi.com.vn DevTools (URL
@@ -26,14 +26,12 @@ from __future__ import annotations
 import json
 import logging
 import time
-import warnings
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-logging.getLogger("vnstock.common.data").setLevel(logging.WARNING)
-warnings.filterwarnings("ignore", category=UserWarning, module=r"vnstock")
-
 import pandas as pd
+
+_log = logging.getLogger(__name__)
 
 SESSION_STATS_PATH = Path("data_warehouse/_meta/market_session_stats.json")
 
@@ -46,10 +44,9 @@ SESSION_WINDOWS = {
 
 SESSION_INDICES = ["VNINDEX", "VN30", "HNX", "UPCOM"]
 
-# Symbol used by vnstock_data Trading.price_history for each display name.
-# These DIFFER from the vnstock free Quote.history symbols — verified
-# empirically that "UPCOM" is rejected by price_history with
-# "Invalid symbol" error; confirmed alias is "UPCOMINDEX" (2026-05-18).
+# Symbol used for the EOD trade_history of each display name. Dòng cũ từ chối
+# "UPCOM" ("Invalid symbol"), alias đúng là "UPCOMINDEX" (2026-05-18).
+# ĐỐI CHIẾU khi có khoá nguồn: mã chỉ số thế hệ 6 (`Reference().index.list()`).
 _PRICE_HISTORY_SYMBOL = {
     "VNINDEX":  "VNINDEX",
     "VN30":     "VN30",
@@ -57,7 +54,7 @@ _PRICE_HISTORY_SYMBOL = {
     "UPCOM":    "UPCOMINDEX",  # confirmed working 2026-05-18
 }
 
-# Symbols for vnstock free Quote.history (used for intraday volume polling).
+# Symbols for get_vnstock(...).quote.history (used for intraday volume polling).
 _QUOTE_INTRADAY_SYMBOL = {
     "VNINDEX":  "VNINDEX",
     "VN30":     "VN30",
@@ -93,7 +90,7 @@ _PRICE_HISTORY_TTL_S = 1800
 _PRICE_HISTORY_CACHE: dict = {}
 
 
-# ─── EOD-accurate history (Trading.price_history) ─────────────────────────
+# ─── EOD-accurate history (Market().index(s).trade_history) ──────────────
 
 def _fetch_price_history(display_name: str) -> pd.DataFrame:
     """`_fetch_price_history_uncached` đệm theo (chỉ số, ngày) trong
@@ -112,62 +109,45 @@ def _fetch_price_history(display_name: str) -> pd.DataFrame:
 def _fetch_price_history_uncached(display_name: str) -> pd.DataFrame:
     """Fetch EOD-accurate daily totals for one index.
 
-    Priority:
-      1. vnstock 4.x native: vnstock.api.trading.Trading (always available)
-      2. Sponsor package: vnstock_data.Trading (if installed and compatible)
+    `Market().index(s).trade_history(start, end)` (vnstock thế hệ 6, hồ sơ cột
+    v5 — cùng tên cột dòng cũ: `trading_date`, `total_value`, `total_volume`,
+    `matched_value`, `matched_volume`, `deal_value`). `trading_date` đổi về
+    ngày lịch VN.
 
-    Returns DataFrame with `trading_date`, `total_value`, `total_volume`.
-    Returns empty DataFrame on any error.
+    Returns empty DataFrame on a vnstock error (nguồn không đọc route này,
+    lỗi mạng…) — caller rơi về ước lượng như trước; lỗi được log một lần.
+    ĐỐI CHIẾU khi có khoá nguồn: thứ tự dòng (v5 = mới nhất trước —
+    `_compute_calibration` lấy `.head(N)`), đơn vị `total_value` (đồng).
     """
+    from vnstock import Market
+    from vnstock.errors import VnstockError
+    from vnstock_auth import ensure_api_key, naive_local_time
+
     symbol = _PRICE_HISTORY_SYMBOL[display_name]
     end_date = date.today().strftime("%Y-%m-%d")
     start_date = (date.today() - timedelta(days=120)).strftime("%Y-%m-%d")
-
-    def _try_trading(Trading_cls) -> pd.DataFrame:
-        for sym in [symbol]:
-            try:
-                t = Trading_cls(symbol=sym, source="VCI")
-            except Exception:
-                continue
-            for kwargs in (
-                {"start": start_date, "end": end_date},
-                {"start_date": start_date, "end_date": end_date},
-                {},
-            ):
-                try:
-                    df = t.price_history(**kwargs)
-                    if df is not None and not df.empty:
-                        df = df.copy()
-                        df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
-                        return df
-                except Exception:
-                    continue
-        return pd.DataFrame()
-
-    # 1. vnstock 4.x native API (preferred — no extra package needed)
     try:
-        from vnstock.api.trading import Trading  # type: ignore
-        result = _try_trading(Trading)
-        if not result.empty:
-            return result
-    except ImportError:
-        pass
+        ensure_api_key()
+        df = Market().index(symbol).trade_history(start=start_date, end=end_date)
+    except VnstockError as e:
+        _log_once(f"trade_history {symbol}", e)
+        return pd.DataFrame()
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = naive_local_time(df, "trading_date", daily=True)
+    df["trading_date"] = pd.to_datetime(df["trading_date"]).dt.date
+    return df
 
-    # 2. Sponsor package fallback (suppress noisy prints on import)
-    import contextlib, io as _io
-    for _mod in ("vnstock_data", "vnii"):
-        try:
-            with contextlib.redirect_stdout(_io.StringIO()), \
-                 contextlib.redirect_stderr(_io.StringIO()):
-                _m = __import__(_mod)
-            if hasattr(_m, "Trading"):
-                result = _try_trading(_m.Trading)
-                if not result.empty:
-                    return result
-        except Exception:
-            continue
 
-    return pd.DataFrame()
+_LOGGED: set = set()
+
+
+def _log_once(what: str, e: Exception) -> None:
+    """Một dòng log cho mỗi (lệnh gọi, mã lỗi) — fragment gọi mỗi 30s, đừng xả log."""
+    key = (what, getattr(e, "code", None) or type(e).__name__)
+    if key not in _LOGGED:
+        _LOGGED.add(key)
+        _log.warning("[session_stats] %s: %s", what, e)
 
 
 def _compute_calibration(history_dfs: dict) -> dict:
@@ -193,21 +173,23 @@ def _compute_calibration(history_dfs: dict) -> dict:
     return cal
 
 
-# ─── Realtime intraday (Quote.history 1m) ─────────────────────────────────
+# ─── Realtime intraday (get_vnstock(...).quote.history 1m) ───────────────
 
 def _fetch_intraday_volume(
     display_name: str, target_date: date, interval: str = "1m"
 ) -> pd.DataFrame:
     """Fetch intraday OHLCV bars for one index on a specific date.
 
-    Uses vnstock free Quote.history. Returns columns
-    [time, open, high, low, close, volume]. Empty on error.
+    Uses the vnstock_auth facade (`Market().index(s).ohlcv`, `time` giờ VN
+    không múi). Returns columns [time, open, high, low, close, volume].
+    Empty on a vnstock error.
 
     interval='1m' serves only ~5 days of history and is suited for live
     "today" stats. For backfill of older dates use interval='5m' which
     serves 30+ days; 5m bars still align with all session boundaries
     (10:00, 11:30, 14:00, 15:00).
     """
+    from vnstock.errors import VnstockError
     from vnstock_auth import get_vnstock
     end = target_date.strftime("%Y-%m-%d")
     # Wider start window for 5m (more lenient lookup) so the API doesn't
@@ -215,11 +197,11 @@ def _fetch_intraday_volume(
     days_back = 5 if interval == "5m" else 2
     start = (target_date - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
+    # Chỉ alias mà mặt tiền nhận là CHỈ SỐ (`vnstock_auth.INDEX_SYMBOLS`) — alias
+    # khác ("UPINDEX", "HNX-INDEX", "HNX"…) bị mặt tiền đưa sang nhánh cổ phiếu.
     symbols = [_QUOTE_INTRADAY_SYMBOL[display_name]]
     if display_name == "UPCOM":
-        symbols = ["UPCOMINDEX", "UPCOM", "UPCOM-INDEX", "UPINDEX"]
-    elif display_name == "HNX":
-        symbols = ["HNXINDEX", "HNX-INDEX", "HNX"]
+        symbols = ["UPCOMINDEX", "UPCOM"]
 
     for sym in symbols:
         try:
@@ -233,7 +215,8 @@ def _fetch_intraday_volume(
                 # API window edge). Without dedup, sum(volume) double-counts.
                 df = df.drop_duplicates(subset=["time"], keep="first")
                 return df
-        except Exception:
+        except VnstockError as e:
+            _log_once(f"quote.history {sym} {interval}", e)
             continue
     return pd.DataFrame()
 
@@ -308,7 +291,7 @@ def backfill_session_stats(*, days: int = 60) -> int:
     """Backfill historical session stats from price_history (EOD-accurate).
 
     For each past trading day in the last `days`:
-      • 9h-15h slot: EXACT total_value from Trading.price_history (status='exact').
+      • 9h-15h slot: EXACT total_value from index trade_history (status='exact').
         If price_history is unavailable for an index (e.g. UPCOM symbol
         not yet identified), fall back to intraday volume × calibrated
         avg_price (status='estimate') so the cell shows a value instead

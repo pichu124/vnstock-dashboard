@@ -4,7 +4,8 @@ Corp Action Registry — single source of truth for VN equity events.
 Why a separate module?
 ----------------------
 Corp action data lives in ≥ 3 different places today:
-  * vnstock_data.Company.capital_history → bonus / split / capital increase
+  * vnstock_adjust cache (vnstock thế hệ 6 `Reference().company(t).events()`)
+    → cash / bonus / split / phát hành (nhãn nguồn giữ tên lịch sử "capital_history")
   * (future) CafeF or Vietstock scraper → cash dividends
   * (manual) operator overrides → CSV import
 
@@ -59,7 +60,7 @@ REGISTRY_FILE = "corp_actions_registry.parquet"
 VALID_TYPES = {"cash", "split", "bonus", "rights", "unknown"}
 DEFAULT_CONFIDENCE = {
     "manual": 1.00,           # operator-curated wins everything
-    "capital_history": 0.85,  # vnstock_data, reliable for splits/bonuses
+    "capital_history": 0.85,  # cache vnstock_adjust (events() thế hệ 6), splits/bonuses
     "cafef": 0.80,            # scraper, occasionally stale
     "vietstock": 0.80,
     "inferred": 0.50,         # heuristic from price gap, weak

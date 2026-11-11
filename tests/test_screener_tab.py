@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import needs_vnstock
+
 
 def test_module_imports_without_streamlit():
     """Module must be importable with just stdlib — Streamlit + dashboard
@@ -153,25 +155,27 @@ def test_watchlist_reread_failure_writes_nothing(tmp_path, click):
 # ── Thống kê phiên: fragment chạy mỗi 30s ở tab mặc định ⇒ không tải lại EOD / ghi lại file ──
 
 def _count_eod_fetches(monkeypatch, frames):
-    """Thay vnstock Trading bằng bản giả đếm lượt gọi price_history (lượt mạng thật)."""
-    import types
-
+    """Thay `vnstock.Market` (thế hệ 6) bằng bản giả đếm lượt gọi trade_history chỉ số
+    (lượt mạng thật)."""
     import pandas as pd
+    import vnstock
 
     import vnstock_session_stats as ss
     calls = []
 
-    class _Trading:
-        def __init__(self, symbol, source):
+    class _Index:
+        def __init__(self, symbol):
             self.symbol = symbol
 
-        def price_history(self, **kw):
+        def trade_history(self, **kw):
             calls.append(self.symbol)
             return frames(self.symbol)
 
-    monkeypatch.setitem(sys.modules, "vnstock.api.trading", types.SimpleNamespace(Trading=_Trading))
-    for sponsor in ("vnstock_data", "vnii"):                 # nhánh dự phòng cũng không ra mạng
-        monkeypatch.setitem(sys.modules, sponsor, None)
+    class _Market:
+        def index(self, symbol):
+            return _Index(symbol)
+
+    monkeypatch.setattr(vnstock, "Market", _Market)
     bars = pd.DataFrame({"time": pd.to_datetime([f"{date.today()} 09:15"]), "volume": [1_000_000]})
     monkeypatch.setattr(ss, "_fetch_intraday_volume", lambda *a, **k: bars)
     monkeypatch.setattr(ss, "_PRICE_HISTORY_CACHE", {}, raising=False)
@@ -184,6 +188,7 @@ def _eod_frame(_symbol):
                          "total_value": [2.0e13], "total_volume": [8.0e8]})
 
 
+@needs_vnstock
 def test_compute_session_stats_fetches_eod_history_once_per_day(monkeypatch):
     ss, calls = _count_eod_fetches(monkeypatch, _eod_frame)
     first = ss.compute_session_stats()
@@ -206,6 +211,7 @@ def test_compute_session_stats_fetches_eod_history_once_per_day(monkeypatch):
     assert len(calls) == 12                                   # hết TTL (EOD đăng giữa ngày) ⇒ tải lại
 
 
+@needs_vnstock
 def test_eod_history_failure_is_not_cached(monkeypatch):
     import pandas as pd
     ss, calls = _count_eod_fetches(monkeypatch, lambda s: pd.DataFrame())

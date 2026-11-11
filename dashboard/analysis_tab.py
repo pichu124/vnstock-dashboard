@@ -430,7 +430,7 @@ def render_analysis_tab() -> None:
         return _pd.concat([daily_df, _pd.DataFrame([today_row])], ignore_index=True)
 
     if tf in ("1m","5m","15m","30m","1H"):
-        with st.spinner(f"Đang tải {tf} data từ VCI..."):
+        with st.spinner(f"Đang tải {tf} data từ vnstock..."):
             chart_df = load_intraday(ticker, interval=tf)
         if chart_df.empty:
             st.warning(f"Không lấy được dữ liệu {tf}. Hiển thị daily.")
