@@ -147,9 +147,11 @@ def test_full_chain_is_idempotent_and_keeps_week_trace_on_month_label():
         once = vb.apply_brief_guards(t, ctx)
         assert vb.apply_brief_guards(once, ctx) == once, once
         assert "(1 tuần) (1T" not in once and "(1 tuần; NN 1 tuần thiếu 1/5 phiên gần nhất) (1T" not in once
-    # số TUẦN bị `enforce_sector_nn_figures` ghim vào chỗ số tháng "(1M)" vẫn lộ "(1 tuần)" (như cũ)
+    # số 1 THÁNG đúng có nhãn tháng: giữ nguyên (guard số NN ngành nhận khung tháng — 11/11)
     out = vb.apply_brief_guards("Ngân hàng bán ròng 2,536 tỷ (1M).", {**_CTX, "nn_coverage": None})
-    assert "(1 tuần)" in out.splitlines()[0]
+    assert "2,536 tỷ (1M)" in out.splitlines()[0] and "(1 tuần)" not in out.splitlines()[0]
+    lab = vb.apply_brief_guards("Ngân hàng bán ròng 2,536 tỷ (1M).", _CTX).splitlines()[0]
+    assert "2,536 tỷ (1M; NN 1 tháng thiếu 8/20 phiên)" in lab           # ngày thiếu 1M: đúng nhãn
 
 
 def test_label_survives_jargon_rewrite_on_money_flow_lines():

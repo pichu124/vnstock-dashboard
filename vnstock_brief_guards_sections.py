@@ -1066,6 +1066,30 @@ def enforce_lead_lag(text: str, ctx: dict) -> str:
     return result
 
 
+# ── Khung của một số NN ngành: nhãn THÁNG đứng NGAY sau số / tên ngành (11/11) ────────
+# Chỉ nhìn NGAY SAU (không nhìn lùi, không cả câu): "Tuần này … 2,536 tỷ, cao nhất trong tháng" là
+# số tuần. "tháng 10" (tên tháng) và "11 tháng" không phải khung 1M.
+_NN_MONTH_AFTER_RE = _re.compile(
+    r"(?:\s*đồng)?\s*(?:\(\s*(?:NN\s+)?(?:1M|1\s+tháng|20\s+phiên)\b"
+    r"|,\s*(?:1\s+tháng|20\s+phiên)\b"
+    r"|(?:trong\s+)?(?:1\s+)?tháng\b(?!\s*\d)|trong\s+20\s+phiên\b)", _re.IGNORECASE)
+
+
+def _nn_month_framed(s: str, pos: int) -> bool:
+    return bool(_NN_MONTH_AFTER_RE.match(s, pos))
+
+
+def _nn_month_value(ctx: dict, name: str):
+    for sec in ctx.get("sectors") or []:
+        if sec.get("Ngành") == name and isinstance(v := sec.get("NN 1M (tỷ)"), (int, float)):
+            return v
+    return None
+
+
+def _nn_close(a: float, b: float) -> bool:
+    return abs(a - b) <= max(1.0, 0.02 * abs(b))
+
+
 def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
     """Deterministic guard: the money-flow commentary must carry BOTH the
     strongest foreign net-buy AND net-sell sector (observed 15:20: only the
@@ -1113,10 +1137,17 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
             if av < 30:                       # skip noise / tiny flows
                 continue
 
-            def _fix(m: "_re.Match", _av=av) -> str:
+            def _fix(m: "_re.Match", _av=av, _nm=nm) -> str:
                 cur = _parse_vn_number(m.group(1))
+                if cur is None:
+                    return m.group(0)
+                if _nn_month_framed(m.string, m.end()):      # "… trong ngành X (1M)" ⇒ khung tháng
+                    v1m = _nn_month_value(ctx, _nm)
+                    if v1m is None or _nn_close(cur, abs(v1m)):
+                        return m.group(0)                   # động từ: enforce_net_flow_label
+                    return f"{abs(v1m):,.0f}{m.group(2)}"
                 return (f"{_av:,.0f}{m.group(2)}"
-                        if cur is not None and abs(cur - _av) > max(1.0, 0.02 * _av)
+                        if abs(cur - _av) > max(1.0, 0.02 * _av)
                         else m.group(0))
 
             new = _re.sub(
@@ -1130,14 +1161,21 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
             # tỷ)" while the real NN 1T was nowhere near that; the before-name
             # regex above can't see it). The sign is explicit here, so correct
             # to the real SIGNED value — a wrong magnitude can't survive.
-            def _fix_after(m: "_re.Match", _vv=vv) -> str:
+            def _fix_after(m: "_re.Match", _vv=vv, _nm=nm) -> str:
                 cur = _parse_vn_number(m.group(2))
+                if cur is None:
+                    return m.group(0)
+                if _nn_month_framed(m.string, m.end()):      # "X (NN -2,536 tỷ, 1 tháng)"
+                    v1m = _nn_month_value(ctx, _nm)
+                    if v1m is None or _nn_close(cur, v1m):
+                        return m.group(0)
+                    return f"{m.group(1)}{v1m:+,.0f}{m.group(3)}"
                 return (f"{m.group(1)}{_vv:+,.0f}{m.group(3)}"
-                        if cur is not None and abs(cur - _vv) > max(1.0, 0.02 * abs(_vv))
+                        if abs(cur - _vv) > max(1.0, 0.02 * abs(_vv))
                         else m.group(0))
 
             new = _re.sub(
-                rf"({_re.escape(nm)}\s*\(\s*(?:NN\s*|khối\s+ngoại\s*)?)(-?\d[\d.,]*)(\s*tỷ)",
+                rf"({_re.escape(nm)}\s*\(\s*(?:NN\s*|khối\s+ngoại\s*)?)([-+]?\d[\d.,]*)(\s*tỷ)",
                 _fix_after, lines[i])
             if new != lines[i]:
                 lines[i] = new
@@ -1205,7 +1243,26 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
     for nm, vv in rows:
         def _fix(m: "_re.Match", _vv=vv, _nm=nm) -> str:
             cur = _parse_vn_number(m.group(2))
-            if cur is None or abs(cur - _vv) <= max(1.0, 0.02 * abs(_vv)):
+            if cur is None:
+                return m.group(0)
+            if _nn_month_framed(m.string, m.end()):
+                # Khung THÁNG ngay sau số ⇒ so với NN 1M thật, cả độ lớn lẫn CHIỀU (dấu viết ra,
+                # không có thì theo động từ): đúng ⇒ giữ; sai ⇒ ghim NN 1M có dấu + động từ đúng.
+                v1m = _nn_month_value(ctx, _nm)
+                if v1m is None:
+                    return m.group(0)
+                verb = _re.search(r"(bán|mua)\s+ròng\s*$", m.group(1))
+                said = cur if m.group(2)[:1] in "+-" else (
+                    -abs(cur) if verb and verb.group(1) == "bán" else abs(cur))
+                verb_ok = not verb or (verb.group(1) == "bán") == (v1m < 0)
+                if _nn_close(said, v1m) and verb_ok:
+                    return m.group(0)
+                head = m.group(1)
+                if verb:
+                    head = (head[:verb.start(1)] + ("bán" if v1m < 0 else "mua")
+                            + head[verb.end(1):])
+                return f"{head}{v1m:+,.0f}{m.group(3)}"
+            if abs(cur - _vv) <= max(1.0, 0.02 * abs(_vv)):
                 return m.group(0)
             # Số này thuộc NGÀNH KHÁC nếu ngay sau nó gắn "trong ngành <other>"
             # (close 15/07: "…Họ VIN (1 tuần), trong khi bán ròng 703 tỷ đồng
@@ -1260,9 +1317,16 @@ def enforce_net_flow_label(text: str, ctx: dict) -> str:
             continue
         want = "mua ròng" if vv > 0 else "bán ròng"
 
-        def _fix(m: "_re.Match", _want=want, _v=vv) -> str:
+        def _fix(m: "_re.Match", _want=want, _v=vv, _nm=nm) -> str:
             mag = _parse_vn_number(m.group(3))
-            if mag is None or abs(mag - abs(_v)) > max(1.0, 0.02 * abs(_v)):
+            if mag is None:
+                return m.group(0)
+            if _nn_month_framed(m.string, m.end()):  # "… trong ngành X (1M)" ⇒ chiều theo NN 1M
+                v1m = _nn_month_value(ctx, _nm)
+                if v1m is None or not _nn_close(abs(mag), abs(v1m)):
+                    return m.group(0)
+                return f"{'mua ròng' if v1m > 0 else 'bán ròng'}{m.group(2)}{abs(v1m):,.0f}{m.group(4)}"
+            if abs(mag - abs(_v)) > max(1.0, 0.02 * abs(_v)):
                 return m.group(0)              # number isn't this sector's → skip
             return f"{_want}{m.group(2)}{abs(_v):,.0f}{m.group(4)}"
 
