@@ -80,8 +80,9 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   timeout ⇒ fallback KBS 1.130–1.245 mã + 150–181 lỗi (0 rate-limit). Dấu hiệu:
   dòng `⚡ Fallback KBS` + `❌ N lỗi` trong log. Đêm ấy marker `pipeline_status`
   updater KHÔNG ghi (chỉ ghi khi lỗi = 0) — đừng đọc thành "updater không chạy".
-- ⚠️ HAI MÁY: desktop `PICHU` (3 task lịch, sinh brief + cảnh báo tin) · laptop
-  `CFA-BINHLD-LT` (không task). **KHÔNG nhận dạng bằng đường dẫn hay tên venv**
+- ⚠️ HAI MÁY: desktop `PICHU` (task Daily + Weekend, sinh brief; task News Alert ĐÃ TẮT 11/11) · laptop
+  `CFA-BINHLD-LT` (CHỈ task News Alert từ 11/11 — `-OnlyNewsAlert`; Claude CLI qua
+  `CLAUDE_CODE_OAUTH_TOKEN` trong `.env`; KHÔNG được bật VPN công ty — Anthropic chặn 403). **KHÔNG nhận dạng bằng đường dẫn hay tên venv**
   — cả hai đều `C:\vnstock`, và venv đổi theo TÀI KHOẢN đăng nhập chứ không
   theo máy (desktop in `\admin\`, phát trước in `\Administrator\`). Dấu hiệu
   duy nhất đáng tin: `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName
