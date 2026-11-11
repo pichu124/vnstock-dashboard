@@ -227,6 +227,14 @@ def render_money_flow_tab() -> None:
     with st.spinner("Đang tải dữ liệu NN ròng (bộ lọc cổ phiếu — NN ròng theo mã)..."):
         _nn_raw = _fetch_foreign_net_flow(trading_days=20)
 
+    # Lượt tải dừng giữa chừng (hạn mức / mạng / nguồn) ⇒ cửa sổ dài tính trên ÍT phiên hơn nhãn.
+    if _NN_DIAG.get("partial") and not _nn_raw.empty:
+        _got, _want = _NN_DIAG["partial"]
+        st.warning(
+            f"⚠️ NN ròng chỉ tải được **{_got}/{_want} phiên** (nguồn báo lỗi hoặc chạm hạn mức giữa "
+            f"chừng) — cửa sổ dài hơn {_got} phiên đang tính THIẾU. Đợi vài phút rồi bấm "
+            "**🗑 Xoá cache** trong sidebar để tải lại.")
+
     # Diagnostic
     _nn_record_count = len(_nn_raw) if not _nn_raw.empty else 0
     if _nn_record_count == 0:

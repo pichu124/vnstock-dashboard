@@ -62,6 +62,12 @@ class TestExpectedDrop:
         pct, _ = expected_drop_pct({"type": "bonus", "ratio": 0.1}, 60.0)
         assert pct == pytest.approx(100 * 0.1 / 1.1)
 
+    def test_stock_merge_is_not_graded_as_a_price_drop(self):
+        """Gộp cổ phiếu (thế hệ 6 `stock_merge`, lưu "split") làm giá TĂNG ⇒ không kết luận."""
+        raw = str({"symbol": "ABC", "event_type": "stock_merge", "ratio": 0.1})
+        pct, why = expected_drop_pct({"type": "split", "ratio": 0.1, "raw": raw}, 60.0)
+        assert pct is None and "gộp" in why
+
     @pytest.mark.parametrize("event", [
         {"type": "cash", "cash_amount": None},
         {"type": "cash", "cash_amount": "rác"},

@@ -216,6 +216,8 @@ def _fetch_foreign_net_flow(trading_days: int = 20) -> pd.DataFrame:
     Return DataFrame [symbol, date, net_value (VND)]. Thế hệ 6 chỉ có RÒNG theo mã —
     không có cột mua/bán tách riêng (`_aggregate_nn_buy_sell_by_window` trả {}).
     """
+    _NN_DIAG.pop("partial", None)   # cờ lượt cụt trước — xoá TRƯỚC mọi return (kể cả disk cache)
+
     # Tầng 1: thử disk cache trước
     cached = _load_nn_from_disk()
     if not cached.empty and len(cached) > 5:
@@ -292,6 +294,11 @@ def _fetch_foreign_net_flow(trading_days: int = 20) -> pd.DataFrame:
     if len(result) > 5 and not stopped_early:
         _save_nn_to_disk(result)
         log.info("NN flow: saved %d records to disk cache", len(result))
+    if stopped_early:
+        # Kết quả cụt vẫn nằm trong st.cache_data 10 phút (gọi lại ngay chỉ chạm hạn mức lần nữa)
+        # ⇒ ghi lại để tab BÁO RÕ số phiên thật, không vẽ "20D" trên 2 phiên như dữ liệu đủ.
+        # _NN_DIAG sống theo tiến trình, cùng vòng đời với cache bộ nhớ; nút 🗑 xoá cả hai.
+        _NN_DIAG["partial"] = (int(result["date"].nunique()), int(trading_days))
     return result
 
 

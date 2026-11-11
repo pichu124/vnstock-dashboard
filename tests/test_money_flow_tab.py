@@ -195,7 +195,7 @@ _BUY_SELL = {"VCB": {"buy": 80.0, "sell": 30.0}, "HPG": {"buy": 10.0, "sell": 10
              "FPT": {"buy": 5.0, "sell": 25.0}}
 
 
-def _render_full_page(monkeypatch, tmp_path, buy_sell=_BUY_SELL):
+def _render_full_page(monkeypatch, tmp_path, buy_sell=_BUY_SELL, nn_diag=None):
     """Trang đủ dữ liệu: 3 ngành ròng +/0/−, VCB có Lệnh lớn (kéo VÀO), Live Scan bật.
     Trả (st giả, các lần gọi ui.page_header/ui.section)."""
     import json
@@ -227,6 +227,8 @@ def _render_full_page(monkeypatch, tmp_path, buy_sell=_BUY_SELL):
     m._fetch_order_stats_batch = lambda tickers: {
         "VCB": {"buy_sell_ratio": 0.7, "big_order_score": 40}}
     m._compute_money_flow_score = compute_money_flow_score
+    if nn_diag is not None:
+        m._NN_DIAG = nn_diag
     monkeypatch.setitem(sys.modules, "vnstock_dashboard", m)
 
     # badge độ tươi là module ngoài trang (màu riêng, có test riêng) — tắt để chỉ soi trang
@@ -334,3 +336,17 @@ def test_net_only_foreign_flow_shows_dash_not_zero_for_buy_sell(monkeypatch, tmp
     assert top_buy, "Top 10 mua/bán ròng biến mất khi thiếu mua/bán tách riêng"
     assert list(top_buy[0]["Mã"]) == ["VCB", "FPT"]
     assert "Mua (tỷ)" not in top_buy[0].columns and "Bán (tỷ)" not in top_buy[0].columns
+
+
+
+def test_partial_foreign_flow_load_is_announced_not_shown_as_full_window(monkeypatch, tmp_path):
+    """Lượt tải NN dừng giữa chừng (hạn mức/mạng) ⇒ trang BÁO số phiên thật, kể cả khi đọc từ cache."""
+    st, _ = _render_full_page(monkeypatch, tmp_path, nn_diag={"partial": (2, 20)})
+    warns = [str(c.args[0]) for c in st.warning.call_args_list if c.args]
+    assert any("2/20 phiên" in w for w in warns), warns
+
+
+def test_full_foreign_flow_load_has_no_partial_warning(monkeypatch, tmp_path):
+    st, _ = _render_full_page(monkeypatch, tmp_path)
+    warns = [str(c.args[0]) for c in st.warning.call_args_list if c.args]
+    assert not any("chỉ tải được" in w for w in warns), warns

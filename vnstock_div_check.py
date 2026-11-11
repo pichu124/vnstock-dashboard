@@ -82,6 +82,10 @@ def expected_drop_pct(event: dict, close_prev: float) -> "tuple[float | None, st
     etype = str(event.get("type") or "").lower()
     cash = event.get("cash_amount")
     ratio = event.get("ratio")
+    # Gộp cổ phiếu (enum thế hệ 6 `stock_merge`, lưu kiểu "split") làm giá TĂNG — công thức
+    # drop bên dưới không áp được, chấm theo nó sẽ che một chuỗi thô chưa điều chỉnh.
+    if "stock_merge" in str(event.get("raw") or ""):
+        return None, "gộp cổ phiếu (giá tăng) — không chấm theo công thức giảm giá"
     if etype == "cash":
         try:
             cash_f = float(cash)

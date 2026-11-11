@@ -1404,8 +1404,10 @@ def test_foreign_net_flow_uses_shared_screener_helper(tmp_path, monkeypatch):
         pd=pd, log=logging.getLogger("t"), _NN_DIAG={},
         _load_nn_from_disk=lambda: pd.DataFrame(), _save_nn_to_disk=lambda df: None,
     )
+    ns["_NN_DIAG"]["partial"] = (1, 3)       # cờ của lượt cụt TRƯỚC phải được xoá
     out = ns["_fetch_foreign_net_flow"](trading_days=3)
     assert len(asked) == 3 and all(pd.Timestamp(d).weekday() < 5 for d in asked)
+    assert "partial" not in ns["_NN_DIAG"]
     assert list(out.columns) == ["symbol", "date", "net_value"]
     assert ns["_aggregate_nn_by_window"](out, 7) == {"VCB": 15.0, "FPT": -6.0}
     assert ns["_aggregate_nn_buy_sell_by_window"](out, 7) == {}
@@ -1489,7 +1491,22 @@ def test_foreign_net_flow_persistent_rate_limit_returns_partial_not_crash(monkey
         _save_nn_to_disk=saved.append)["_fetch_foreign_net_flow"]
     out = fn(trading_days=20)
     assert out["date"].nunique() == 2 and saved == [] and "rate limit" in diag["state"]
+    assert diag["partial"] == (2, 20)          # tab Dòng tiền báo rõ 2/20 phiên, kể cả lượt cache sau
     assert len(slept) == 1                     # MỘT lượt chờ, không treo UI nhiều phút
+
+
+
+def test_disk_cache_hit_clears_stale_partial_flag():
+    """Đọc từ disk cache (luôn đủ phiên — bản cụt không bao giờ được ghi đĩa) ⇒ cờ cụt cũ phải xoá,
+    không thì tab báo "chỉ tải được 2/20 phiên" trên dữ liệu đủ."""
+    diag = {"partial": (2, 20)}
+    disk = pd.DataFrame({"symbol": [f"M{i}" for i in range(8)], "date": ["2026-11-10"] * 8,
+                         "net_value": [1e9] * 8})
+    fn = load_source_fns(
+        "vnstock_dashboard.py", "_fetch_foreign_net_flow", pd=pd, log=logging.getLogger("t"),
+        _NN_DIAG=diag, _load_nn_from_disk=lambda: disk,
+        _save_nn_to_disk=lambda df: None)["_fetch_foreign_net_flow"]
+    assert len(fn(trading_days=20)) == 8 and "partial" not in diag
 
 
 # ── Live quote ghép vào nến intraday: đúng lưới timeframe, volume là phần chênh ─
