@@ -4598,6 +4598,7 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_scenario_levels,
     enforce_sector_nn_figures,
     _NN_MONTH_AFTER_RE,
+    _NN_MONTH_NOT,
     _nn_close,
     _nn_month_framed,
     _nn_month_value,

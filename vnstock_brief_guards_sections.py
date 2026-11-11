@@ -1069,10 +1069,14 @@ def enforce_lead_lag(text: str, ctx: dict) -> str:
 # ── Khung của một số NN ngành: nhãn THÁNG đứng NGAY sau số / tên ngành (11/11) ────────
 # Chỉ nhìn NGAY SAU (không nhìn lùi, không cả câu): "Tuần này … 2,536 tỷ, cao nhất trong tháng" là
 # số tuần. "tháng 10" (tên tháng) và "11 tháng" không phải khung 1M.
+# Sau "tháng"/"20 phiên" mà là trước/sau/thứ/tới/tên tháng/số ⇒ mệnh đề khác ("1 tháng trước còn mua
+# ròng", "tháng thứ ba liên tiếp", "tháng Mười", "20 phiên trước đó") — KHÔNG phải khung 1M.
+_NN_MONTH_NOT = r"(?!\s*(?:\d|trước|sau|thứ|tới|qua\s+nữa|mười|một|giêng|chạp))"
 _NN_MONTH_AFTER_RE = _re.compile(
-    r"(?:\s*đồng)?\s*(?:\(\s*(?:NN\s+)?(?:1M|1\s+tháng|20\s+phiên)\b"
-    r"|,\s*(?:1\s+tháng|20\s+phiên)\b"
-    r"|(?:trong\s+)?(?:1\s+)?tháng\b(?!\s*\d)|trong\s+20\s+phiên\b)", _re.IGNORECASE)
+    r"(?:\s*đồng)?\s*(?:\(\s*(?:NN\s+)?(?:1M\b|(?:1\s+tháng|20\s+phiên)\b" + _NN_MONTH_NOT + r")"
+    r"|,\s*(?:1\s+tháng|20\s+phiên)\b" + _NN_MONTH_NOT
+    + r"|(?:trong\s+)?(?:1\s+)?tháng\b" + _NN_MONTH_NOT
+    + r"|trong\s+20\s+phiên\b" + _NN_MONTH_NOT + r")", _re.IGNORECASE)
 
 
 def _nn_month_framed(s: str, pos: int) -> bool:
@@ -1163,8 +1167,9 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
             # to the real SIGNED value — a wrong magnitude can't survive.
             def _fix_after(m: "_re.Match", _vv=vv, _nm=nm) -> str:
                 cur = _parse_vn_number(m.group(2))
-                if cur is None:
-                    return m.group(0)
+                if cur is None or _re.match(r"\s*(?:đồng\s*)?(?:GTGD|thanh\s+khoản)", m.string[m.end():],
+                                            _re.IGNORECASE):
+                    return m.group(0)                   # "X (+1,500 tỷ GTGD)": số thanh khoản, không phải NN
                 if _nn_month_framed(m.string, m.end()):      # "X (NN -2,536 tỷ, 1 tháng)"
                     v1m = _nn_month_value(ctx, _nm)
                     if v1m is None or _nn_close(cur, v1m):
@@ -1187,8 +1192,15 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
     def _num_present(v: float) -> bool:
         # the strongest side's tỷ figure already on the line (either , or .
         # thousands sep) — so we don't duplicate when the model gave the number.
-        s = f"{abs(v):,.0f}"
-        return s in region_low or s.replace(",", ".") in region_low
+        # Số kèm nhãn THÁNG ngay sau ("1,032 tỷ (1M)") không phải số tuần của ngành — guard sau
+        # (enforce_sector_nn_figures) sẽ ghim nó về NN 1M; tính nó là "đã có" thì lượt chạy lại
+        # (`--from-file`) mới chèn dòng chuẩn ⇒ mất idempotent.
+        for fig in {f"{abs(v):,.0f}", f"{abs(v):,.0f}".replace(",", ".")}:
+            for occ in _re.finditer(_re.escape(fig), region_low):
+                ty = _re.match(r"\s*tỷ", region_low[occ.end():])
+                if not _nn_month_framed(region_low, occ.end() + (ty.end() if ty else 0)):
+                    return True
+        return False
 
     _clauses = _re.split(r"[.;\n]", "\n".join(lines[anchor:region_end]).lower())
 
@@ -1321,9 +1333,11 @@ def enforce_net_flow_label(text: str, ctx: dict) -> str:
             mag = _parse_vn_number(m.group(3))
             if mag is None:
                 return m.group(0)
-            if _nn_month_framed(m.string, m.end()):  # "… trong ngành X (1M)" ⇒ chiều theo NN 1M
+            if _nn_month_framed(m.string, m.end()):  # "… trong ngành X (1M)" ⇒ theo NN 1M
+                # Tên ngành nằm TRONG match ⇒ số là của ngành này: động từ theo dấu NN 1M, độ lớn
+                # ghim về |NN 1M| (ngoài vùng dòng tiền không guard nào khác ghim độ lớn).
                 v1m = _nn_month_value(ctx, _nm)
-                if v1m is None or not _nn_close(abs(mag), abs(v1m)):
+                if v1m is None:
                     return m.group(0)
                 return f"{'mua ròng' if v1m > 0 else 'bán ròng'}{m.group(2)}{abs(v1m):,.0f}{m.group(4)}"
             if abs(mag - abs(_v)) > max(1.0, 0.02 * abs(_v)):
