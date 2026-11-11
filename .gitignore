@@ -38,3 +38,6 @@ artifacts/
 
 # Ảnh chụp so trước/sau thiết kế lại giao diện (scripts/ui_snapshots.py)
 ui_snapshots/
+
+# vnstock gen6 migration work folder (holds source data — never commit)
+vnstock-migration/
