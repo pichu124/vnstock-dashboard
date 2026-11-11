@@ -103,6 +103,7 @@ def test_runner_nn_keeps_top_buyers_and_sellers_per_session(monkeypatch):
     """Mỗi phiên: top `_NN_TOP_N` mua ròng + top `_NN_TOP_N` bán ròng (tập TopStock cũ),
     mã NN = 0/NaN bỏ; phiên nguồn lỗi bỏ qua, không làm hỏng cả lượt."""
     pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+    monkeypatch.delenv("VNSTOCK_NN_RATE_WAIT_BUDGET_S", raising=False)   # .env máy thật lọt vào
     import vnstock
     from vnstock.errors import NetworkError
 
@@ -127,6 +128,8 @@ def test_runner_nn_keeps_top_buyers_and_sellers_per_session(monkeypatch):
     vr.compute_market_overview("unused")
     nn = captured["nn"]
     assert len(seen) == 20 and nn["date"].nunique() == 19
+    assert nn.attrs["nn_coverage"] == {"sessions": 19, "asked": 20, "failed_days": 1,
+                                       "source": "pipeline"}
     one = nn[nn["date"] == nn["date"].max()]
     assert dict(zip(one["symbol"], one["net_value"])) == {"B1": 5e9, "B2": 3e9,
                                                            "S1": -4e9, "S2": -2e9}
@@ -268,3 +271,71 @@ def test_missing_nn_3m_drops_trend_flag_and_keeps_flow_finite():
     assert np.isfinite(s["flow"]).all() and s["flow"].abs().sum() > 0
     flags = [x for xs in list(s["catalysts"]) + list(s["red_flags"]) for x in xs]
     assert not [x for x in flags if "ACCUMULATING" in x or "DUMPING" in x]
+
+
+
+def test_overview_carries_nn_coverage_only_when_feed_had_errors(tmp_path):
+    """`nn_coverage` của nguồn NN đi thẳng vào market_overview (tab Tổng quan báo thiếu phiên);
+    lượt đủ ⇒ None."""
+    import vnstock_runner as vr
+
+    wh = str(mini_warehouse(tmp_path))
+    days = pd.bdate_range(end="2026-10-16", periods=3)
+    nn = pd.DataFrame({"symbol": "AAA", "date": days, "net_value": [1e9] * 3})
+    assert vr.build_market_overview(wh, fetch_nn=lambda: nn)["nn_coverage"] is None
+    nn.attrs["nn_coverage"] = {"sessions": 3, "asked": 20, "failed_days": 17}
+    assert vr.build_market_overview(wh, fetch_nn=lambda: nn)["nn_coverage"] == {
+        "sessions": 3, "asked": 20, "failed_days": 17}
+
+
+def test_runner_nn_waits_on_rate_limit_instead_of_dropping_the_session(monkeypatch):
+    pytest.importorskip("vnstock")
+    monkeypatch.delenv("VNSTOCK_NN_RATE_WAIT_BUDGET_S", raising=False)   # .env máy thật lọt vào
+    from vnstock.errors import RateLimitError
+
+    import vnstock_foreign_flow as ff
+    import vnstock_ratelimit as rl
+    import vnstock_runner as vr
+
+    monkeypatch.setattr(rl.time, "sleep", lambda s: None)
+    board = pd.DataFrame({"symbol": ["B1"], "foreign_net_value": [5e9], "foreign_net_volume": [1]})
+    seen = []
+
+    def _board(day):
+        seen.append(day)
+        if len(seen) == 1:
+            raise RateLimitError("vượt giới hạn", code="VNSTOCK_SOURCE_RATE_LIMITED", retry_after=1)
+        return board
+    monkeypatch.setattr(ff, "foreign_net_for_date", _board)
+    captured = {}
+    monkeypatch.setattr(vr, "build_market_overview",
+                        lambda wh, fetch_nn, fetch_net_bs: captured.setdefault("nn", fetch_nn()))
+    vr.compute_market_overview("unused")
+    nn = captured["nn"]
+    assert nn["date"].nunique() == 20 and "nn_coverage" not in nn.attrs
+
+
+
+def test_runner_nn_rate_limit_waits_are_capped_by_budget(monkeypatch):
+    """Hạn mức không hạ cả 20 phiên ⇒ tổng thời gian CHỜ có trần (task Daily trần 240′),
+    mọi phiên tính là lỗi — không phải 20 × 3 × 300s."""
+    pytest.importorskip("vnstock")
+    from vnstock.errors import RateLimitError
+
+    import vnstock_foreign_flow as ff
+    import vnstock_ratelimit as rl
+    import vnstock_runner as vr
+
+    slept: list = []
+    monkeypatch.setattr(rl.time, "sleep", slept.append)
+    monkeypatch.setenv("VNSTOCK_NN_RATE_WAIT_BUDGET_S", "300")
+
+    def _board(day):
+        raise RateLimitError("vượt giới hạn theo giờ", code="VNSTOCK_SOURCE_RATE_LIMITED", retry_after=3600)
+    monkeypatch.setattr(ff, "foreign_net_for_date", _board)
+    captured = {}
+    monkeypatch.setattr(vr, "build_market_overview",
+                        lambda wh, fetch_nn, fetch_net_bs: captured.setdefault("nn", fetch_nn()))
+    vr.compute_market_overview("unused")
+    assert sum(slept) <= 300 + rl._MAX_WAIT and len(slept) == 1
+    assert captured["nn"].attrs["nn_coverage"]["failed_days"] == 20

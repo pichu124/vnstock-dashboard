@@ -840,3 +840,14 @@ def test_consensus_title_is_a_section_and_the_line_stays_markdown(render_env, mo
     md = _markdowns(st)
     assert "🟢 2/2 agents: **bullish**" in md
     assert not [m for m in md if m.lstrip().startswith("#")]
+
+
+def test_market_tab_warns_when_sector_nn_is_missing_sessions(render_env, monkeypatch):
+    """Bảng ngành có cột NN nhưng lượt tải NN thiếu phiên ⇒ tab Tổng quan BÁO, không vẽ như đủ."""
+    stub = _stub_dashboard(_sector_df(), _index_df())
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", stub)
+    render_env.session_state["_mkt_ticker_data"] = _ticker_df()
+    render_env.session_state["_mkt_nn_coverage"] = {"sessions": 12, "asked": 20, "failed_days": 8}
+    _load("dashboard.market_tab").render_market_tab()
+    warns = [str(c.args[0]) for c in render_env.warning.call_args_list if c.args]
+    assert any("12/20 phiên" in w for w in warns), warns

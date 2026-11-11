@@ -15,6 +15,7 @@ Task Scheduler: chạy lúc 15:35 (sau updater 15:30)
 
 import argparse
 import json
+import os
 import warnings
 from datetime import datetime, time as dt_time
 from pathlib import Path
@@ -537,9 +538,11 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
 
     # NN ròng + Net BS là nguồn NGOÀI kho: bên gọi đưa vào, thiếu ⇒ cột None.
     nn_w, nn_m, nn_3m, nn_data_date = {}, {}, {}, None
+    nn_coverage = None    # {"sessions", "asked", "failed_days"} khi lượt tải NN có ngày lỗi
     if fetch_nn is not None:
         try:
             nn_df = fetch_nn()
+            nn_coverage = (getattr(nn_df, "attrs", None) or {}).get("nn_coverage")
             nn_w, nn_m, nn_3m, nn_data_date = _nn_windows(nn_df)
             if nn_data_date:
                 console.log(f"  NN data: {len(nn_df)} records, đến ngày {nn_data_date}")
@@ -707,6 +710,9 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
         "gtgd_missing_est": _missing_est,
         "gtgd_heavy_min": _HEAVY_GTGD_TY,
         "nn_data_date": nn_data_date,   # latest date the foreign-flow feed covers
+        # Lượt tải NN có ngày lỗi (nguồn/hạn mức/mạng) ⇒ cột NN 1T/1M của ngành tính THIẾU
+        # phiên; tab Tổng quan báo rõ. None = đủ.
+        "nn_coverage": nn_coverage,
         "sectors": result.to_dict(orient="records"),
         "breadth": breadth,
         "tickers": tick_display.to_dict(orient="records"),
@@ -725,7 +731,20 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
         from datetime import date, timedelta as _td
         from vnstock.errors import VnstockError
         from vnstock_foreign_flow import foreign_net_for_date
+        from vnstock_ratelimit import call_with_rate_limit_retry
         all_nn_rows = []
+        failed_days = 0
+        # Ngân sách CHỜ hạn mức cho cả 20 phiên (task Daily có trần 240′): còn ngân sách ⇒ mỗi
+        # phiên được chờ MỘT lượt (≤300s) theo retry_after; hết ⇒ không chờ nữa, phiên chạm
+        # hạn mức tính là lỗi. Ca xấu nhất ≈ ngân sách + 300s. `0` = không bao giờ chờ.
+        try:
+            wait_budget = float(os.getenv("VNSTOCK_NN_RATE_WAIT_BUDGET_S", "300") or 0)
+        except ValueError:          # giá trị rác trong .env ⇒ mặc định, không làm mất cả NN
+            wait_budget = 300.0
+        waited = [0.0]
+
+        def _on_wait(seconds, _attempt):
+            waited[0] += seconds
         today_d = date.today()
         days_fetched = 0
         calendar_day = 0
@@ -736,8 +755,11 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                 continue
             days_fetched += 1
             try:
-                board = foreign_net_for_date(dt.strftime("%Y-%m-%d"))
-            except VnstockError as e:
+                board = call_with_rate_limit_retry(
+                    foreign_net_for_date, dt.strftime("%Y-%m-%d"),
+                    retries=1 if waited[0] < wait_budget else 0, on_wait=_on_wait)
+            except (VnstockError, RuntimeError) as e:   # RuntimeError = hạn mức không hạ
+                failed_days += 1
                 console.log(f"  [yellow]⚠ NN {dt}: {getattr(e, 'code', '')} {e}[/yellow]")
                 continue
             net = board.dropna(subset=["foreign_net_value"])
@@ -745,7 +767,12 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                          net[net["foreign_net_value"] < 0].nsmallest(_NN_TOP_N, "foreign_net_value")):
                 for sym, val in zip(side["symbol"], side["foreign_net_value"]):
                     all_nn_rows.append({"symbol": sym, "date": dt, "net_value": float(val)})
-        return pd.DataFrame(all_nn_rows)
+        out = pd.DataFrame(all_nn_rows)
+        if failed_days:
+            out.attrs["nn_coverage"] = {
+                "sessions": int(out["date"].nunique()) if not out.empty else 0,
+                "asked": 20, "failed_days": failed_days, "source": "pipeline"}
+        return out
 
     def _fetch_net_bs(_top_tickers: list) -> dict:
         """Net Buy-Sell theo mã qua `Market().equity(t).trade_history()`: song song có

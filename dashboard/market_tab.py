@@ -59,6 +59,29 @@ def _symmetric_xrange(*series, floor: float = 30.0) -> list:
     return [-r, r]
 
 
+def nn_coverage_warning(cov) -> str | None:
+    """Câu cảnh báo khi lượt tải NN ròng của bảng ngành THIẾU phiên (hàm thuần).
+
+    `cov` = `market_overview["nn_coverage"]`: {"sessions", "asked"[, "failed_days"]}; None = đủ.
+    """
+    if not isinstance(cov, dict):
+        return None
+    try:
+        got, asked = int(cov.get("sessions", 0)), int(cov.get("asked", 0))
+        failed = int(cov.get("failed_days") or 0)
+    except (TypeError, ValueError):
+        return None
+    if asked <= 0 or (got >= asked and not failed):
+        return None
+    why = f"{failed} ngày nguồn báo lỗi/chạm hạn mức" if failed else "nguồn báo lỗi/chạm hạn mức giữa chừng"
+    if cov.get("source") == "dashboard":      # bảng do dashboard tự tính (chưa có file của pipeline)
+        fix = ("Đợi vài phút rồi bấm **🗑 Xoá cache** ở tab Dòng tiền (xoá cả bảng ngành) để tải lại.")
+    else:                                     # file market_overview.json của pipeline tối
+        fix = "Lượt pipeline tối sau sẽ tính lại."
+    return (f"⚠️ NN ròng của bảng ngành chỉ có **{got}/{asked} phiên** ({why}) — cột NN 1T/1M "
+            f"đang tính THIẾU phiên. {fix}")
+
+
 def ma200_card(breadth: dict) -> dict:
     """Chữ thẻ "Trên MA200" + thanh tiến độ. ``tone_pct`` (đặt MÀU) luôn là
     ``above_ma200_pct``; ``VNSTOCK_BREADTH_DISPLAY=investable`` chỉ đổi số IN (tập thanh
@@ -830,6 +853,8 @@ def render_market_tab() -> None:
                 _nn_src = " — cần `Market().equity.screener` (NN ròng theo mã, vnstock thế hệ 6)" if _ui.diag_on() else ""
                 st.caption(f"⚠️ Dữ liệu dòng ngoại (NN) chưa có{_nn_src}. "
                            "Vốn hoá là ước tính từ giá × cổ phiếu lưu hành. Freefloat từ dữ liệu niêm yết/cổ đông lớn (vnstock).")
+            elif _nn_cov_msg := nn_coverage_warning(st.session_state.get("_mkt_nn_coverage")):
+                st.warning(_nn_cov_msg)
 
         # ── Drill-down: chi tiết công ty theo ngành ───────────────────────────
         if _selected_nganh != "Tổng quan theo ngành":

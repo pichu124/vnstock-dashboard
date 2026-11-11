@@ -90,3 +90,28 @@ def test_render_takes_no_positional_args():
 def test_symmetric_xrange(series, expect):
     from dashboard.market_tab import _symmetric_xrange
     assert _symmetric_xrange(*series) == pytest.approx(expect)
+
+
+
+@pytest.mark.parametrize("cov, expect", [
+    (None, None),
+    ({"sessions": 20, "asked": 20}, None),
+    ({"sessions": 12, "asked": 20, "failed_days": 8}, "12/20 phiên"),
+    ({"sessions": 2, "asked": 20}, "2/20 phiên"),
+    ({"sessions": "rác", "asked": 20}, None),
+])
+def test_nn_coverage_warning_text(cov, expect):
+    """Bảng ngành tab Tổng quan báo rõ khi NN ròng tính THIẾU phiên (lỗi nguồn/hạn mức)."""
+    from dashboard.market_tab import nn_coverage_warning
+    msg = nn_coverage_warning(cov)
+    assert (msg is None) if expect is None else (expect in msg)
+
+
+
+def test_nn_coverage_warning_points_to_the_right_fix():
+    """Bảng của pipeline ⇒ chờ lượt tối sau (🗑 không đụng file đó); bảng dashboard tự tính ⇒ 🗑."""
+    from dashboard.market_tab import nn_coverage_warning
+    pipe = nn_coverage_warning({"sessions": 12, "asked": 20, "failed_days": 8, "source": "pipeline"})
+    dash = nn_coverage_warning({"sessions": 2, "asked": 20, "source": "dashboard"})
+    assert "pipeline tối" in pipe and "Xoá cache" not in pipe
+    assert "Xoá cache" in dash

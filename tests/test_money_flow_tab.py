@@ -195,7 +195,7 @@ _BUY_SELL = {"VCB": {"buy": 80.0, "sell": 30.0}, "HPG": {"buy": 10.0, "sell": 10
              "FPT": {"buy": 5.0, "sell": 25.0}}
 
 
-def _render_full_page(monkeypatch, tmp_path, buy_sell=_BUY_SELL, nn_diag=None):
+def _render_full_page(monkeypatch, tmp_path, buy_sell=_BUY_SELL, nn_coverage=None):
     """Trang đủ dữ liệu: 3 ngành ròng +/0/−, VCB có Lệnh lớn (kéo VÀO), Live Scan bật.
     Trả (st giả, các lần gọi ui.page_header/ui.section)."""
     import json
@@ -218,7 +218,10 @@ def _render_full_page(monkeypatch, tmp_path, buy_sell=_BUY_SELL, nn_diag=None):
     m = _stub_mf_dashboard(prices)
     m._load_industry_map = lambda: {"VCB": "Ngân hàng", "HPG": "Thép & Kim loại",
                                     "FPT": "Công nghệ"}
-    m._fetch_foreign_net_flow = lambda **k: pd.DataFrame({"symbol": ["VCB"]})
+    _nn = pd.DataFrame({"symbol": ["VCB"]})
+    if nn_coverage is not None:
+        _nn.attrs["nn_coverage"] = nn_coverage
+    m._fetch_foreign_net_flow = lambda **k: _nn
     m._aggregate_nn_by_window = lambda raw, days: {"VCB": 50.0, "HPG": 0.0, "FPT": -20.0}
     m._aggregate_nn_buy_sell_by_window = lambda raw, days: buy_sell
     m._compute_gtgd_by_window = lambda n: {"VCB": 500.0, "HPG": 200.0, "FPT": 300.0}
@@ -227,8 +230,6 @@ def _render_full_page(monkeypatch, tmp_path, buy_sell=_BUY_SELL, nn_diag=None):
     m._fetch_order_stats_batch = lambda tickers: {
         "VCB": {"buy_sell_ratio": 0.7, "big_order_score": 40}}
     m._compute_money_flow_score = compute_money_flow_score
-    if nn_diag is not None:
-        m._NN_DIAG = nn_diag
     monkeypatch.setitem(sys.modules, "vnstock_dashboard", m)
 
     # badge độ tươi là module ngoài trang (màu riêng, có test riêng) — tắt để chỉ soi trang
@@ -341,7 +342,8 @@ def test_net_only_foreign_flow_shows_dash_not_zero_for_buy_sell(monkeypatch, tmp
 
 def test_partial_foreign_flow_load_is_announced_not_shown_as_full_window(monkeypatch, tmp_path):
     """Lượt tải NN dừng giữa chừng (hạn mức/mạng) ⇒ trang BÁO số phiên thật, kể cả khi đọc từ cache."""
-    st, _ = _render_full_page(monkeypatch, tmp_path, nn_diag={"partial": (2, 20)})
+    st, _ = _render_full_page(monkeypatch, tmp_path,
+                              nn_coverage={"sessions": 2, "asked": 20, "source": "dashboard"})
     warns = [str(c.args[0]) for c in st.warning.call_args_list if c.args]
     assert any("2/20 phiên" in w for w in warns), warns
 
@@ -350,3 +352,37 @@ def test_full_foreign_flow_load_has_no_partial_warning(monkeypatch, tmp_path):
     st, _ = _render_full_page(monkeypatch, tmp_path)
     warns = [str(c.args[0]) for c in st.warning.call_args_list if c.args]
     assert not any("chỉ tải được" in w for w in warns), warns
+
+
+def test_clear_cache_button_also_clears_the_overview_sector_table(monkeypatch, tmp_path):
+    """🗑 ở Dòng tiền xoá cả cache bảng ngành tab Tổng quan (dựng trên CHÍNH NN này)."""
+    import sys
+    from unittest import mock
+
+    import pandas as pd
+
+    from tests.test_tab_render_smoke import _fake_streamlit, _load
+
+    st = _fake_streamlit()
+    st.button = lambda *a, **k: k.get("key") == "mf_clear_cache"
+
+    class _Rerun(Exception):
+        pass
+
+    def _rerun():
+        raise _Rerun
+    st.rerun = _rerun
+    monkeypatch.setitem(sys.modules, "streamlit", st)
+    m = _stub_mf_dashboard(tmp_path)
+    cleared: list = []
+    for name in ("_fetch_foreign_net_flow", "_fetch_order_stats_batch", "_load_all_market_data"):
+        fn = mock.MagicMock(return_value=pd.DataFrame())
+        fn.clear = (lambda n=name: cleared.append(n))
+        setattr(m, name, fn)
+    monkeypatch.setitem(sys.modules, "vnstock_dashboard", m)
+    monkeypatch.chdir(tmp_path)
+    try:
+        _load("dashboard.money_flow_tab").render_money_flow_tab()
+    except _Rerun:
+        pass
+    assert "_load_all_market_data" in cleared and "_fetch_foreign_net_flow" in cleared

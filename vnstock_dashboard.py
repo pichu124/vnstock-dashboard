@@ -216,8 +216,6 @@ def _fetch_foreign_net_flow(trading_days: int = 20) -> pd.DataFrame:
     Return DataFrame [symbol, date, net_value (VND)]. Thế hệ 6 chỉ có RÒNG theo mã —
     không có cột mua/bán tách riêng (`_aggregate_nn_buy_sell_by_window` trả {}).
     """
-    _NN_DIAG.pop("partial", None)   # cờ lượt cụt trước — xoá TRƯỚC mọi return (kể cả disk cache)
-
     # Tầng 1: thử disk cache trước
     cached = _load_nn_from_disk()
     if not cached.empty and len(cached) > 5:
@@ -296,9 +294,10 @@ def _fetch_foreign_net_flow(trading_days: int = 20) -> pd.DataFrame:
         log.info("NN flow: saved %d records to disk cache", len(result))
     if stopped_early:
         # Kết quả cụt vẫn nằm trong st.cache_data 10 phút (gọi lại ngay chỉ chạm hạn mức lần nữa)
-        # ⇒ ghi lại để tab BÁO RÕ số phiên thật, không vẽ "20D" trên 2 phiên như dữ liệu đủ.
-        # _NN_DIAG sống theo tiến trình, cùng vòng đời với cache bộ nhớ; nút 🗑 xoá cả hai.
-        _NN_DIAG["partial"] = (int(result["date"].nunique()), int(trading_days))
+        # ⇒ gắn độ phủ vào CHÍNH bảng (attrs đi qua pickle của cache) để tab BÁO RÕ số phiên thật.
+        # Không dùng _NN_DIAG: Streamlit chạy lại script mỗi lượt ⇒ dict cấp module về {}.
+        result.attrs["nn_coverage"] = {"sessions": int(result["date"].nunique()),
+                                       "asked": int(trading_days), "source": "dashboard"}
     return result
 
 
@@ -2704,6 +2703,7 @@ def _load_all_market_data() -> tuple:
                     age_hours, data.get("data_date"), _warehouse_eod_date(),
                     _market_overview_generated_at(_MARKET_OVERVIEW_PATH)):
                 sector_df = pd.DataFrame(data["sectors"])
+                sector_df.attrs["nn_coverage"] = data.get("nn_coverage")
                 breadth = data["breadth"]
                 tick_df = pd.DataFrame(data["tickers"])
                 log.info("Market data: loaded from pre-computed file (%.1fh old)", age_hours)
@@ -2713,6 +2713,8 @@ def _load_all_market_data() -> tuple:
 
     # Tầng 2: tính tại chỗ bằng CHÍNH hàm của runner (từng là ~300 dòng chép đã trôi).
     # Không ghi market_overview.json vào kho (Dropbox), không Net BS (~1.000 call).
+    # NN của tab Dòng tiền: lượt cụt mang sẵn `attrs["nn_coverage"]` (kể cả bản trong cache) —
+    # build_market_overview chép nó vào kết quả.
     try:
         from vnstock_runner import build_market_overview
         data = build_market_overview(
@@ -2721,14 +2723,16 @@ def _load_all_market_data() -> tuple:
     except Exception:
         log.exception("Market overview Tầng 2 lỗi")
         return pd.DataFrame(), {}, pd.DataFrame()
-    return (pd.DataFrame(data.get("sectors", [])), data.get("breadth", {}),
-            pd.DataFrame(data.get("tickers", [])))
+    sector_df = pd.DataFrame(data.get("sectors", []))
+    sector_df.attrs["nn_coverage"] = data.get("nn_coverage")
+    return (sector_df, data.get("breadth", {}), pd.DataFrame(data.get("tickers", [])))
 
 
 def load_market_overview() -> pd.DataFrame:
     """Wrapper cho backward compat."""
     mkt_df, breadth, tick_df = _load_all_market_data()
     st.session_state["_mkt_breadth"] = breadth
+    st.session_state["_mkt_nn_coverage"] = mkt_df.attrs.get("nn_coverage")
     st.session_state["_mkt_ticker_data"] = tick_df
     return mkt_df
 

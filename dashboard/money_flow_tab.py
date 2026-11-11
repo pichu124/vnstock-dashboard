@@ -219,6 +219,12 @@ def render_money_flow_tab() -> None:
             _fetch_foreign_net_flow.clear()
             _fetch_order_stats_batch.clear()
             _NN_DIAG.clear()
+            # Bảng ngành tab Tổng quan (Tầng 2) dựng trên CHÍNH NN này, cache riêng 1h ⇒ xoá theo,
+            # không thì cảnh báo "thiếu phiên" và số cụt còn tới 1 giờ sau khi đã tải lại đủ.
+            import vnstock_dashboard as _vd
+            _clear_mkt = getattr(getattr(_vd, "_load_all_market_data", None), "clear", None)
+            if callable(_clear_mkt):
+                _clear_mkt()
             for _cp in (_NN_CACHE_PATH, _ORDER_CACHE_PATH):
                 if _cp.exists():
                     _cp.unlink()
@@ -228,8 +234,9 @@ def render_money_flow_tab() -> None:
         _nn_raw = _fetch_foreign_net_flow(trading_days=20)
 
     # Lượt tải dừng giữa chừng (hạn mức / mạng / nguồn) ⇒ cửa sổ dài tính trên ÍT phiên hơn nhãn.
-    if _NN_DIAG.get("partial") and not _nn_raw.empty:
-        _got, _want = _NN_DIAG["partial"]
+    _nn_cov = getattr(_nn_raw, "attrs", {}).get("nn_coverage")   # đi theo bảng, kể cả từ cache
+    if _nn_cov and not _nn_raw.empty:
+        _got, _want = _nn_cov["sessions"], _nn_cov["asked"]
         st.warning(
             f"⚠️ NN ròng chỉ tải được **{_got}/{_want} phiên** (nguồn báo lỗi hoặc chạm hạn mức giữa "
             f"chừng) — cửa sổ dài hơn {_got} phiên đang tính THIẾU. Đợi vài phút rồi bấm "

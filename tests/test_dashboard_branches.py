@@ -1404,10 +1404,9 @@ def test_foreign_net_flow_uses_shared_screener_helper(tmp_path, monkeypatch):
         pd=pd, log=logging.getLogger("t"), _NN_DIAG={},
         _load_nn_from_disk=lambda: pd.DataFrame(), _save_nn_to_disk=lambda df: None,
     )
-    ns["_NN_DIAG"]["partial"] = (1, 3)       # cờ của lượt cụt TRƯỚC phải được xoá
     out = ns["_fetch_foreign_net_flow"](trading_days=3)
     assert len(asked) == 3 and all(pd.Timestamp(d).weekday() < 5 for d in asked)
-    assert "partial" not in ns["_NN_DIAG"]
+    assert "nn_coverage" not in out.attrs                  # lượt đủ ⇒ không đánh dấu cụt
     assert list(out.columns) == ["symbol", "date", "net_value"]
     assert ns["_aggregate_nn_by_window"](out, 7) == {"VCB": 15.0, "FPT": -6.0}
     assert ns["_aggregate_nn_buy_sell_by_window"](out, 7) == {}
@@ -1491,22 +1490,34 @@ def test_foreign_net_flow_persistent_rate_limit_returns_partial_not_crash(monkey
         _save_nn_to_disk=saved.append)["_fetch_foreign_net_flow"]
     out = fn(trading_days=20)
     assert out["date"].nunique() == 2 and saved == [] and "rate limit" in diag["state"]
-    assert diag["partial"] == (2, 20)          # tab Dòng tiền báo rõ 2/20 phiên, kể cả lượt cache sau
+    # độ phủ đi THEO BẢNG (attrs sống qua pickle của st.cache_data) — _NN_DIAG bị Streamlit
+    # đặt lại mỗi lượt chạy script nên không dùng được cho lượt cache hit
+    assert out.attrs["nn_coverage"] == {"sessions": 2, "asked": 20, "source": "dashboard"}
+    import pickle
+    assert pickle.loads(pickle.dumps(out)).attrs["nn_coverage"]["sessions"] == 2
     assert len(slept) == 1                     # MỘT lượt chờ, không treo UI nhiều phút
 
 
 
-def test_disk_cache_hit_clears_stale_partial_flag():
-    """Đọc từ disk cache (luôn đủ phiên — bản cụt không bao giờ được ghi đĩa) ⇒ cờ cụt cũ phải xoá,
-    không thì tab báo "chỉ tải được 2/20 phiên" trên dữ liệu đủ."""
-    diag = {"partial": (2, 20)}
-    disk = pd.DataFrame({"symbol": [f"M{i}" for i in range(8)], "date": ["2026-11-10"] * 8,
-                         "net_value": [1e9] * 8})
-    fn = load_source_fns(
-        "vnstock_dashboard.py", "_fetch_foreign_net_flow", pd=pd, log=logging.getLogger("t"),
-        _NN_DIAG=diag, _load_nn_from_disk=lambda: disk,
-        _save_nn_to_disk=lambda df: None)["_fetch_foreign_net_flow"]
-    assert len(fn(trading_days=20)) == 8 and "partial" not in diag
+def test_market_data_tier2_marks_partial_nn_from_the_cached_flow(tmp_path, monkeypatch):
+    """Tầng 2 dùng NN của tab Dòng tiền: bảng NN cụt (attrs, kể cả bản trong cache) ⇒ bảng ngành
+    mang độ phủ."""
+    import vnstock_runner as vr
+    seen = {}
+
+    def _build(wh, fetch_nn):
+        seen["attrs"] = dict(fetch_nn().attrs)
+        return {"sectors": [{"industry": "Ngân hàng"}], "breadth": {}, "tickers": [],
+                "nn_coverage": seen["attrs"].get("nn_coverage")}
+    monkeypatch.setattr(vr, "build_market_overview", _build)
+    nn_raw = pd.DataFrame({"symbol": ["AAA"], "date": ["2026-11-10"], "net_value": [1e9]})
+    nn_raw.attrs["nn_coverage"] = {"sessions": 2, "asked": 20, "source": "dashboard"}
+    out = load_source_fns(
+        "vnstock_dashboard.py", "_load_all_market_data", pd=pd, json=json,
+        log=logging.getLogger("t"), _MARKET_OVERVIEW_PATH=tmp_path / "none.json",
+        PRICES_DIR=tmp_path / "prices", _NN_DIAG={},          # Streamlit đặt lại mỗi lượt
+        _fetch_foreign_net_flow=lambda **k: nn_raw)["_load_all_market_data"]()
+    assert out[0].attrs["nn_coverage"] == {"sessions": 2, "asked": 20, "source": "dashboard"}
 
 
 # ── Live quote ghép vào nến intraday: đúng lưới timeframe, volume là phần chênh ─
@@ -1662,6 +1673,12 @@ def test_market_data_loader_skips_mid_session_overview_file(tmp_path, monkeypatc
                        encoding="utf-8")
     sectors, breadth, tickers = load()
     assert breadth == {"up": 7} and list(tickers["ticker"]) == ["VCB"]
+    assert sectors.attrs["nn_coverage"] is None            # file cũ không có khoá ⇒ coi như đủ
+
+    cov = {"sessions": 12, "asked": 20, "failed_days": 8}
+    ov_path.write_text(json.dumps({**payload, "generated_at": "2026-10-16 15:30:00",
+                                   "nn_coverage": cov}), encoding="utf-8")
+    assert load()[0].attrs["nn_coverage"] == cov           # Tầng 1 chuyển độ phủ NN cho tab
 
 
 def _files(root: Path) -> dict:
@@ -1691,7 +1708,7 @@ def test_market_data_tier2_is_the_runner_overview_and_writes_nothing(tmp_path, m
         return load_source_fns(
             "vnstock_dashboard.py", "_overview_file_is_current", "_load_all_market_data",
             pd=pd, json=json, datetime=datetime, log=logging.getLogger("t"),
-            _MARKET_OVERVIEW_PATH=path, PRICES_DIR=wh / "prices",
+            _MARKET_OVERVIEW_PATH=path, PRICES_DIR=wh / "prices", _NN_DIAG={},
             _fetch_foreign_net_flow=lambda **k: nn_raw)["_load_all_market_data"]()
 
     vr.save_market_overview(vr.compute_market_overview(str(wh)), str(wh))
