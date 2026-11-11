@@ -1314,7 +1314,9 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             ls = out.rfind("\n", 0, m.start()) + 1
             window = out[ls:m.end()].lower()
             after = out[m.end():m.end() + 12].lower()
-            if "tuần" in window or "1t" in window or "tuần" in after:
+            # nhãn khung đã có NGAY SAU số ("(1T)", "(1M)", "(1 tháng)") ⇒ đừng chèn "(1 tuần)" lần nữa
+            if ("tuần" in window or "1t" in window or "tuần" in after
+                    or _re.match(r"\s*\((?:1t|1m|1 tháng)\)", after)):
                 return m.group(0)
             # cần từ khóa "ròng" trong cùng mệnh đề (đây là số NN, không phải GTGD)
             if "ròng" not in window[-80:]:
@@ -1333,7 +1335,9 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             ls = out.rfind("\n", 0, m.start()) + 1
             window = out[ls:m.end()].lower()
             after = out[m.end():m.end() + 12].lower()
-            if "tuần" in window or "1t" in window or "tuần" in after:
+            # nhãn khung đã có NGAY SAU số ("(1T)", "(1M)", "(1 tháng)") ⇒ đừng chèn "(1 tuần)" lần nữa
+            if ("tuần" in window or "1t" in window or "tuần" in after
+                    or _re.match(r"\s*\((?:1t|1m|1 tháng)\)", after)):
                 return m.group(0)
             return m.group(0) + _frame_label(after)
         out = _re.sub(

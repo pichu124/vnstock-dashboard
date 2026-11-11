@@ -1258,49 +1258,78 @@ def enforce_nn_coverage_note(text: str, ctx: dict) -> str:
     """Tên ngành phải ĐỨNG SÁT số: trong ~40 ký tự TRƯỚC số (cắt tại số "… tỷ" gần nhất phía
     trước), hoặc ngay SAU qua từ nối ("… 120 tỷ trong ngành Thép", "… ở ngành Thép") — "bán ròng
     1,040 tỷ ở Ngân hàng hôm nay" / "…, tập trung ở ngân hàng" là NN toàn thị trường, không gắn.
-    Dấu "đã gắn" là CHÍNH nhãn của khung."""
+    Số đứng NGAY sau một số NN của cùng ngành, giữa chỉ có nhãn khung + từ nối ("1,032 tỷ (1T)
+    và 2,536 tỷ (1M)"), thuộc cùng ngành đó. Dấu "đã gắn" là CHÍNH nhãn của khung."""
     labels = nn_coverage_labels(ctx)
     if not text or not any(labels.values()):
         return text
-    fig_re = _re.compile(r"[-+]?\d[\d.,]*(?=\s*tỷ)")
-    tyfig_re = _re.compile(r"\d[\d.,]*\s*tỷ")
-    frame_re = _re.compile(r"\s*\((?:1 tuần|1T|1 tháng|1M)\)|, 1 (?:tuần|tháng)(?! qua)")
+    sectors = []
+    for s in (ctx or {}).get("sectors") or []:
+        nm = s.get("Ngành")
+        vals = {w: abs(v) for w, col, *_ in _NN_WINDOWS
+                if isinstance(v := s.get(col), (int, float)) and abs(v) >= 1}
+        if isinstance(nm, str) and nm and vals:
+            sectors.append((
+                _re.compile(r"(?<!\w)" + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE),
+                _re.compile(r"\s*tỷ(?:\s*đồng)?(?:\s*\((?:1 tuần|1T|1 tháng|1M)\))?\s*"
+                            r"(?:(?:trong|của)\s+(?:(?:ngành|nhóm)\s+)?|(?:ở|vào)\s+(?:ngành|nhóm)\s+)"
+                            + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE),
+                vals))
+    if not sectors:
+        return text
     out = text
-    for w, col, _key, n in _NN_WINDOWS:
+    for w, *_ in _NN_WINDOWS:
         label = labels[w]
-        if not label or _re.search(_re.escape(f"NN {w} {_NN_COVERAGE_MARK} ") + r"\d+/\d+ phiên", out):
-            continue
-        rows = []
-        for s in (ctx or {}).get("sectors") or []:
-            nm, v = s.get("Ngành"), s.get(col)
-            if isinstance(nm, str) and nm and isinstance(v, (int, float)) and abs(v) >= 1:
-                rows.append((_re.compile(r"(?<!\w)" + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE),
-                             _re.compile(r"\s*tỷ(?:\s*đồng)?(?:\s*\((?:1 tuần|1T|1 tháng|1M)\))?\s*"
-                                         r"(?:(?:trong|của)\s+(?:(?:ngành|nhóm)\s+)?|(?:ở|vào)\s+(?:ngành|nhóm)\s+)"
-                                         + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE), abs(v)))
-        if not rows:
-            continue
-        out = _label_first_sector_figure(out, rows, label, fig_re, tyfig_re, frame_re)
+        if label and not _re.search(_re.escape(f"NN {w} {_NN_COVERAGE_MARK} ") + r"\d+/\d+ phiên", out):
+            out = _label_first_sector_figure(out, sectors, w, label)
     return out
 
 
-def _label_first_sector_figure(text, rows, label, fig_re, tyfig_re, frame_re) -> str:
+_NN_FIG_RE = r"[-+]?\d[\d.,]*(?=\s*tỷ)"
+_NN_FRAME = r"\s*\((?:1 tuần|1T|1 tháng|1M)\)|, 1 (?:tuần|tháng)(?! qua)"
+# Giữa hai số NN CÙNG ngành chỉ được có nhãn khung (kể cả nhãn thiếu phiên guard này vừa gắn)
+# + từ nối (", ", " và ", "; ", " / ", " còn ")
+_NN_OWN_LABEL = r"NN 1[TM] thiếu \d+/\d+ phiên(?: gần nhất)?"
+_NN_SAME_SECTOR_GAP = (r"(?:\s*\((?:(?:1 tuần|1T|1 tháng|1M)(?:; " + _NN_OWN_LABEL + r")?|"
+                       + _NN_OWN_LABEL + r")\)|, 1 (?:tuần|tháng)(?! qua)(?:; " + _NN_OWN_LABEL
+                       + r")?){0,2}\s*(?:,|;|/|và|còn|,\s*và)?\s*")
+# Số NỐI TIẾP phải tự đóng mệnh đề: nhãn khung riêng, hoặc dấu câu / hết dòng / "và" ngay sau "tỷ"
+# — "…, 2,536 tỷ toàn thị trường" là số khác, không phải NN của ngành trước.
+_NN_CARRY_TAIL = r"\s*\((?:1 tuần|1T|1 tháng|1M)\)|, 1 (?:tuần|tháng)\b|\s*(?:[.,;)\n]|$|và\b)"
+
+
+def _label_first_sector_figure(text: str, sectors: list, window: str, label: str) -> str:
+    """Gắn `label` sau số NN đầu tiên khớp |NN `window`| của một ngành đứng sát số."""
+    def _close(val, v):
+        return abs(abs(val) - v) <= max(1.0, 0.02 * v)
+
     pos = 0
     for line in text.splitlines(keepends=True):
         if "ròng" in line.lower():
-            for m in fig_re.finditer(line):
+            prev = None                        # (sector, vị trí hết "… tỷ") của số NN trước
+            for m in _re.finditer(_NN_FIG_RE, line):
                 val = _parse_vn_number(m.group(0))
+                ty_end = m.end() + _re.match(r"\s*tỷ(?:\s*đồng)?", line[m.end():]).end()
                 if val is None:
+                    prev = None
                     continue
                 before = line[max(0, m.start() - 40):m.start()]
-                before = before[max((b.end() for b in tyfig_re.finditer(before)), default=0):]
-                if not any(abs(abs(val) - v) <= max(1.0, 0.02 * v)
-                           and (name_re.search(before) or after_re.match(line, m.end()))
-                           for name_re, after_re, v in rows):
+                before = before[max((b.end() for b in _re.finditer(r"\d[\d.,]*\s*tỷ", before)),
+                                    default=0):]
+                sector = next((sc for sc in sectors
+                               if any(_close(val, v) for v in sc[2].values())
+                               and (sc[0].search(before) or sc[1].match(line, m.end()))), None)
+                if sector is None and prev and _re.fullmatch(_NN_SAME_SECTOR_GAP, line[prev[1]:m.start()]) \
+                        and _re.match(_NN_CARRY_TAIL, line[ty_end:]) \
+                        and any(_close(val, v) for w2, v in prev[0][2].items() if w2 not in prev[2]):
+                    sector = prev[0]          # cùng ngành, KHUNG KHÁC với số trước
+                prev = (sector, ty_end, {w2 for w2, v in sector[2].items() if _close(val, v)}) \
+                    if sector else None
+                if sector is None or window not in sector[2] or not _close(val, sector[2][window]):
                     continue
-                end = _re.match(r"\s*tỷ(?:\s*đồng)?", line[m.end():]).end() + m.end()
-                frame = frame_re.match(line[end:])
-                if frame:      # gộp vào ngoặc nhãn khung: "(1 tuần; NN 1T thiếu 1/5 phiên)"
+                end = ty_end
+                frame = _re.match(_NN_FRAME, line[end:])
+                if frame:      # gộp vào ngoặc nhãn khung: "(1 tuần; NN 1T thiếu 1/5 phiên gần nhất)"
                     end += frame.end() - (1 if frame.group(0).endswith(")") else 0)
                 note = f"; {label}" if line[end:end + 1] == ")" else f" ({label})"
                 at = pos + end

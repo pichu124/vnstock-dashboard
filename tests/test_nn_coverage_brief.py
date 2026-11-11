@@ -109,3 +109,38 @@ def test_prompt_warns_only_for_short_windows():
     assert "tính THIẾU phiên" not in build_prompt(ctx, brief_type="afternoon")
     p = build_prompt({**ctx, "nn_coverage": _OLD_GAPS}, brief_type="afternoon")
     assert "NN ròng NGÀNH tính THIẾU phiên (NN 1M thiếu 8/20 phiên;" in p and "NN 1T thiếu" not in p
+
+
+def test_second_figure_of_same_sector_gets_its_window_label():
+    """Review 11/11: "Ngân hàng bán ròng 1,032 tỷ (1T) và 2,536 tỷ (1M)" — số 1M cùng ngành với số
+    đứng ngay trước (giữa chỉ có nhãn khung + từ nối) ⇒ vẫn nhận nhãn của khung 1M."""
+    ctx = {**_CTX, "nn_coverage": _RECENT_GAP}
+    t = "Ngân hàng bán ròng 1,032 tỷ (1T) và 2,536 tỷ (1M)."
+    out = enforce_nn_coverage_note(t, ctx)
+    assert "1,032 tỷ (1T; NN 1T thiếu 1/5 phiên gần nhất)" in out
+    assert "2,536 tỷ (1M; NN 1M thiếu 1/20 phiên)" in out
+    assert enforce_nn_coverage_note(out, ctx) == out                   # idempotent
+    # có chữ khác chen giữa (ngành khác / NN toàn thị trường) ⇒ KHÔNG nối tiếp
+    t2 = "Ngân hàng bán ròng 1,032 tỷ (1T), cả thị trường bán ròng 2,536 tỷ trong tháng."
+    assert "2,536 tỷ (NN 1M" not in enforce_nn_coverage_note(t2, ctx)
+
+
+
+def test_same_sector_pair_survives_the_full_guard_chain():
+    """Review 11/11: qua `apply_brief_guards` thật, `enforce_nn_frame_labels` từng chèn "(1 tuần)"
+    trước "(1T)" có sẵn (khung in hai lần) làm số 1M mất nhãn."""
+    ctx = {**_CTX, "nn_coverage": _RECENT_GAP}
+    out = vb.apply_brief_guards("Ngân hàng bán ròng 1,032 tỷ (1T) và 2,536 tỷ (1M).", ctx)
+    first = out.splitlines()[0]                # dòng 2 là dòng chuẩn two_sides guard thêm
+    assert "(1 tuần" not in first                                     # không in khung hai lần
+    assert "1,032 tỷ (1T; NN 1T thiếu 1/5 phiên gần nhất)" in first
+    assert "2,536 tỷ (1M; NN 1M thiếu 1/20 phiên)" in first
+
+
+def test_carry_only_to_a_self_contained_figure_of_another_window():
+    ctx = {**_CTX, "nn_coverage": _RECENT_GAP}
+    for t in ("Ngân hàng bán ròng 1,032 tỷ (1T), 2,536 tỷ toàn thị trường trong tháng.",
+              "Ngân hàng bán ròng 1,032 tỷ (1T) và 1,040 tỷ (1T)."):          # cùng khung ⇒ không nối
+        assert "NN 1M thiếu" not in enforce_nn_coverage_note(t, ctx)
+    t = "Ngân hàng bán ròng 1,032 tỷ, 2,500 tỷ cả thị trường."
+    assert "NN 1M thiếu" not in enforce_nn_coverage_note(t, {**_CTX, "nn_coverage": _OLD_GAPS})
