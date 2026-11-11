@@ -1221,6 +1221,74 @@ def enforce_gtgd_missing_note(text: str, ctx: dict) -> str:
     return text[:m.end()] + note + text[m.end():]
 
 
+# ─── NN ròng NGÀNH tính thiếu phiên (vnstock thế hệ 6, 11/11) ───────────────────
+# Lượt tải NN của runner có ngày lỗi (nguồn/hạn mức) ⇒ market_overview `nn_coverage`
+# {sessions, asked, …}: NN 1T/1M của ngành cộng trên ÍT phiên hơn nhãn. Prompt bảo model
+# ghi nhãn; guard gắn đúng MỘT lần ngay sau số NN ngành đầu tiên (số phải khớp |NN 1T| hoặc
+# |NN 1M| của chính ngành được nêu cùng dòng, dòng có chữ "ròng"). Đủ phiên ⇒ no-op.
+_NN_COVERAGE_MARK = "NN chỉ có"
+
+
+def nn_coverage_label(ctx: dict) -> "str | None":
+    """'NN chỉ có 12/20 phiên' khi lượt tải NN thiếu phiên; None khi đủ / không rõ."""
+    cov = (ctx or {}).get("nn_coverage")
+    if not isinstance(cov, dict):
+        return None
+    try:
+        got, asked = int(cov.get("sessions", 0)), int(cov.get("asked", 0))
+    except (TypeError, ValueError):
+        return None
+    if asked <= 0 or got >= asked:
+        return None
+    return f"{_NN_COVERAGE_MARK} {got}/{asked} phiên"
+
+
+def enforce_nn_coverage_note(text: str, ctx: dict) -> str:
+    """Tên ngành phải ĐỨNG SÁT số: trong ~40 ký tự TRƯỚC số (không có số khác chen giữa), hoặc
+    ngay SAU qua từ nối ("… 120 tỷ trong ngành Thép") — "bán ròng 1,040 tỷ, tập trung ở ngân
+    hàng" là NN toàn thị trường, không gắn. Dấu "đã gắn" là CHÍNH nhãn "NN chỉ có X/Y phiên"."""
+    label = nn_coverage_label(ctx)
+    if not text or not label or _re.search(_NN_COVERAGE_MARK + r" \d+/\d+ phiên", text):
+        return text
+    fig_re = _re.compile(r"[-+]?\d[\d.,]*(?=\s*tỷ)")
+    frame_re = _re.compile(r"\s*\((?:1 tuần|1T|1 tháng|1M)\)|, 1 (?:tuần|tháng)(?! qua)")
+    rows = []
+    for s in (ctx or {}).get("sectors") or []:
+        nm = s.get("Ngành")
+        vals = [abs(v) for k in ("NN 1T (tỷ)", "NN 1M (tỷ)")
+                if isinstance(v := s.get(k), (int, float)) and abs(v) >= 1]
+        if nm and vals:
+            rows.append((_re.compile(r"(?<!\w)" + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE), _re.compile(
+                r"\s*tỷ(?:\s*đồng)?(?:\s*\((?:1 tuần|1T|1 tháng|1M)\))?\s*"
+                r"(?:(?:trong|ở|của|vào)\s+)?(?:(?:ngành|nhóm)\s+)?" + _re.escape(nm) + r"(?!\w)",
+                _re.IGNORECASE), vals))
+    if not rows:
+        return text
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        if "ròng" in line.lower():
+            for m in fig_re.finditer(line):
+                val = _parse_vn_number(m.group(0))
+                if val is None:
+                    continue
+                before = line[max(0, m.start() - 40):m.start()]
+                before = before[max((b.end() for b in _re.finditer(r"\d", before)), default=0):]
+                hit = any(any(abs(abs(val) - v) <= max(1.0, 0.02 * v) for v in vals)
+                          and (name_re.search(before) or after_re.match(line, m.end()))
+                          for name_re, after_re, vals in rows)
+                if not hit:
+                    continue
+                end = _re.match(r"\s*tỷ(?:\s*đồng)?", line[m.end():]).end() + m.end()
+                frame = frame_re.match(line[end:])
+                if frame:      # gộp vào ngoặc nhãn khung: "(1 tuần; NN chỉ có 12/20 phiên)"
+                    end += frame.end() - (1 if frame.group(0).endswith(")") else 0)
+                note = f"; {label}" if line[end:end + 1] == ")" else f" ({label})"
+                at = pos + end
+                return text[:at] + note + text[at:]
+        pos += len(line)
+    return text
+
+
 # ── Nhận định kỹ thuật phải khớp thẻ (PTKT P3, §6/§10d) ────────────────────────
 # Chỉ đụng dòng "**Nhận định:**" của mục 📈; ctx không có thẻ ⇒ no-op (`ta_rewrite_insight`).
 _TA_DATE_RE = _re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b")

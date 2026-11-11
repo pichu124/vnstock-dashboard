@@ -134,7 +134,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
 - `vnstock_brief.py` — sinh AI brief morning/close (context → prompt → agent).
   Chuỗi `apply_brief_guards(text, ctx)` ở `vnstock_brief_guards.py` DÙNG CHUNG
   cho cả 2 brief — KHÔNG BAO GIỜ inline lại vào `generate_brief` (điểm parity
-  duy nhất). 56 guard chia 3 chủ đề: `_guards_sections` (sai chuyện gì) /
+  duy nhất). 57 guard chia 3 chủ đề: `_guards_sections` (sai chuyện gì) /
   `_guards_numbers` (sai số, sai chiều) / `_guards_text` (lộ ruột, nói nhảm),
   tiện ích chung ở `_guards_common`, hằng số + khối canon mà CẢ prompt lẫn
   guard dựng chung ở `vnstock_brief_canon.py`. Một chiều: brief → guards →
@@ -173,7 +173,7 @@ Parquet local, AI brief sáng/chiều gửi Telegram.
   cascade `report_digest.digest_call(step=)`; train = `ClaudeCodeAgent` làm
   lead (`_inject_claude_lead`), ladder free = pool. Mọi chỗ lỗi ⇒ ladder như
   cũ, log `[<bước>] ⏱ claude-cli: …`. Brief: `build_pack` (ctx+prompt, `_meta/brief_pack.json` v2 +
-  `brief_prompt.md`) → CLI → `finalize_brief` (56 guard → validate → memory
+  `brief_prompt.md`) → CLI → `finalize_brief` (57 guard → validate → memory
   `agent_type=claude` → brief_watch) → `push_close_brief(ai_block, engine)`;
   raw/final ghi `_meta/brief_claude_raw.md` / `brief_claude.md` (Telegram lỗi
   ⇒ `run.py brief --from-file` gửi lại không tốn call). Hỏng khâu nào ⇒ **rơi

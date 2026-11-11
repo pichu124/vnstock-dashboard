@@ -2732,6 +2732,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             # NOT gate on count/universe — only ~60% of classified names trade
             # on any given day (observed 808/1388 on a normal session).
             ctx["nn_data_date"] = data.get("nn_data_date")
+            # Lượt tải NN của runner có ngày lỗi ⇒ NN ngành tính thiếu phiên (prompt + guard)
+            ctx["nn_coverage"] = data.get("nn_coverage")
             _byd = data.get("gtgd_by_date") or {}
             _gd = data.get("gtgd_date")
             _entry = _byd.get(_data_date_str)
@@ -4291,6 +4293,11 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                                    session_date=ctx.get("date"))
         if block:
             lines.append(block)
+            if _nn_cov := nn_coverage_label(ctx):
+                lines.append(
+                    f"⚠️ NN ròng NGÀNH (1T/1M) tính THIẾU phiên: {_nn_cov} tải được (nguồn báo lỗi/"
+                    f"chạm hạn mức). Khi nêu số NN ngành ghi '({_nn_cov})' đúng một lần; KHÔNG "
+                    "kết luận mạnh từ NN ngành.")
 
     # VN30 fundamentals (debt-to-equity, ROE, operating cash flow) so the agent
     # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
@@ -4542,6 +4549,9 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_gtgd_baseline_pct,
     _GTGD_MISSING_MARK,
     enforce_gtgd_missing_note,
+    _NN_COVERAGE_MARK,
+    enforce_nn_coverage_note,
+    nn_coverage_label,
     enforce_gtgd_compare_frame,
     enforce_gtgd_total,
     enforce_lead_lag,

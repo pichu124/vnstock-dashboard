@@ -862,6 +862,7 @@ def cmd_test(args) -> int:
             "tests/test_vnstock_auth_gen6.py",  # vnstock thế hệ 6: nguồn tập trung + mặt tiền get_vnstock
             "tests/test_freefloat.py",  # vnstock thế hệ 6: free-float từ company.listing()/shareholders()
             "tests/test_session_stats.py",  # vnstock thế hệ 6: GTGD chỉ số từ Market().index(s).trade_history
+            "tests/test_nn_coverage_brief.py",  # NN ngành thiếu phiên ⇒ nhãn trong brief (guard)
             "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
