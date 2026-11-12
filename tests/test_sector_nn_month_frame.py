@@ -340,3 +340,16 @@ def test_long_whitespace_after_span_is_fast():
 def test_spaced_ascii_dash_is_a_clause_boundary():
     out = _run("Ngân hàng bán ròng 3,800 tỷ trong 3 tháng - tuần này bán ròng 1,032 tỷ.")
     assert "3,800 tỷ trong 3 tháng" in out, out
+
+
+
+@pytest.mark.parametrize("text", [
+    "**Dòng tiền ngành:** Ngân hàng bán ròng 3,800 tỷ trong 3 tháng\n**Khối ngoại:** thận trọng.",
+    "🎯 TLDR\nNgân hàng bị khối ngoại bán ròng 3,800 tỷ trong 3 tháng\n⚠️ Rủi ro\n- GDKHQ.",
+    "📌 Danh mục\nVCB: Ngân hàng bán ròng 3,800 tỷ trong quý III\nTCB: giữ.",
+])
+def test_end_of_line_is_a_clause_boundary(text):
+    """Review 12/11: hết dòng là ranh giới mệnh đề — số khoảng N tháng/quý ở CUỐI dòng không bị ghim về tuần."""
+    once = vb.apply_brief_guards(text, _CTX)
+    assert vb.apply_brief_guards(once, _CTX) == once
+    assert "3,800 tỷ" in once and "(1 tuần) trong" not in once, once
