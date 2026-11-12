@@ -32,16 +32,21 @@ Dòng cũ (vnstock 4.x + vnstock_data) ngừng xác thực từ 10/11/2026. Nhá
 nhưng **thế hệ 6 không có nguồn mặc định** ⇒ chưa khai nguồn thì MỌI lệnh gọi dữ liệu báo lỗi `VNSTOCK_INPUT_SOURCE`.
 Merge vào main trước khi xong 4 bước dưới = pipeline đêm đó mất brief.
 
-1. ○ Đăng ký khoá ở nguồn: https://vnstocks.com/docs/vnstock/v6/cai-dat#đăng-ký-khoá-ở-nguồn — chọn nguồn theo
-   nhóm dữ liệu (nến/bảng giá/BCTC/NN ròng/sự kiện mỗi nhóm chỉ vài nguồn đọc được; `vnstock tools --all` cho bảng).
-2. ⇄ CẢ HAI máy — venv mới (KHÔNG đụng venv cũ): `python -m venv $HOME\.venv_6x` →
-   `& "$HOME\.venv_6x\Scripts\Activate.ps1"` → `pip install -r requirements.txt` (trên nhánh `vnstock-gen6`) →
-   `vnstock status` (chưa thấy gói thì TỰ chạy `vnstock login`) → `vnstock keys set <nguồn>` (TỰ gõ khoá, đừng dán vào chat).
-3. ⇄ CẢ HAI máy — `.env`: thêm `VNSTOCK_SOURCE=<nguồn>[,<dự phòng>]` và, nếu một nguồn không đọc được mọi nhóm,
-   `VNSTOCK_SOURCE_ROUTES=<route>=<nguồn>;…` (vd `fundamental.equity.*=<nguồn BCTC>`). Đây là chỗ DUY NHẤT chọn nguồn.
-4. ○ Báo Claude tên nguồn đã chọn ⇒ Claude chạy bộ đối chiếu cột/đơn vị/múi giờ (`vnstock-migration/manifest.json`)
-   trước khi merge. ⚠️ Đổi nguồn giá có thể lệch cơ sở với kho cũ ⇒ cửa V1 cách ly hàng loạt: đo `probe_price_basis` trước.
-5. Sau khi merge: 🖥️ DESKTOP đăng ký lại task (Run as Administrator, shell đã kích hoạt `.venv_6x`):
+1. ✅ (12/11) Đã đăng ký khoá **fhsc (Finhay)** + **dnse (DNSE)** — đủ mọi dữ liệu TRỪ thống kê lệnh
+   (Lệnh lớn, Net BS, GTGD chỉ số theo phiên) và rổ VN30 sống: hai thứ đó chỉ **ssi** có (rổ VN30 có dự
+   phòng cache + hằng số). Muốn đủ thì đăng ký thêm ssi sau. tcbs không cần (đòi Smart OTP mỗi ≤24h).
+2. 🖥️ DESKTOP trước (rồi 💻 LAPTOP) — venv mới, KHÔNG đụng venv cũ:
+   `git fetch origin vnstock-gen6` → `git switch vnstock-gen6` → `python -m venv $HOME\.venv_6x` →
+   `& "$HOME\.venv_6x\Scripts\Activate.ps1"` → `pip install -r requirements.txt` →
+   `vnstock status` (chưa thấy gói thì TỰ chạy `vnstock login`).
+3. ⇄ CẢ HAI máy — cất khoá (TỰ gõ, chữ không hiện; đừng dán vào chat):
+   `vnstock keys set fhsc` → `vnstock keys set dnse` → thử: `vnstock keys check fhsc`, `vnstock keys check dnse`.
+4. ⇄ CẢ HAI máy — `.env`: thêm dòng `VNSTOCK_SOURCE=fhsc,dnse` (thứ tự = ưu tiên; giá ngày lấy từ fhsc).
+5. 🖥️ DESKTOP — kiểm rồi dán kết quả cho Claude (chỉ đọc, không ghi kho):
+   `python scripts/gen6_check.py` ⇒ dán nội dung `gen6_check_report.txt`;
+   `python scripts/probe_price_basis.py --sweep --limit 50` ⇒ dán phần in ra (lệch cơ sở kho ↔ fhsc).
+   Claude đọc xong mới merge. ⚠️ Lệch cơ sở ⇒ cửa V1 cách ly hàng loạt mã.
+6. Sau khi merge: 🖥️ DESKTOP đăng ký lại task (Run as Administrator, shell đã kích hoạt `.venv_6x`):
    `.\scripts\setup_scheduled_tasks.ps1 -PythonExe "$HOME\.venv_6x\Scripts\python.exe"`; 💻 LAPTOP thêm `-OnlyNewsAlert`.
    Task đang đăng ký vẫn trỏ venv cũ ⇒ code thế hệ 6 trên vnstock 4.x = ImportError.
 

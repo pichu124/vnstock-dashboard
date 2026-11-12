@@ -38,3 +38,5 @@ ui_snapshots/
 
 # vnstock gen6 migration work folder (holds source data — never commit)
 vnstock-migration/
+# báo cáo kiểm vnstock thế hệ 6 trên máy thật (scripts/gen6_check.py) — dán cho Claude, không commit
+gen6_check_report.txt
