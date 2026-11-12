@@ -236,3 +236,33 @@ def ta_rewrite_insight(text: str, ctx: dict, fn) -> str:
 
 
 _PIVOT_LABEL_RE = _re.compile(r"\b(S1|S2|R1|R2)\s*=\s*([0-9][0-9.,]*[0-9]|[0-9])")
+
+
+# ── Khung thời gian của một số NN ngành (dùng chung guard số NN + guard nhãn thiếu phiên) ─────────
+_NN_MONTH_NAMES = r"mười|một|giêng|chạp|hai|ba|tư|năm|sáu|bảy|tám|chín"
+# Khoảng thời gian KHÔNG có trong dữ liệu (NN 1T/1M): "tháng rưỡi", N≥2 tháng, quý ⇒ guard KHÔNG
+# ghim số và không gắn nhãn khung tuần (ghim về số tuần hay tháng đều sai khung). Chỉ nhìn NGAY SAU số.
+_NN_NUM_WORD = r"(?:\d+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)"
+_NN_SPAN_HEAD = (r"(?:hơn\s+)?(?:(?:" + _NN_NUM_WORD + r"\s+)?tháng\s+rưỡi\b"
+                 r"|(?:[2-9]|1\d|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)\s+tháng\b")
+# Sau dấu phẩy / không tiền tố: "quý III", "quý một" là mệnh đề khác (BCTC) — loại.
+_NN_SPAN = _NN_SPAN_HEAD + r"|(?:(?:1|một)\s+)?quý\b(?!\s*(?:[IVX]+\b|một\b|hai\b|ba\b|bốn\b)))"
+# Sau "trong" / "(": "trong quý III", "(9 tháng đầu năm)" là khoảng của CHÍNH số — giữ.
+_NN_SPAN_TRONG = (_NN_SPAN_HEAD + r"|(?:(?:1|một)\s+)?quý\b"
+                  r"(?:\s+(?:[IVX]+|một|hai|ba|bốn|\d)\b)?)")
+# Theo sau là trước/sau/tới/cuối/đầu/số/tên tháng ⇒ MỆNH ĐỀ KHÁC ("2 tháng trước còn mua ròng", "quý tới").
+_NN_SPAN_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|tới|cuối|đầu|thứ|qua\s+nữa|"
+                + _NN_MONTH_NAMES + r")\b)")
+# Sau "trong"/"(": "đầu/cuối năm" hợp lệ; "trước/sau" chỉ loại khi theo sau là "đó"/dấu câu/hết
+# ("trong 3 tháng trước kỳ review" là khoảng của số).
+_NN_SPAN_NOT_TRONG = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:tới|thứ|qua\s+nữa|" + _NN_MONTH_NAMES
+                      + r")\b|\s*(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
+_NN_OTHER_SPAN_RE = _re.compile(
+    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN_TRONG + _NN_SPAN_NOT_TRONG
+    + r"|trong\s+" + _NN_SPAN_TRONG + _NN_SPAN_NOT_TRONG
+    + r"|,\s*" + _NN_SPAN + r"(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
+    + r"|" + _NN_SPAN + _NN_SPAN_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
+
+
+def _nn_other_span(s: str, pos: int) -> bool:
+    return bool(_NN_OTHER_SPAN_RE.match(s, pos))

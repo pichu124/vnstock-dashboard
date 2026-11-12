@@ -196,3 +196,42 @@ def test_lowercase_name_only_stops_after_group_word():
 def test_parenthetical_with_other_span_left_untouched():
     out = _run("**Dòng tiền ngành:** Ngân hàng (NN -3,800 tỷ, 3 tháng) chịu áp lực.")
     assert "(NN -3,800 tỷ, 3 tháng)" in out, out
+
+
+@pytest.mark.parametrize("text, wrong", [
+    ("Thép & Kim loại tăng mạnh, ngân hàng bán ròng 999 tỷ.", "+120"),
+    ("Bất động sản giảm sâu, ngân hàng bị NN bán ròng 999 tỷ.", "-500"),
+    ("Thép & Kim loại tăng mạnh, NGÂN HÀNG bán ròng 999 tỷ.", "+120"),
+])
+def test_lowercase_other_sector_right_before_verb_stops_gap(text, wrong):
+    """Review 12/11: tên ngành khác viết thường/HOA đứng NGAY TRƯỚC động từ dòng tiền vẫn chặn — không
+    thì số của ngành đứng trước bị gán cho câu về ngành sau."""
+    ctx = {"sectors": _CTX["sectors"] + [{"Ngành": "Bất động sản", "NN 1T (tỷ)": -500.0}]}
+    once = vb.apply_brief_guards(text, ctx)
+    assert vb.apply_brief_guards(once, ctx) == once
+    first = once.splitlines()[0]               # các dòng sau là dòng chuẩn two_sides tự thêm
+    assert wrong not in first and "999 tỷ" in first, once
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bị NN bán ròng 3,800 tỷ trong 10 tháng đầu năm.",
+    "Ngân hàng bán ròng 3,800 tỷ (9 tháng đầu năm).",
+    "Ngân hàng bán ròng 3,800 tỷ trong quý III.",
+    "Ngân hàng bán ròng 3,800 tỷ (quý III).",
+    "Ngân hàng bán ròng 3,800 tỷ trong 3 tháng trước kỳ review.",
+])
+def test_valid_span_of_the_figure_is_left_untouched(text):
+    """Review 12/11: "trong 10 tháng đầu năm", "(quý III)"… là khoảng của CHÍNH số ⇒ để nguyên."""
+    out = _run(text)
+    assert "3,800 tỷ" in out and "(1 tuần)" not in out, out
+
+
+def test_coverage_label_skips_figure_with_other_span():
+    """Review 12/11: ngày thiếu phiên NN 1T, nhãn "NN 1 tuần thiếu…" từng gắn lên số "(3 tháng)" và lượt
+    chạy lại đổi chữ."""
+    ctx = {**_CTX, "nn_coverage": {"sessions": 19, "asked": 20, "missing_1t": 1, "missing_1m": 1}}
+    for t in ("Ngân hàng bán ròng 1,032 tỷ (3 tháng).", "Ngân hàng bán ròng 1,032 tỷ trong quý.",
+              "NN bán ròng 1,032 tỷ trong ngành Ngân hàng trong quý."):
+        once = vb.apply_brief_guards(t, ctx)
+        assert vb.apply_brief_guards(once, ctx) == once, once
+        assert "NN 1 tuần thiếu" not in once.splitlines()[0], once

@@ -64,8 +64,10 @@ from vnstock_brief_canon import (
     TA_SECTION_TITLES,
 )
 from vnstock_brief_guards_common import (
+    _NN_MONTH_NAMES,
     _PIVOT_LABEL_RE,
     _TA_INSIGHT_RE,
+    _nn_other_span,
     _is_section_start,
     _parse_vn_number,
     defensive_level,
@@ -1073,7 +1075,6 @@ def enforce_lead_lag(text: str, ctx: dict) -> str:
 # ("1 tháng -2,536 tỷ", "tháng thứ ba", "tháng Mười"). "trước/sau" trần ("1 tháng trước còn mua
 # ròng") cũng là mệnh đề khác — NHƯNG "trong (1) tháng trước kỳ review" / "trong tháng sau khi FTSE
 # công bố" vẫn là khung tháng: sau "trong" chỉ loại "trước/sau" khi theo sau là "đó"/dấu câu/hết.
-_NN_MONTH_NAMES = r"mười|một|giêng|chạp|hai|ba|tư|năm|sáu|bảy|tám|chín"
 _NN_MONTH_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|thứ|tới|rưỡi|qua\s+nữa|"
                  + _NN_MONTH_NAMES + r")\b)")
 _NN_MONTH_NOT_TRONG = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:thứ|tới|rưỡi|qua\s+nữa|" + _NN_MONTH_NAMES
@@ -1088,26 +1089,6 @@ _NN_MONTH_AFTER_RE = _re.compile(
     + r"|trong\s+(?:" + _NN_ONE + r")?tháng\b" + _NN_MONTH_NOT_TRONG
     + r"|trong\s+20\s+phiên\b" + _NN_MONTH_NOT_TRONG
     + r"|(?:" + _NN_ONE + r")?tháng\b" + _NN_MONTH_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
-
-
-# Khoảng thời gian KHÔNG có trong dữ liệu (NN 1T/1M): "tháng rưỡi", N≥2 tháng, quý ⇒ guard KHÔNG
-# ghim số (ghim về số tuần hay tháng đều sai khung) — chỉ nhìn NGAY SAU số như khung tháng.
-_NN_NUM_WORD = r"(?:\d+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)"
-_NN_SPAN = (r"(?:hơn\s+)?(?:(?:" + _NN_NUM_WORD + r"\s+)?tháng\s+rưỡi\b"
-            r"|(?:[2-9]|1\d|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)\s+tháng\b"
-            r"|(?:(?:1|một)\s+)?quý\b(?!\s*(?:[IVX]+\b|một\b|hai\b|ba\b|bốn\b)))")
-# Sau khoảng thời gian mà là trước/sau/tới/cuối/đầu/số/tên tháng ⇒ MỆNH ĐỀ KHÁC ("2 tháng trước còn
-# mua ròng", "quý tới", "3 tháng tới", "ba tháng cuối năm") — không phải khoảng của số.
-_NN_SPAN_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|tới|cuối|đầu|thứ|qua\s+nữa|"
-                + _NN_MONTH_NAMES + r")\b)")
-_NN_OTHER_SPAN_RE = _re.compile(
-    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN + _NN_SPAN_NOT
-    + r"|,\s*" + _NN_SPAN + r"(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
-    + r"|(?:trong\s+)?" + _NN_SPAN + _NN_SPAN_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
-
-
-def _nn_other_span(s: str, pos: int) -> bool:
-    return bool(_NN_OTHER_SPAN_RE.match(s, pos))
 
 
 def _nn_month_framed(s: str, pos: int) -> bool:
@@ -1340,9 +1321,13 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
         others = [o for o in all_names if o != nm and o.lower() not in nm.lower()]
         # Viết thường chỉ chặn khi đứng sau "nhóm/ngành/cổ phiếu/cp" — đó mới là cách nhắc NGÀNH
         # KHÁC; "tín dụng bất động sản", "giá năng lượng" là chữ thường của văn (review 12/11).
+        # …và (review 12/11) tên viết thường/HOA đứng NGAY TRƯỚC động từ dòng tiền ("…, ngân hàng bị NN
+        # bán ròng") — câu đó nói về ngành kia, không phải ngành đang soát.
+        _verb_next = r"(?=\s+(?:bị\s+)?(?:NN\s+|khối\s+ngoại\s+)?(?:bán|mua)\s+ròng)"
         stop = "".join(
-            f"|{_re.escape(o)}" if o.lower() in _NN_COMMON_WORD_NAMES
-            else f"|{_re.escape(o)}|(?i:(?:nhóm|ngành|cổ\\s+phiếu|cp)\\s+{_re.escape(o)})(?!\\w)"
+            f"|{_re.escape(o)}|(?<!\\w)(?i:{_re.escape(o)}){_verb_next}"
+            + ("" if o.lower() in _NN_COMMON_WORD_NAMES
+               else f"|(?i:(?:nhóm|ngành|cổ\\s+phiếu|cp)\\s+{_re.escape(o)})(?!\\w)")
             for o in sorted(others, key=len, reverse=True))
         out = _re.sub(
             rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b|trong\s+khi{stop})[^;\n]){{0,40}}?"

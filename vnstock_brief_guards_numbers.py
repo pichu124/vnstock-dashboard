@@ -27,6 +27,7 @@ from vnstock_brief_canon import (
     _gtgd_close_frame,
 )
 from vnstock_brief_guards_common import (
+    _nn_other_span,
     _PIVOT_LABEL_RE,
     _TA_NEGATION_RE,
     _is_section_start,
@@ -1334,6 +1335,11 @@ def _label_first_sector_figure(text: str, sectors: list, window: str, label: str
                     sector = prev[0]          # cùng ngành, KHUNG KHÁC với số trước
                 prev = (sector, ty_end, {w2 for w2, v in sector[2].items() if _close(val, v)}) \
                     if sector else None
+                # Số có khoảng thời gian KHÁC ngay sau ("(3 tháng)", "… trong ngành X trong quý") không
+                # thuộc khung tuần/tháng nào ⇒ không gắn nhãn thiếu phiên (review 12/11: lượt chạy lại đổi chữ).
+                am = sector[1].match(line, m.end()) if sector else None
+                if sector and (_nn_other_span(line, ty_end) or (am and _nn_other_span(line, am.end()))):
+                    continue
                 if sector is None or window not in sector[2] or not _close(val, sector[2][window]):
                     continue
                 end = ty_end
