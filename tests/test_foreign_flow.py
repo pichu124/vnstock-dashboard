@@ -132,3 +132,59 @@ def test_sentiment_loader_maps_zero_to_none(tmp_path, monkeypatch):
     assert vnstock_market_sentiment._load_nn_net_1d("2026-06-12") == -491.0
     # no fresh figure → None so compute_market_sentiment skips the NN signal
     assert vnstock_market_sentiment._load_nn_net_1d("2099-01-01") is None
+
+
+
+# ── Đệm bảng NN ròng theo ngày (12/11: một lượt screener ≈ 50 giây) ─────────────
+
+def _cache_on(monkeypatch, tmp_path, now_hhmm=(18, 0), today="2026-11-12"):
+    import datetime as _dt
+    monkeypatch.setenv("VNSTOCK_NN_SCREENER_CACHE", "1")
+    monkeypatch.setattr(ff, "_DAY_CACHE_DIR", tmp_path / "nn_screener")
+    y, m, d = map(int, today.split("-"))
+    fixed = _dt.datetime(y, m, d, *now_hhmm, tzinfo=_dt.timezone(_dt.timedelta(hours=7)))
+    monkeypatch.setattr(ff, "_vn_now", lambda: fixed)
+
+
+def test_closed_session_is_fetched_once_then_read_from_disk(tmp_path, monkeypatch):
+    pytest.importorskip("vnstock")
+    import vnstock
+    calls: list = []
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-11": _BOARD}, calls))
+    _cache_on(monkeypatch, tmp_path)
+    first = ff.foreign_net_for_date("2026-11-11")
+    second = ff.foreign_net_for_date("2026-11-11")
+    assert len(calls) == 1                                   # lần 2 đọc đệm, không gọi nguồn
+    pd.testing.assert_frame_equal(second, first, check_dtype=False)   # kiểu chuỗi khác bản pandas
+    assert (tmp_path / "nn_screener" / "2026-11-11.parquet").exists()
+
+
+def test_today_before_close_is_not_cached(tmp_path, monkeypatch):
+    pytest.importorskip("vnstock")
+    import vnstock
+    calls: list = []
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-12": _BOARD}, calls))
+    _cache_on(monkeypatch, tmp_path, now_hhmm=(10, 30))
+    ff.foreign_net_for_date("2026-11-12")
+    ff.foreign_net_for_date("2026-11-12")
+    assert len(calls) == 2 and not (tmp_path / "nn_screener" / "2026-11-12.parquet").exists()
+    _cache_on(monkeypatch, tmp_path, now_hhmm=(18, 0))      # sau 15:30 ⇒ phiên đã chốt, đệm được
+    ff.foreign_net_for_date("2026-11-12")
+    assert (tmp_path / "nn_screener" / "2026-11-12.parquet").exists()
+
+
+def test_source_error_is_not_cached_and_kill_switch(tmp_path, monkeypatch):
+    pytest.importorskip("vnstock")
+    import vnstock
+    from vnstock.errors import NetworkError
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-10": NetworkError("timeout")}))
+    _cache_on(monkeypatch, tmp_path)
+    with pytest.raises(NetworkError):
+        ff.foreign_net_for_date("2026-11-10")
+    assert not (tmp_path / "nn_screener" / "2026-11-10.parquet").exists()
+    calls: list = []
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-11": _BOARD}, calls))
+    monkeypatch.setenv("VNSTOCK_NN_SCREENER_CACHE", "0")
+    ff.foreign_net_for_date("2026-11-11")
+    ff.foreign_net_for_date("2026-11-11")
+    assert len(calls) == 2 and not (tmp_path / "nn_screener").exists()

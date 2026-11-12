@@ -74,6 +74,14 @@ def _reset_price_fallback_breaker():
 
 
 @pytest.fixture(autouse=True)
+def _no_nn_screener_day_cache_anywhere(monkeypatch):
+    """Đệm NN ròng theo ngày (`vnstock_foreign_flow`, 12/11) ghi vào data_warehouse/_meta/nn_screener
+    THẬT và test sau đọc được đệm test trước ghi (rò trạng thái). Tắt cứng; test của đệm tự bật
+    lại + trỏ thư mục tạm."""
+    monkeypatch.setenv("VNSTOCK_NN_SCREENER_CACHE", "0")
+
+
+@pytest.fixture(autouse=True)
 def _no_llm_alert_anywhere(monkeypatch):
     """Alert "LLM ladder DOWN" (22/07) gửi Telegram THẬT nếu máy có token —
     test đi qua đường cạn-toàn-bộ-nấc (digest (None,''), chat_complete None)

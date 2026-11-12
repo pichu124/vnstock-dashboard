@@ -300,3 +300,25 @@ def test_listed_symbols_from_reference_equity_list(monkeypatch):
     monkeypatch.setattr(w, "_ALL_LISTED_DATE", "")
     assert w.get_all_listed_symbols() == ["BSR", "FPT", "SHS", "VCB"]
     assert asked == ["HOSE", "HNX", "UPCOM"]
+
+
+def test_index_quote_last_row_takes_latest_time_and_session_volume():
+    """Thế hệ 6: `index(s).quote()` trả CẢ chuỗi trong ngày (đo 🖥️ 12/11: 4.144 dòng). Lấy dòng MỚI NHẤT
+    theo `time` dù nguồn xếp ngược; khối lượng = `accumulated_volume`; cột *_volume khác không lọt."""
+    import pandas as pd
+
+    import vnstock_wss as w
+    df = pd.DataFrame({
+        "symbol": ["VNINDEX"] * 3,
+        "time": ["2026-11-12 14:45:00", "2026-11-12 09:15:00", "2026-11-12 11:30:00"],
+        "reference_price": [1740.0] * 3,
+        "close_price": [1734.75, 1745.0, 1738.0], "high_price": [1750.0, 1745.0, 1748.0],
+        "low_price": [1730.0, 1744.0, 1736.0], "total_volume": [1.0e6, 2.0e5, 5.0e5],
+        "put_through_volume": [9.9e9] * 3, "advance_volume": [8.8e9] * 3,
+        "accumulated_volume": [6.5e8, 2.0e7, 3.1e8],
+    })
+    row = w._index_quote_last_row(df)
+    assert row["close"] == 1734.75 and row["volume"] == 6.5e8 and row["reference_price"] == 1740.0
+    assert set(row.index) == {"close", "high", "low", "volume", "reference_price"}
+    no_acc = w._index_quote_last_row(df.drop(columns=["accumulated_volume"]))
+    assert no_acc["volume"] == 1.0e6                       # không có luỹ kế ⇒ total_volume

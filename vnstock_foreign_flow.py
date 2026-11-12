@@ -46,6 +46,32 @@ _CACHE = _REPO / "data_warehouse" / "_meta" / "foreign_net_daily.json"
 
 FOREIGN_NET_COLS = ["symbol", "foreign_net_value", "foreign_net_volume"]
 
+# Đệm bảng NN ròng THEO NGÀY (12/11): một lượt screener cả thị trường ≈ 50 giây (1.518 mã, nhiều
+# trang — đo 🖥️ 12/11) ⇒ 20 phiên ≈ 17 phút mỗi lần pipeline/dashboard. Phiên đã ĐÓNG không đổi
+# nữa ⇒ lưu một file mỗi ngày, lần sau đọc đệm; mỗi ngày chỉ tải đúng phiên mới. Nằm trong kho
+# (Dropbox) nên máy nào tải trước thì máy kia dùng chung. Tắt: VNSTOCK_NN_SCREENER_CACHE=0.
+_DAY_CACHE_DIR = _REPO / "data_warehouse" / "_meta" / "nn_screener"
+_DAY_CACHE_ENV = "VNSTOCK_NN_SCREENER_CACHE"
+_SESSION_DONE_HHMM = (15, 30)          # sau giờ này phiên hôm nay coi như đã chốt
+
+
+def _vn_now():
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone(timedelta(hours=7)))
+
+
+def _day_is_final(day: str) -> bool:
+    """Phiên `day` đã chốt ⇒ đệm được: ngày đã qua, hoặc hôm nay sau 15:30 giờ VN."""
+    now = _vn_now()
+    today = now.date().isoformat()
+    if day < today:
+        return True
+    return day == today and (now.hour, now.minute) >= _SESSION_DONE_HHMM
+
+
+def _day_cache_path(day: str) -> Path:
+    return _DAY_CACHE_DIR / f"{day}.parquet"
+
 
 def foreign_net_for_date(day: str) -> pd.DataFrame:
     """NN ròng TỪNG MÃ của phiên ``day`` (ISO) trên cả thị trường.
@@ -54,18 +80,38 @@ def foreign_net_for_date(day: str) -> pd.DataFrame:
     bảng rỗng khi nguồn không có phiên đó. Lỗi của vnstock (chưa khai nguồn, hạn mức,
     mạng…) ném NGUYÊN VẸN — chỗ gọi quyết định giữ cache cũ.
     """
+    import os
+
+    use_cache = os.getenv(_DAY_CACHE_ENV, "1").strip() != "0"
+    path = _day_cache_path(day)
+    if use_cache and path.exists():
+        try:
+            return pd.read_parquet(path).reindex(columns=FOREIGN_NET_COLS).reset_index(drop=True)
+        except Exception:              # file hỏng/dở (Dropbox) ⇒ tải lại, ghi đè
+            pass
+
     from vnstock import Market
     from vnstock_auth import ensure_api_key
 
     ensure_api_key()
     df = Market().equity.screener(date=day)
     if df is None or df.empty or "symbol" not in df.columns:
-        return pd.DataFrame(columns=FOREIGN_NET_COLS)
-    out = df.reindex(columns=FOREIGN_NET_COLS).copy()
-    out["symbol"] = out["symbol"].astype(str).str.strip().str.upper()
-    for c in ("foreign_net_value", "foreign_net_volume"):
-        out[c] = pd.to_numeric(out[c], errors="coerce")
-    return out[out["symbol"] != ""].reset_index(drop=True)
+        out = pd.DataFrame(columns=FOREIGN_NET_COLS)
+    else:
+        out = df.reindex(columns=FOREIGN_NET_COLS).copy()
+        out["symbol"] = out["symbol"].astype(str).str.strip().str.upper()
+        for c in ("foreign_net_value", "foreign_net_volume"):
+            out[c] = pd.to_numeric(out[c], errors="coerce")
+        out = out[out["symbol"] != ""].reset_index(drop=True)
+    if use_cache and _day_is_final(day):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            out.to_parquet(tmp, index=False)
+            os.replace(tmp, path)
+        except Exception:              # đệm là tiện ích — không làm hỏng lượt lấy dữ liệu
+            pass
+    return out
 
 
 def fetch_market_net(date_str: str) -> dict | None:

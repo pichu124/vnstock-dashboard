@@ -1,6 +1,7 @@
 """Kiểm nhanh vnstock thế hệ 6 trên MÁY THẬT (có khoá nguồn): mỗi loại dữ liệu dự án dùng —
-nguồn nào trả lời, cột nào, đơn vị/múi giờ, có khớp kho giá không. CHỈ ĐỌC: không ghi kho, không
-in khoá. Kết quả in ra màn hình + `gen6_check_report.txt` (gốc repo, đã gitignore) để dán cho Claude.
+nguồn nào trả lời, cột nào, đơn vị/múi giờ, có khớp kho giá không. Không ghi kho giá, không in khoá;
+thứ DUY NHẤT được ghi là đệm NN ròng theo ngày `_meta/nn_screener/<ngày>.parquet` (phiên đã chốt —
+chính đệm pipeline dùng, ghi trước càng đỡ thời gian cho lượt tối). Kết quả in ra màn hình + `gen6_check_report.txt` (gốc repo, đã gitignore) để dán cho Claude.
 
     python scripts/gen6_check.py            # mặc định FPT, VCB, HPG
     python scripts/gen6_check.py --tickers FPT,SHS,BSR
@@ -155,7 +156,13 @@ def main(argv: "list[str] | None" = None) -> int:
         return f"{_cols(df)} · close_price nguồn {cp} vs close kho {wh_last}"
     rep.run("Bảng giá live (equity.quote)", _quote)
 
-    rep.run("Chỉ số trong phiên (index.quote)", lambda: _cols(Market().index("VNINDEX").quote()))
+    def _index_quote():
+        df = Market().index("VNINDEX").quote()
+        keep = [c for c in ("time", "close_price", "total_volume", "accumulated_volume",
+                            "accumulated_value") if c in df.columns]
+        return (f"{_cols(df)}\n        2 dòng đầu: {df[keep].head(2).to_dict(orient='records')}"
+                f"\n        2 dòng cuối: {df[keep].tail(2).to_dict(orient='records')}")
+    rep.run("Chỉ số trong phiên (index.quote) — cột nào là KL luỹ kế?", _index_quote)
     rep.run("HĐTL VN30F1M quote", lambda: _cols(Market().futures("VN30F1M").quote()))
     rep.run(f"{tickers[0]} volume_profile", lambda: _cols(Market().equity(tickers[0]).volume_profile()))
 
@@ -168,7 +175,7 @@ def main(argv: "list[str] | None" = None) -> int:
             out.append(f"{d}: {len(df)} mã, NN ròng |max|={v.abs().max():,.0f}, Σ={v.sum():,.0f}"
                        if len(v) else f"{d}: {len(df)} mã, không có foreign_net_value")
         return " | ".join(out) + " (hai ngày khác nhau ⇒ date= lấy đúng ngày lịch sử)"
-    rep.run("Screener NN ròng theo ngày", _screener)
+    rep.run("Screener NN ròng theo ngày (lần 2 đọc đệm theo ngày ⇒ nhanh)", _screener)
 
     def _ratio():
         df = Fundamental().equity(tickers[0]).ratio(period="year")

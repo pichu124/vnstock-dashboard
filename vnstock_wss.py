@@ -94,11 +94,25 @@ def split_hot_cold(symbols, hot_set, cycle: int, every_n: int = 5,
 
 INDEX_SYMBOLS = ["VNINDEX", "VN30", "HNXINDEX", "HNX30"]
 
-# `Market().index(s).quote()` thế hệ 6 (hồ sơ v5) → tên `_emit_index_tick` đọc.
-_INDEX_QUOTE_COLS = {"close_price": "close", "high_price": "high",
-                     "low_price": "low", "total_volume": "volume"}
 
 FUTURES_SYMBOLS = ["VN30F1M", "VN30F2M", "VN30F1Q", "VN30F2Q"]
+
+
+def _index_quote_last_row(df: pd.DataFrame) -> pd.Series:
+    """Dòng MỚI NHẤT của `Market().index(s).quote()` (thế hệ 6 trả CẢ chuỗi trong ngày — đo 🖥️ 12/11:
+    4.144 dòng), chỉ giữ đúng cột `_emit_index_tick` cần (hàm đó dò tên theo chuỗi con: để lại
+    `put_through_volume`, `advance_volume`… là nó vớ nhầm). Khối lượng phiên: CHƯA đo được cột nào là
+    luỹ kế cả phiên (`total_volume` hay `accumulated_volume`) ⇒ lấy số LỚN HƠN của hai cột — cột luỹ kế
+    luôn lớn nhất; xác nhận bằng `scripts/gen6_check.py` (in đầu/cuối chuỗi). Hàm thuần."""
+    if "time" in df.columns:
+        df = df.assign(_t=pd.to_datetime(df["time"], errors="coerce")).sort_values("_t", kind="stable")
+    row = df.iloc[-1]
+    vols = [v for v in (pd.to_numeric(row.get(c), errors="coerce")
+                        for c in ("total_volume", "accumulated_volume")) if pd.notna(v)]
+    keep = {"close": row.get("close_price"), "high": row.get("high_price"),
+            "low": row.get("low_price"), "volume": max(vols) if vols else None,
+            "reference_price": row.get("reference_price")}
+    return pd.Series(keep)
 
 
 def is_futures(ticker: str) -> bool:
@@ -948,7 +962,7 @@ class VnStockWSS:
             if df is not None and not df.empty:
                 # Hồ sơ v5 → tên `_emit_index_tick` đọc. %D tính từ giá tham chiếu (không đoán
                 # đơn vị của `percent_change`: phân số hay phần trăm tuỳ hồ sơ).
-                last = df.rename(columns=_INDEX_QUOTE_COLS).iloc[-1].copy()
+                last = _index_quote_last_row(df)
                 ref = pd.to_numeric(last.get("reference_price"), errors="coerce")
                 close = pd.to_numeric(last.get("close"), errors="coerce")
                 if pd.notna(ref) and ref > 0 and pd.notna(close):
