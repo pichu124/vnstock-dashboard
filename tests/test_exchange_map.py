@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -112,6 +113,11 @@ def _patch_reference(monkeypatch, equity):
     monkeypatch.setattr(vnstock, "Reference", _Ref)
 
 
+_needs_vnstock = pytest.mark.skipif(importlib.util.find_spec("vnstock") is None,
+                                    reason="cần vnstock thế hệ 6 (CI cài tối thiểu, không có vnstock)")
+
+
+@_needs_vnstock
 def test_build_exchange_map_reads_exchange_column_of_equity_list(tmp_path, monkeypatch):
     from vnstock_exchange_map import build_exchange_map
     eq = _FakeEquity(pd.DataFrame({
@@ -129,6 +135,7 @@ def test_build_exchange_map_reads_exchange_column_of_equity_list(tmp_path, monke
     assert on_disk == m
 
 
+@_needs_vnstock
 def test_build_exchange_map_vnstock_error_keeps_existing_file(tmp_path, monkeypatch):
     from vnstock.errors import InputError
     from vnstock_exchange_map import build_exchange_map
@@ -142,6 +149,7 @@ def test_build_exchange_map_vnstock_error_keeps_existing_file(tmp_path, monkeypa
     assert json.loads((meta / "exchange_map.json").read_text()) == {"VCB": "HOSE"}
 
 
+@_needs_vnstock
 def test_build_exchange_map_empty_listing_writes_nothing(tmp_path, monkeypatch):
     from vnstock_exchange_map import build_exchange_map
     _patch_reference(monkeypatch, _FakeEquity(pd.DataFrame()))

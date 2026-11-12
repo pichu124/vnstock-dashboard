@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import pandas as pd
 import pytest
+
 
 
 # ── Gộp nguồn thay vì first-wins (14/08 — vá vùng mù 12 mã của div_check) ──
@@ -160,6 +162,11 @@ class TestVciEventShape:
         assert len(df) == 1 and df.iloc[0]["type"] == "split"
 
 
+_needs_vnstock = pytest.mark.skipif(importlib.util.find_spec("vnstock") is None,
+                                    reason="cần vnstock thế hệ 6 (CI cài tối thiểu, không có vnstock)")
+
+
+@_needs_vnstock
 class TestGen6EventShape:
     """`Reference().company(t).events()` thế hệ 6 (hồ sơ v5): event_title / event_type /
     ex_right_date / value / ratio. Thế hệ 6 KHÔNG có capital_history ⇒ dòng phát hành có tỷ

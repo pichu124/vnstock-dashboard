@@ -8,12 +8,14 @@ is the operating cash flow of the most recent COMPLETE fiscal year.
 
 from __future__ import annotations
 
+import importlib.util
 from datetime import date
 
 import pandas as pd
 import pytest
 
 from vnstock_fundamental_updater import _annual_operating_cf
+
 
 _OCF = "Net cash inflows/(outflows) from operating activities"
 _CUR = date.today().year
@@ -178,6 +180,11 @@ def _patch_fin(monkeypatch, fin):
                         lambda t, *a, **k: type("S", (), {"finance": fin})())
 
 
+_needs_vnstock = pytest.mark.skipif(importlib.util.find_spec("vnstock") is None,
+                                    reason="cần vnstock thế hệ 6 (CI cài tối thiểu, không có vnstock)")
+
+
+@_needs_vnstock
 def test_gen6_ratio_columns_map_to_legacy_fields(monkeypatch):
     import vnstock_fundamental_updater as fu
     fin = _Gen6Fin(ratio=pd.DataFrame([
@@ -198,6 +205,7 @@ def test_gen6_ratio_columns_map_to_legacy_fields(monkeypatch):
                    "debt_to_equity": 2.81, "de_period": "2025"}
 
 
+@_needs_vnstock
 def test_gen6_long_cash_flow_gives_last_complete_year(monkeypatch):
     import vnstock_fundamental_updater as fu
     y1, y2 = _CUR - 2, _CUR - 1
@@ -213,6 +221,7 @@ def test_gen6_long_cash_flow_gives_last_complete_year(monkeypatch):
     assert fin.calls == [("cash_flow", {"period": "year", "lang": "en"})]
 
 
+@_needs_vnstock
 def test_gen6_long_balance_sheet_gives_debt_to_equity(monkeypatch):
     import vnstock_fundamental_updater as fu
     fin = _Gen6Fin(balance_sheet=_long([
@@ -229,6 +238,7 @@ def test_gen6_long_balance_sheet_gives_debt_to_equity(monkeypatch):
     assert fin.calls == [("balance_sheet", {"period": "year", "lang": "en"})]
 
 
+@_needs_vnstock
 def test_gen6_rate_limit_reaches_the_retry_wrapper(monkeypatch):
     """RateLimitError không được nuốt thành 'statement rỗng' — `_fetch_one` bọc
     `call_with_rate_limit_retry` cần thấy nó để chờ rồi thử lại."""
@@ -239,6 +249,7 @@ def test_gen6_rate_limit_reaches_the_retry_wrapper(monkeypatch):
         fu._fetch_ratios("FPT")
 
 
+@_needs_vnstock
 def test_gen6_source_error_is_an_empty_statement(monkeypatch):
     from vnstock.errors import UnsupportedError
     import vnstock_fundamental_updater as fu
