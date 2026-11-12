@@ -40,3 +40,4 @@ ui_snapshots/
 vnstock-migration/
 # báo cáo kiểm vnstock thế hệ 6 trên máy thật (scripts/gen6_check.py) — dán cho Claude, không commit
 gen6_check_report.txt
+gen6_missing_report.txt
