@@ -331,10 +331,11 @@ def test_long_whitespace_after_span_is_fast():
     """Review 12/11: lookahead ranh giới thử lại `\\s*` mỗi bước ⇒ dải khoảng trắng dài chạy theo bình phương."""
     import time
     from vnstock_brief_guards_common import _nn_other_span
-    s = "trong 3 tháng" + " " * 20000 + "x"
-    t0 = time.time()
-    _nn_other_span(s, 0)
-    assert time.time() - t0 < 1.0
+    for s in ("trong 3 tháng" + " " * 50000 + "x", "(3 tháng" + " " * 50000 + "x",
+              "trong 3 tháng" + " a" * 25000 + "x"):
+        t0 = time.time()
+        _nn_other_span(s, 0)
+        assert time.time() - t0 < 0.3, s[:20]      # tuyến tính: 50.000 ký tự ≈ vài ms
 
 
 def test_spaced_ascii_dash_is_a_clause_boundary():

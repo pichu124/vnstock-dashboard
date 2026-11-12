@@ -268,7 +268,7 @@ def test_index_quote_reads_gen6_columns(monkeypatch):
         "symbol": "VNINDEX", "reference_price": 1_250.0, "high_price": 1_270.0,
         "low_price": 1_245.0, "close_price": 1_262.5, "total_volume": 650_000_000,
         "time": "2026-11-11 10:15:00", "price_change": 12.5, "percent_change": 0.01,
-        "advances": 200, "declines": 150, "accumulated_volume": 1, "put_through_volume": 2,
+        "advances": 200, "declines": 150, "accumulated_volume": 482_575_612, "put_through_volume": 2,
     }])
     _patch_market(monkeypatch, index=_FakeNode(df))
     svc, ticks = _svc_capturing_ticks(monkeypatch)
@@ -276,7 +276,7 @@ def test_index_quote_reads_gen6_columns(monkeypatch):
     svc._fetch_index_quote("VNINDEX")
     (t,) = ticks
     assert t["ticker"] == "VNINDEX" and t["type"] == "index"
-    assert t["price"] == 1_262.5 and t["volume"] == 650_000_000
+    assert t["price"] == 1_262.5 and t["volume"] == 482_575_612     # khớp lệnh, không gồm thoả thuận
     assert t["high"] == 1_270.0 and t["low"] == 1_245.0
     assert t["chg_pct"] == pytest.approx(1.0)        # từ reference_price, không đoán đơn vị %
 
@@ -304,7 +304,8 @@ def test_listed_symbols_from_reference_equity_list(monkeypatch):
 
 def test_index_quote_last_row_takes_latest_time_and_session_volume():
     """Thế hệ 6: `index(s).quote()` trả CẢ chuỗi trong ngày (đo 🖥️ 12/11: 4.144 dòng). Lấy dòng MỚI NHẤT
-    theo `time` dù nguồn xếp ngược; khối lượng = `accumulated_volume`; cột *_volume khác không lọt."""
+    theo `time` dù nguồn xếp ngược; khối lượng = `accumulated_volume` (khớp lệnh) KỂ CẢ khi `total_volume`
+    lớn hơn (gồm thoả thuận — số đo 15:05: 653,6 tr vs 482,6 tr); cột *_volume khác không lọt."""
     import pandas as pd
 
     import vnstock_wss as w
@@ -313,12 +314,12 @@ def test_index_quote_last_row_takes_latest_time_and_session_volume():
         "time": ["2026-11-12 14:45:00", "2026-11-12 09:15:00", "2026-11-12 11:30:00"],
         "reference_price": [1740.0] * 3,
         "close_price": [1734.75, 1745.0, 1738.0], "high_price": [1750.0, 1745.0, 1748.0],
-        "low_price": [1730.0, 1744.0, 1736.0], "total_volume": [1.0e6, 2.0e5, 5.0e5],
+        "low_price": [1730.0, 1744.0, 1736.0], "total_volume": [6.5355424e8, 2.1e7, 3.2e8],
         "put_through_volume": [9.9e9] * 3, "advance_volume": [8.8e9] * 3,
-        "accumulated_volume": [6.5e8, 2.0e7, 3.1e8],
+        "accumulated_volume": [482_575_612, 2.0e7, 3.1e8],
     })
     row = w._index_quote_last_row(df)
-    assert row["close"] == 1734.75 and row["volume"] == 6.5e8 and row["reference_price"] == 1740.0
+    assert row["close"] == 1734.75 and row["volume"] == 482_575_612 and row["reference_price"] == 1740.0
     assert set(row.index) == {"close", "high", "low", "volume", "reference_price"}
     no_acc = w._index_quote_last_row(df.drop(columns=["accumulated_volume"]))
-    assert no_acc["volume"] == 1.0e6                       # không có luỹ kế ⇒ total_volume
+    assert no_acc["volume"] == 6.5355424e8                 # không có luỹ kế ⇒ total_volume

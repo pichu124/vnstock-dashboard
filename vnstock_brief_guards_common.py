@@ -262,15 +262,17 @@ _NN_SPAN_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|tới|cuối|đ�
 _NN_CLAUSE_STOP = (r"(?!:|[-+]?\d[\d.,]*\s*tỷ\b|ròng\b|mua\b|bán\b|dự\s+(?:kiến|báo)\b|tới\b(?!\s+nay)"
                    r"|(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
 # `[^\S\n]*+` (khoảng trắng TRỪ xuống dòng, sở hữu, Python ≥3.11 — `\s*+` từng nuốt cả "\n" làm hỏng
-# ranh giới cuối dòng): lookahead này chạy ở MỖI bước của vòng lười — `\s*` thường thử lại cả
+# ranh giới cuối dòng). Vòng lười nuốt CẢ dải khoảng trắng mỗi bước (`[^\S\n]++`) — nếu dừng ở từng
+# dấu cách thì lookahead quét lại phần còn lại ⇒ bình phương. Trước đó: lookahead chạy ở MỖI bước — `\s*` thường thử lại cả
 # dải khoảng trắng mỗi lần ⇒ bình phương (review 12/11: 20.000 dấu cách = 24s). " - " có dấu cách là
 # gạch ngang ranh giới như "–" ("III-2025" không có dấu cách thì không).
 _NN_CLAUSE_END = (r"(?=[^\S\n]*+(?:[.,;)(\n–—]|-\s|$|(?:và|nhưng|dù|khi|do|so\s+với|còn|song|tuy"
                   r"|trong\s+khi)\b))")
 _NN_OTHER_SPAN_RE = _re.compile(
-    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN_TRONG + r"(?:" + _NN_CLAUSE_STOP + r"[^(),\n])*?(?=\s*[),])"
+    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN_TRONG + r"(?:" + _NN_CLAUSE_STOP
+    + r"(?:[^\S\n]++|[^(),\s]))*?(?=[^\S\n]*+[),])"
     + r"|trong\s+" + _NN_SPAN_TRONG + r"(?!\s*(?:thứ|qua\s+nữa)\b)(?:" + _NN_CLAUSE_STOP
-    + r"[^\n])*?" + _NN_CLAUSE_END
+    + r"(?:[^\S\n]++|\S))*?" + _NN_CLAUSE_END
     + r"|,\s*" + _NN_SPAN + r"(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
     + r"|" + _NN_SPAN + _NN_SPAN_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
 

@@ -101,17 +101,19 @@ FUTURES_SYMBOLS = ["VN30F1M", "VN30F2M", "VN30F1Q", "VN30F2Q"]
 def _index_quote_last_row(df: pd.DataFrame) -> pd.Series:
     """Dòng MỚI NHẤT của `Market().index(s).quote()` (thế hệ 6 trả CẢ chuỗi trong ngày — đo 🖥️ 12/11:
     4.144 dòng), chỉ giữ đúng cột `_emit_index_tick` cần (hàm đó dò tên theo chuỗi con: để lại
-    `put_through_volume`, `advance_volume`… là nó vớ nhầm). Khối lượng phiên: CHƯA đo được cột nào là
-    luỹ kế cả phiên (`total_volume` hay `accumulated_volume`) ⇒ lấy số LỚN HƠN của hai cột — cột luỹ kế
-    luôn lớn nhất; xác nhận bằng `scripts/gen6_check.py` (in đầu/cuối chuỗi). Hàm thuần."""
+    `put_through_volume`, `advance_volume`… là nó vớ nhầm). Khối lượng phiên = `accumulated_volume`
+    (KHỚP LỆNH luỹ kế): đo 🖥️ 12/11 bằng `scripts/gen6_check.py` — cột này đứng yên từ 14:45 (hết ATC),
+    đi đôi `accumulated_value`; còn `total_volume` vẫn tăng tới 15:05 (653,6 tr vs 482,6 tr) vì gồm cả
+    THOẢ THUẬN. Chọn khớp lệnh cho khớp nến 1m (nhánh dự phòng `_http_fetch_quote`) và nến ngày trong
+    kho. Thiếu cột luỹ kế mới lấy `total_volume`. Hàm thuần."""
     if "time" in df.columns:
         df = df.assign(_t=pd.to_datetime(df["time"], errors="coerce")).sort_values(
             "_t", kind="stable", na_position="first")          # time hỏng không thành "mới nhất"
     row = df.iloc[-1]
     vols = [v for v in (pd.to_numeric(row.get(c), errors="coerce")
-                        for c in ("total_volume", "accumulated_volume")) if pd.notna(v)]
+                        for c in ("accumulated_volume", "total_volume")) if pd.notna(v)]
     keep = {"close": row.get("close_price"), "high": row.get("high_price"),
-            "low": row.get("low_price"), "volume": max(vols) if vols else None,
+            "low": row.get("low_price"), "volume": vols[0] if vols else None,
             "reference_price": row.get("reference_price")}
     return pd.Series(keep)
 
