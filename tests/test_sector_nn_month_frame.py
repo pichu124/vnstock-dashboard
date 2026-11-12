@@ -314,3 +314,29 @@ def test_span_followed_by_joined_clause_is_left_untouched(text):
 ])
 def test_marker_before_clause_boundary_still_pins(text):
     assert "-1,032" in _run(text)
+
+
+def test_coverage_label_between_figure_and_sector_name_does_not_redirect_on_rerun():
+    """Review 12/11: ngày thiếu phiên, nhãn chèn giữa "120 tỷ" và "trong ngành Thép" từng làm lượt chạy LẠI
+    (`run.py brief --from-file`) ghim số tuần của Ngân hàng đè lên số của Thép."""
+    ctx = {**_CTX, "nn_coverage": {"sessions": 19, "asked": 20, "missing_1t": 1, "missing_1m": 1}}
+    t = ("**Dòng tiền ngành:** NN bán ròng 1,032 tỷ trong ngành Ngân hàng trong 3 tháng và mua ròng 120 tỷ "
+         "trong ngành Thép & Kim loại.")
+    once = vb.apply_brief_guards(t, ctx)
+    assert vb.apply_brief_guards(once, ctx) == once, once
+    assert "-1,032 tỷ (NN" not in once and "mua ròng 120 tỷ" in once, once
+
+
+def test_long_whitespace_after_span_is_fast():
+    """Review 12/11: lookahead ranh giới thử lại `\\s*` mỗi bước ⇒ dải khoảng trắng dài chạy theo bình phương."""
+    import time
+    from vnstock_brief_guards_common import _nn_other_span
+    s = "trong 3 tháng" + " " * 20000 + "x"
+    t0 = time.time()
+    _nn_other_span(s, 0)
+    assert time.time() - t0 < 1.0
+
+
+def test_spaced_ascii_dash_is_a_clause_boundary():
+    out = _run("Ngân hàng bán ròng 3,800 tỷ trong 3 tháng - tuần này bán ròng 1,032 tỷ.")
+    assert "3,800 tỷ trong 3 tháng" in out, out

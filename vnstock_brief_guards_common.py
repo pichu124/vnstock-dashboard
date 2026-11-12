@@ -261,7 +261,11 @@ _NN_SPAN_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|tới|cuối|đ�
 # hiệu ⇒ regex lùi lại cũng không lách được.
 _NN_CLAUSE_STOP = (r"(?!:|[-+]?\d[\d.,]*\s*tỷ\b|ròng\b|mua\b|bán\b|dự\s+(?:kiến|báo)\b|tới\b(?!\s+nay)"
                    r"|(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
-_NN_CLAUSE_END = (r"(?=\s*(?:[.,;)(\n–—]|$|(?:và|nhưng|dù|khi|do|so\s+với|còn|song|tuy|trong\s+khi)\b))")
+# `\s*+` (sở hữu, Python ≥3.11): lookahead này chạy ở MỖI bước của vòng lười — `\s*` thường thử lại cả
+# dải khoảng trắng mỗi lần ⇒ bình phương (review 12/11: 20.000 dấu cách = 24s). " - " có dấu cách là
+# gạch ngang ranh giới như "–" ("III-2025" không có dấu cách thì không).
+_NN_CLAUSE_END = (r"(?=\s*+(?:[.,;)(\n–—]|-\s|$|(?:và|nhưng|dù|khi|do|so\s+với|còn|song|tuy"
+                  r"|trong\s+khi)\b))")
 _NN_OTHER_SPAN_RE = _re.compile(
     r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN_TRONG + r"(?:" + _NN_CLAUSE_STOP + r"[^(),\n])*?(?=\s*[),])"
     + r"|trong\s+" + _NN_SPAN_TRONG + r"(?!\s*(?:thứ|qua\s+nữa)\b)(?:" + _NN_CLAUSE_STOP

@@ -1296,8 +1296,10 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
             # trong ngành Ngân hàng" — pass Họ VIN nuốt số 703 của Ngân hàng
             # rồi pin thành +1,496). Đừng đụng nếu attribution ngay sau là ngành
             # khác nm.
-            tail = m.string[m.end():m.end() + 44]
-            tm = _re.match(r"\s*(?:đồng\s*)?trong\s+ngành\s+(.+)",
+            # Cho phép MỘT cặp ngoặc chen giữa số và "trong ngành X" (nhãn khung/thiếu phiên guard khác
+            # vừa gắn — review 12/11: thiếu cái này thì lượt chạy lại ghim số ngành này đè ngành kia).
+            tail = m.string[m.end():m.end() + 140]
+            tm = _re.match(r"\s*(?:đồng\s*)?(?:\([^()\n]*\)\s*)?trong\s+ngành\s+(.+)",
                            tail, _re.IGNORECASE)
             if tm:
                 trailing = tm.group(1).strip().lower()
