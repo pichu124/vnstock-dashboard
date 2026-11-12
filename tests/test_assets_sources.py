@@ -126,13 +126,15 @@ def test_replica_and_nowcast_shift_and_h():
     assert src.nowcast({}, rep) is None
 
 
-def test_parse_mbk_central_long_frame():
-    import pandas as pd
-    df = pd.DataFrame({"last_updated": ["2026-10-08", "2026-10-07", "2026-10-08"],
-                       "name": ["Tỷ giá trung tâm (từ 04/01/2016)", "Tỷ giá trung tâm (từ 04/01/2016)", "Tỷ giá VCB"],
-                       "value": [25629.0, 25633.0, 26170.0], "unit": ["USD/VNĐ"] * 3})
-    assert src.parse_mbk_central(df) == [("2026-10-07", 25633.0), ("2026-10-08", 25629.0)]
-    assert src.parse_mbk_central(pd.DataFrame({"a": [1]})) == []
+def test_mbk_central_rate_stops_with_clear_gen6_error():
+    """vnstock thế hệ 6 không có tỷ giá trung tâm mbk ⇒ lỗi rõ (conftest tráo hàm thành [],
+    nên nạp bản thật từ file)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_vas_fresh", src.__file__)
+    fresh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fresh)
+    with pytest.raises(RuntimeError, match="thế hệ 6 không có nguồn tỷ giá trung tâm"):
+        fresh.fetch_mbk_central("2026-10-01", "2026-10-09")
 
 
 # mbk THÔ (10 dòng cuối, có dòng CN) in bởi `--backfill --steps mbk` 🖥️ 10/10 01:37, và tỷ giá

@@ -120,11 +120,11 @@ def test_partial_run_is_recorded_but_never_counts_as_done(status_file):
     status_file("updater", last_success_date="2026-09-11", last_result="success",
                 last_machine="PICHU", tickers_updated=1613)
     upd = vu.updater_status_update(
-        {"error": 181, "updated": 1524, "up_to_date": 15, "fallback": 1245},
+        {"error": 181, "updated": 1524, "up_to_date": 15},
         today=_today(), now="2026-09-14T21:55:00", machine="PICHU")
     assert upd["last_result"] == "partial"
     assert "last_success_date" not in upd and upd["last_partial_date"] == _today()
-    assert (upd["errors"], upd["fallback"], upd["tickers_updated"]) == (181, 1245, 1524)
+    assert (upd["errors"], upd["tickers_updated"]) == (181, 1524)
     rl.write_pipeline_status("updater", upd)
     st = rl.read_pipeline_status()["updater"]
     assert st["last_success_date"] == "2026-09-11"      # giữ nguyên
@@ -137,7 +137,7 @@ def test_partial_run_is_recorded_but_never_counts_as_done(status_file):
 def test_clean_run_marks_success_with_today_and_zero_errors(status_file):
     vu = _updater_mod()
     upd = vu.updater_status_update(
-        {"error": 0, "updated": 1613, "up_to_date": 89, "fallback": 0},
+        {"error": 0, "updated": 1613, "up_to_date": 89},
         today=_today(), now=f"{_today()}T20:19:00", machine="PICHU")
     assert upd["last_result"] == "success" and upd["last_success_date"] == _today()
     assert upd["errors"] == 0 and "last_partial_date" not in upd
@@ -185,7 +185,7 @@ def test_morning_catchup_does_not_block_the_evening_sync(status_file):
     vu = _updater_mod()
     today = rl.get_today_vn()                      # thứ 3 15/09 (ghim ở fixture)
     upd = vu.updater_status_update(
-        {"error": 0, "updated": 1613, "up_to_date": 89, "fallback": 0},
+        {"error": 0, "updated": 1613, "up_to_date": 89},
         today=today.isoformat(), now=f"{today.isoformat()}T08:20:00", machine="PICHU")
     assert upd["covered_session"] == rl.session_covered_at(_now_today(8, 20)).isoformat()
     assert upd["covered_session"] != today.isoformat()
@@ -201,7 +201,7 @@ def test_evening_marker_still_skips_a_second_run_the_same_evening(status_file, d
     ⇒ lượt sau bỏ qua — ngày nào cũng vậy."""
     vu = _updater_mod()
     upd = vu.updater_status_update(
-        {"error": 0, "updated": 10, "up_to_date": 0, "fallback": 0},
+        {"error": 0, "updated": 10, "up_to_date": 0},
         today=day.isoformat(), now=f"{day.isoformat()}T19:05:12", machine="PICHU")
     rl.write_pipeline_status("updater", upd)
     assert rl.is_already_done_today("updater", now=_dt.combine(day, _time(21, 0)))[0] is True
@@ -227,7 +227,7 @@ def test_weekend_catchup_covers_friday_and_sunday_skips(status_file):
     18:00 chạy lại (phủ T2)."""
     vu = _updater_mod()
     upd = vu.updater_status_update(
-        {"error": 0, "updated": 1613, "up_to_date": 89, "fallback": 0},
+        {"error": 0, "updated": 1613, "up_to_date": 89},
         today="2026-09-19", now="2026-09-19T10:00:00", machine="PICHU")
     assert upd["covered_session"] == "2026-09-18"
     rl.write_pipeline_status("updater", upd)
@@ -255,7 +255,7 @@ def test_covered_session_uses_the_start_time_and_survives_bad_input(capsys):
     phiên hôm nay ở những mã đầu ⇒ phiên phủ tính theo giờ BẮT ĐẦU. `now` rác
     ⇒ về ngày lịch nhưng phải NÓI ra (run_daily.log), không câm."""
     vu = _updater_mod()
-    st = {"error": 0, "updated": 1, "up_to_date": 0, "fallback": 0}
+    st = {"error": 0, "updated": 1, "up_to_date": 0}
     upd = vu.updater_status_update(st, today="2026-09-15", now="2026-09-15T15:10:00",
                                    machine="PICHU", started="2026-09-15T13:30:00")
     assert upd["covered_session"] == "2026-09-14" and upd["last_run_at"] == "2026-09-15T15:10:00"

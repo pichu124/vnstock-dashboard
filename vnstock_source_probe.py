@@ -1,8 +1,16 @@
 """
 vnstock_source_probe.py — Đo sức khỏe MỌI nguồn giá + xếp hạng ứng viên fallback
 ================================================================================
-Sinh ra từ VCI outage 21h 17/07 (playbook ⚡ trong CLAUDE.md): cần biết nguồn
-nào trong registry vnstock đủ KHỎE làm fallback cho VCI, xếp từ khỏe → yếu.
+Sinh ra từ outage nguồn giá 21h 17/07 (playbook ⚡ trong CLAUDE.md): cần biết
+nguồn nào đủ KHỎE làm nguồn dự phòng, xếp từ khỏe → yếu.
+
+vnstock thế hệ 6: CHỈ đo các nguồn user đã khai ở `.env` (`VNSTOCK_SOURCE` + luật
+`VNSTOCK_SOURCE_ROUTES` của nến cổ phiếu), lọc qua `vnstock.sources.readers(route)` —
+không chép tên nguồn vào code, không tự duyệt nguồn user chưa chọn. Mỗi lượt gọi NÊU
+nguồn (`Market(<nguồn>)`) vì đây là công cụ so CÁC nguồn đã khai; đường ống giá thì không.
+Nguồn chưa có khoá (`CredentialError`) / không đọc route (`UnsupportedError`)
+⇒ "unavailable", không chấm. Kết quả xếp hạng là gợi ý thứ tự cho
+`VNSTOCK_SOURCE=a,b` trong `.env` — user chọn, code không tự áp.
 
 Đo mỗi nguồn trên RỔ MÃ đại diện (HOSE blue/mid + HNX + UPCOM) + riêng
 VNINDEX (bar index là nhu cầu đặc biệt của brief/_augment — nguồn tốt cho cổ
@@ -38,9 +46,7 @@ _META = _REPO / "data_warehouse" / "_meta"      # tests monkeypatch chỗ này
 _CACHE = "source_probe.json"
 _RETAIN_RUNS = 20
 
-# Ứng viên thử (registry từng bản vnstock khác nhau — nguồn không có sẽ tự
-# ghi "không có trong bản này"). VCI để ĐẦU làm reference/đối chứng outage.
-_CANDIDATE_SOURCES = ("vci", "kbs", "dnse", "tcbs", "fmp", "msn")
+_ROUTE = "market.equity.ohlcv"
 
 # Rổ mã đại diện: HOSE blue + HOSE mid + HNX + UPCOM. Index probe riêng.
 _DEFAULT_BASKET = ("FPT", "BSR", "SHS", "VGI")
@@ -54,15 +60,37 @@ def _cache_path() -> Path:
     return _META / _CACHE
 
 
+def candidate_sources() -> tuple:
+    """Nguồn user đã khai (`.env`) mà vnstock đọc được nến cổ phiếu — không gọi mạng.
+
+    Thứ tự giữ như user khai. Chưa khai gì ⇒ () (không tự đi dò nguồn khác)."""
+    import fnmatch
+    import vnstock
+    from vnstock_auth import _parse_names, parse_routes, SOURCE_ENV, ROUTES_ENV
+    declared = list(_parse_names(os.getenv(SOURCE_ENV, "")))
+    for route, names in parse_routes(os.getenv(ROUTES_ENV, "")):
+        if fnmatch.fnmatch(_ROUTE, route):
+            declared.extend(names)
+    # `sources.use()` không phân biệt hoa/thường ⇒ "SSI" trong .env vẫn là nguồn đã khai.
+    readable = {str(n).lower() for n in vnstock.sources.readers(_ROUTE)}
+    return tuple(dict.fromkeys(n.strip().lower() for n in declared
+                               if n.strip().lower() in readable))
+
+
 # ── Probe 1 nguồn (cần vnstock + mạng — verify-gated) ───────────────────────
 
 def _one_call(source: str, symbol: str, start: str, end: str) -> dict:
-    """1 call .history() → {ok, secs, rows, last_close, has_vol, err}."""
+    """1 call ohlcv → {ok, secs, rows, last_close, has_vol, err[, unavailable]}."""
+    from vnstock import Market
+    from vnstock.errors import CredentialError, UnsupportedError
+    from vnstock_auth import is_index_symbol, naive_local_time
+
     t0 = time.time()
     try:
-        from vnstock import Quote
-        df = Quote(symbol=symbol, source=source.upper()).history(
-            start=start, end=end, interval="1D")
+        m = Market(source)
+        node = m.index(symbol) if is_index_symbol(symbol) else m.equity(symbol)
+        df = naive_local_time(node.ohlcv(start=start, end=end, interval="1D"),
+                              daily=True)
         secs = round(time.time() - t0, 1)
         if df is None or len(df) == 0:
             return {"ok": False, "secs": secs, "err": "rỗng"}
@@ -77,7 +105,10 @@ def _one_call(source: str, symbol: str, start: str, end: str) -> dict:
                           else None),
             "has_vol": "volume" in cols,
         }
-    except Exception as e:                                 # noqa: BLE001
+    except (CredentialError, UnsupportedError) as e:       # chưa có khoá / không đọc route
+        return {"ok": False, "secs": round(time.time() - t0, 1), "unavailable": True,
+                "err": f"{type(e).__name__}: {str(e)[:120]}"}
+    except Exception as e:                                 # noqa: BLE001 — công cụ đo: mọi lỗi là một kết quả
         return {"ok": False, "secs": round(time.time() - t0, 1),
                 "err": f"{type(e).__name__}: {str(e)[:120]}"}
 
@@ -85,7 +116,7 @@ def _one_call(source: str, symbol: str, start: str, end: str) -> dict:
 def probe_source(source: str, basket: tuple, start: str, end: str,
                  verbose: bool = True) -> dict:
     """Đo 1 nguồn trên rổ mã + index. Fail-fast: 2 mã đầu đều lỗi → bỏ phần
-    còn lại. 'unavailable' khi registry bản này không có nguồn."""
+    còn lại. 'unavailable' khi nguồn chưa có khoá / không đọc route."""
     out: dict = {"source": source, "stocks": {}, "index": None}
     for i, sym in enumerate(basket):
         r = _one_call(source, sym, start, end)
@@ -93,8 +124,8 @@ def probe_source(source: str, basket: tuple, start: str, end: str,
         if verbose:
             tag = f"{r.get('rows', 0)} bar/{r['secs']}s" if r["ok"] else r["err"]
             print(f"    {source}:{sym} → {'✅' if r['ok'] else '❌'} {tag}")
-        if "not found" in (r.get("err") or "").lower():
-            out["unavailable"] = True                      # registry không có
+        if r.get("unavailable"):
+            out["unavailable"] = True                      # chưa có khoá / không đọc route
             return out
         if i == 1 and not any(v["ok"] for v in out["stocks"].values()):
             out["fail_fast"] = True                        # 2 mã đầu đều chết
@@ -110,7 +141,9 @@ def probe_source(source: str, basket: tuple, start: str, end: str,
 
 
 def run_probe(basket: tuple = _DEFAULT_BASKET, days: int = 14,
-              sources: tuple = _CANDIDATE_SOURCES, verbose: bool = True) -> dict:
+              sources: "tuple | None" = None, verbose: bool = True) -> dict:
+    if sources is None:
+        sources = candidate_sources()
     end = datetime.now().date()
     start = end - timedelta(days=days)
     results = {}
@@ -298,7 +331,7 @@ def cumulative_stats(cache: dict) -> dict:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
-        description="Đo sức khỏe nguồn giá + xếp hạng ứng viên fallback VCI")
+        description="Đo sức khỏe nguồn giá + xếp hạng ứng viên nguồn dự phòng")
     ap.add_argument("--days", type=int, default=14)
     ap.add_argument("--basket", default=",".join(_DEFAULT_BASKET),
                     help="danh sách mã, phẩy ngăn cách")
@@ -306,10 +339,16 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     basket = tuple(s.strip().upper() for s in args.basket.split(",") if s.strip())
-    print(f"[probe] {len(_CANDIDATE_SOURCES)} nguồn × {len(basket)} mã + "
-          f"{_INDEX_SYMBOL} (fail-fast khi nguồn chết — nguồn treo kiểu VCI "
-          "outage tốn ~60s trước khi bị bỏ)…")
-    run = run_probe(basket=basket, days=args.days, verbose=not args.json)
+    sources = candidate_sources()
+    if not sources:
+        print("[probe] Chưa khai nguồn đọc được nến cổ phiếu trong .env "
+              "(VNSTOCK_SOURCE / VNSTOCK_SOURCE_ROUTES) — không có gì để đo.")
+        return 1
+    print(f"[probe] {len(sources)} nguồn ({','.join(sources)}) × {len(basket)} mã + "
+          f"{_INDEX_SYMBOL} (fail-fast khi nguồn chết — nguồn treo tốn ~60s "
+          "trước khi bị bỏ)…")
+    run = run_probe(basket=basket, days=args.days, sources=sources,
+                    verbose=not args.json)
     cache = save_run(run)
     ranked = score_results(run)
     if args.json:

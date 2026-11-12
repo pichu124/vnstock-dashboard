@@ -8,9 +8,10 @@ MACD EMA initialisation (adjust=False → True), these tests fail loudly.
 
 Canonical formulas tested
 -------------------------
-* **RSI (current impl: Cutler / SMA variant)** — uses simple 14-period mean
-  of gains and losses, not Wilder's smoothed average. This matches
-  `delta.clip(lower=0).rolling(14).mean()` in vnstock_screener.py.
+* **RSI (current impl: Wilder, PTKT P1 đợt 2)** — `vnstock_indicators.rsi_wilder`:
+  ``ewm(alpha=1/14, adjust=False)`` of gains/losses, seeded at the first delta.
+  Before đợt 2 it was Cutler (simple 14-period mean); ``VNSTOCK_INDICATOR_LEGACY=1``
+  still returns that, and the Cutler golden values below are kept under the switch.
 * **MACD (12-26-9)** — `ema(adjust=False)`-based, signal is EMA(9) of the
   MACD line, hist = MACD - signal.
 * **EMA** — pandas ewm(adjust=False). Verified against the recursion
@@ -18,8 +19,9 @@ Canonical formulas tested
 * **Bollinger Bands** — SMA(20), STD(20) (pandas default: ddof=1), ±2σ.
 * **Volume spike** — volume / mean(volume, 20).
 
-A separate test shows that the current RSI is **not** Wilder's — useful for
-anyone expecting MetaTrader/TradingView compatibility.
+A separate test shows the current RSI is Wilder's, not Cutler's. Seeding note:
+textbook/TradingView Wilder seeds with the SMA of the first 14 deltas; ours seeds
+at the first delta — the two differ on short series and converge on long ones.
 """
 
 from __future__ import annotations
@@ -76,8 +78,29 @@ def _ref_cutler_rsi14(closes):
     return 100 - (100 / (1 + rs))
 
 
+def _ref_wilder_ewm_rsi14(closes):
+    """Reference for the shipped Wilder RSI(14): recursion seeded at the FIRST delta."""
+    c = np.asarray(closes, dtype=float)
+    delta = np.diff(c)
+    avg_g, avg_l = max(delta[0], 0.0), max(-delta[0], 0.0)
+    for d in delta[1:]:
+        avg_g += (max(d, 0.0) - avg_g) / 14
+        avg_l += (max(-d, 0.0) - avg_l) / 14
+    if avg_l == 0:
+        return 100.0
+    return 100 - (100 / (1 + avg_g / avg_l))
+
+
+@pytest.fixture
+def legacy_env(monkeypatch):
+    import os
+    for k in [k for k in os.environ if k.startswith("VNSTOCK_INDICATOR_LEGACY")]:
+        monkeypatch.delenv(k)
+    return monkeypatch
+
+
 def _ref_wilder_rsi14(closes):
-    """Reference Wilder's RSI(14): EMA-smoothed gains/losses (alpha = 1/14)."""
+    """Reference Wilder's RSI(14), textbook seeding: SMA of the first 14 deltas."""
     c = np.asarray(closes, dtype=float)
     delta = np.diff(c)
     gain = np.clip(delta, 0, None)
@@ -99,11 +122,12 @@ def _ref_wilder_rsi14(closes):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_rsi_matches_cutler_reference_on_uptrend():
-    # When every delta is positive, loss == 0 and RSI is mathematically
-    # undefined (division by zero). The current implementation guards this
-    # with ``loss.replace(0, np.nan)`` and returns None. Document that here:
+def test_rsi_on_uptrend_wilder_100_legacy_none(legacy_env):
+    # Every delta positive ⇒ average loss == 0. Wilder (đợt 2): RSI = 100 by
+    # definition. Legacy Cutler guarded it with ``loss.replace(0, np.nan)`` ⇒ None.
     closes = [100.0 + i for i in range(30)]
+    assert _calc_indicators(_make_df(closes))["rsi_14"] == 100.0
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
     out = _calc_indicators(_make_df(closes))
     assert out["rsi_14"] is None
 
@@ -115,11 +139,14 @@ def test_rsi_matches_cutler_reference_on_uptrend():
     assert out2["rsi_14"] > 50   # gains still dominate overall
 
 
-def test_rsi_matches_cutler_reference_mixed():
-    # Known hand-computable series
+def test_rsi_matches_reference_mixed(legacy_env):
+    # Known hand-computable series — Wilder by default, Cutler golden value under legacy
     closes = [100.0, 101, 102, 101, 103, 104, 103, 105, 106, 105,
               107, 108, 107, 109, 110, 109, 111, 112, 111, 113,
               114, 113, 115, 116, 115, 117, 118, 117, 119, 120]
+    out = _calc_indicators(_make_df(closes))
+    assert out["rsi_14"] == pytest.approx(round(_ref_wilder_ewm_rsi14(closes), 1), abs=0.1)
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
     out = _calc_indicators(_make_df(closes))
     expected = _ref_cutler_rsi14(closes)
     assert out["rsi_14"] == pytest.approx(round(expected, 1), abs=0.1)
@@ -132,22 +159,32 @@ def test_rsi_bounded_0_to_100():
     assert 0.0 <= out["rsi_14"] <= 100.0
 
 
-def test_rsi_current_impl_is_cutler_not_wilder():
+def test_rsi_current_impl_is_wilder_not_cutler(legacy_env):
     """
-    Document that the current implementation uses Cutler's SMA-based RSI,
-    not Wilder's EMA-smoothed RSI. If we ever switch, this test fails and
-    forces us to update downstream consumers.
+    PTKT P1 đợt 2 switched the screener from Cutler to Wilder (§10b). Pin it:
+    a silent switch back fails here. Legacy switch ⇒ Cutler again.
     """
     closes = [100.0, 101, 102, 101, 103, 104, 103, 105, 106, 105,
               107, 108, 107, 109, 110, 109, 111, 112, 111, 113,
               114, 113, 115, 116, 115, 117, 118, 117, 119, 120]
     out = _calc_indicators(_make_df(closes))
     cutler = _ref_cutler_rsi14(closes)
-    wilder = _ref_wilder_rsi14(closes)
-    # Current impl matches Cutler (within rounding tolerance) ...
-    assert out["rsi_14"] == pytest.approx(cutler, abs=0.15)
-    # ... and the two reference flavours disagree on this series
+    wilder = _ref_wilder_ewm_rsi14(closes)
+    assert out["rsi_14"] == pytest.approx(wilder, abs=0.06)
     assert abs(cutler - wilder) > 0.1
+    legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    assert _calc_indicators(_make_df(closes))["rsi_14"] == pytest.approx(cutler, abs=0.06)
+
+
+def test_rsi_wilder_seeding_converges_to_textbook_on_long_series():
+    """First-delta seeding vs textbook SMA seeding: far apart on 30 bars, < 0.01 after 300."""
+    rng = np.random.default_rng(42)
+    short = list(100 + np.cumsum(rng.normal(0, 1, 30)))
+    long_ = list(100 + np.cumsum(rng.normal(0, 1, 300)))
+    assert _ref_wilder_ewm_rsi14(long_) == pytest.approx(_ref_wilder_rsi14(long_), abs=0.01)
+    out = _calc_indicators(_make_df(long_))
+    assert out["rsi_14"] == pytest.approx(_ref_wilder_rsi14(long_), abs=0.06)
+    assert abs(_ref_wilder_ewm_rsi14(short) - _ref_wilder_rsi14(short)) > 0.01
 
 
 # ─────────────────────────────────────────────────────────────────────────────

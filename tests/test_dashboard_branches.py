@@ -859,6 +859,56 @@ def test_render_chart_without_lwc_file_reports_instead_of_blank_chart(tmp_path):
     assert "Thiếu lwc.min.js" in said[0] and str(tmp_path / "lwc.min.js") in said[0]
 
 
+def _mixed(n: int = 60) -> pd.DataFrame:
+    close = 50 + np.cumsum(np.random.default_rng(7).normal(0, 0.8, n))
+    return pd.DataFrame({"time": pd.bdate_range(end="2026-04-10", periods=n),
+                         "open": close, "high": close + 0.3, "low": close - 0.3,
+                         "close": close, "volume": [1_000] * n})
+
+
+@pytest.fixture
+def no_legacy_env(monkeypatch):
+    import os
+    for k in [k for k in os.environ if k.startswith("VNSTOCK_INDICATOR_LEGACY")]:
+        monkeypatch.delenv(k)
+    return monkeypatch
+
+
+def test_chart_rsi_is_wilder_and_legacy_is_old_cutler(no_legacy_env):
+    """PTKT P1 đợt 2: panel RSI = RSI Wilder (số app môi giới hiện). `VNSTOCK_INDICATOR_LEGACY=1`
+    trả đúng công thức chart cũ (Cutler, loss = 0 ⇒ 100)."""
+    from vnstock_indicators import rsi_wilder
+    df = _mixed()
+    rsi = compute_indicators(df)["rsi"]
+    pd.testing.assert_series_equal(rsi, rsi_wilder(df["close"]), check_names=False)
+    no_legacy_env.setenv("VNSTOCK_INDICATOR_LEGACY", "1")
+    delta = df["close"].diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
+    old = (100 - 100 / (1 + gain / loss.replace(0, np.nan))).where(loss != 0, 100.0)
+    pd.testing.assert_series_equal(compute_indicators(df)["rsi"], old, check_names=False)
+    pd.testing.assert_series_equal(compute_indicators(_rising())["rsi"].iloc[14:],
+                                   pd.Series(100.0, index=range(14, 40)), check_names=False)
+
+
+@pytest.mark.parametrize("make", [_mixed, _rising])
+def test_render_chart_rsi_warmup_is_whitespace_and_bar_count_matches(tmp_path, no_legacy_env, make):
+    """Bất biến 4 panel: NaN đầu chuỗi của rsi_wilder (14 bar) đi đường whitespace `{time}` —
+    panel RSI cùng số bar với panel nến, không bar nào bị bỏ."""
+    from vnstock_indicators import rsi_wilder
+    lib = tmp_path / "lwc.min.js"
+    lib.write_text("", encoding="utf-8")
+    df = make()
+    html, _ = _render_chart_html(lib, df)
+    grab = lambda name: json.loads(html[0].split(f"\nvar {name}=", 1)[1].split(";\n", 1)[0])
+    candles, rsi, macd = grab("C"), grab("RSI"), grab("ML")
+    assert len(rsi) == len(candles) == len(macd) == len(df)
+    assert [p["time"] for p in rsi] == [p["time"] for p in candles]
+    assert all(set(p) == {"time"} for p in rsi[:14])
+    ref = [round(float(v), 4) for v in rsi_wilder(df["close"]).iloc[14:]]
+    assert [p["value"] for p in rsi[14:]] == ref
+
+
 def test_render_chart_inlines_lwc_library(tmp_path):
     lib = tmp_path / "lwc.min.js"
     lib.write_text("/* LWC giả */", encoding="utf-8")
@@ -1057,28 +1107,30 @@ def order_env(tmp_path, monkeypatch):
 
     fetched: list = []
 
-    class _Trading:
+    class _Equity:
+        """`Market().equity(t).trade_history(start, end)` thế hệ 6 (hồ sơ v5, mới nhất trước)."""
         def __init__(self, symbol):
             self.symbol = symbol
 
-        def order_stats(self):
+        def trade_history(self, start=None, end=None):
+            assert start and end, "trade_history phải có khoảng ngày"
             fetched.append(self.symbol)
             return pd.DataFrame({
-                "trading_date": pd.bdate_range("2026-10-05", periods=5),
+                "trading_date": pd.bdate_range("2026-10-05", periods=5)[::-1],
                 "total_buy_trade_volume": [1000.0] * 5,
                 "total_buy_trade": [10.0] * 5,
                 "total_sell_trade_volume": [1000.0] * 5,
                 "total_sell_trade": [10.0] * 5,
             })
 
-    monkeypatch.setitem(sys.modules, "vnstock_data",
-                        types.SimpleNamespace(Trading=_Trading))
+    vnstock = pytest.importorskip("vnstock")
+    monkeypatch.setattr(vnstock, "Market", lambda *a, **k: types.SimpleNamespace(equity=_Equity))
     path = tmp_path / "order_stats_cache.json"
     ns = load_source_fns(
         "vnstock_dashboard.py", "_fetch_order_stats_batch",
-        _ORDER_CACHE_PATH=path, _ORDER_CACHE_MAX_AGE=1800,
+        _ORDER_CACHE_PATH=path, _ORDER_CACHE_MAX_AGE=1800, _ORDER_STATS_LOOKBACK_DAYS=30,
         datetime=datetime, json=json, log=logging.getLogger("t"),
-        np=np, pd=pd, os=os,
+        np=np, pd=pd, os=os, ensure_api_key=lambda: None,
     )
     return ns["_fetch_order_stats_batch"], path, fetched
 
@@ -1117,6 +1169,25 @@ def test_order_stats_full_cache_hit_makes_no_api_call(order_env):
     path.write_text(json.dumps(_CACHED), encoding="utf-8")
     assert fetch(("BBB", "CCC")) == {tk: _CACHED[tk] for tk in ("BBB", "CCC")}
     assert fetched == []
+
+
+def test_order_stats_stops_on_source_error(order_env, monkeypatch):
+    """Chưa khai nguồn (InputError) thì mã nào cũng lỗi y hệt ⇒ dừng sau mã đầu,
+    không gõ 50 lượt; cache không ghi."""
+    import vnstock
+    from vnstock.errors import InputError
+
+    fetch, path, _ = order_env
+    asked: list = []
+
+    def _equity(symbol):
+        asked.append(symbol)
+        raise InputError("Chưa chọn nguồn")
+
+    monkeypatch.setattr(vnstock, "Market",
+                        lambda *a, **k: types.SimpleNamespace(equity=_equity))
+    assert fetch(("AAA", "BBB", "CCC")) == {}
+    assert asked == ["AAA"] and not path.exists()
 
 
 # ── Screener cũ: so PHIÊN PHỦ, không so ngày lịch ───────────────────────────
@@ -1189,41 +1260,60 @@ _DASH_TREE = ast.parse(_DASH_SRC)
 
 # ── load_fundamental: khối lỗi phải có log và KHÔNG vào cache đĩa 24h ───────
 
-def _fund_env(tmp_path, monkeypatch, overview_ok=True, ratio_ok=True):
+_GEN6_RATIO = pd.DataFrame({          # `Fundamental().equity(t).ratio(period="year")`
+    "year": [2024, 2025], "quarter": [None, None],
+    "pe": [14.0, 12.0], "pb": [1.8, 1.5], "eps": [4_000.0, 5_000.0],
+    "book_value_per_share": [30_000.0, 33_000.0], "roe": [16.0, 18.0], "roa": [1.5, 2.0],
+    "gross_margin": [40.0, 42.0], "ebit_margin": [20.0, 22.0], "net_margin": [12.0, 13.0],
+    "current_ratio": [1.1, 1.2], "quick_ratio": [0.8, 0.9], "asset_turnover": [0.5, 0.6],
+    "debt_to_assets": [0.5, 0.45], "liabilities_to_equity": [1.2, 1.1],
+    "dividend_yield": [3.0, 4.0], "market_cap": [9e12, 1.0e13],
+})
+
+
+def _fund_env(tmp_path, monkeypatch, listing_ok=True, ratio_ok=True, ratio_df=None):
     from datetime import datetime
 
-    def _overview():
-        if not overview_ok:
-            raise RuntimeError("overview sập")
-        return pd.DataFrame({"pe": [12.0], "pb": [1.5]})
+    asked: dict = {}
+
+    def _listing():
+        if not listing_ok:
+            raise RuntimeError("listing sập")
+        return pd.DataFrame({"symbol": ["AAA"], "listed_shares": [2.1e9],
+                             "outstanding_shares": [2.0e9]})
 
     def _ratio(**kw):
+        asked["ratio"] = kw
         if not ratio_ok:
             raise ConnectionError("ratio sập")
-        return pd.DataFrame({"roe": [0.18], "roa": [0.02]})
+        return (ratio_df if ratio_df is not None
+                else pd.DataFrame({"pe": [12.0], "pb": [1.5], "roe": [18.0], "roa": [2.0]}))
 
     monkeypatch.setitem(sys.modules, "vnstock_auth",
                         types.SimpleNamespace(ensure_api_key=lambda: None))
-    monkeypatch.setitem(sys.modules, "vnstock_data", types.SimpleNamespace(
-        Company=lambda symbol: types.SimpleNamespace(overview=_overview),
-        Finance=lambda symbol, source=None: types.SimpleNamespace(ratio=_ratio),
+    monkeypatch.setitem(sys.modules, "vnstock", types.SimpleNamespace(
+        Reference=lambda *a, **k: types.SimpleNamespace(
+            company=lambda t: types.SimpleNamespace(listing=_listing)),
+        Fundamental=lambda *a, **k: types.SimpleNamespace(
+            equity=lambda t: types.SimpleNamespace(ratio=_ratio)),
     ))
     fn = load_source_fns(
-        "vnstock_dashboard.py", "load_fundamental",
+        "vnstock_dashboard.py", "_RATIO_GEN6_KEYS", "load_fundamental",
         _FUND_CACHE_DIR=tmp_path, _FUND_CACHE_VER=4, datetime=datetime, json=json,
         pd=pd, log=logging.getLogger("vnstock_dashboard"),
         _get_warehouse_last_close=lambda t: None,
     )["load_fundamental"]
+    fn.asked = asked
     return fn, tmp_path / "AAA.json"
 
 
-@pytest.mark.parametrize("overview_ok, ratio_ok, block, kept", [
-    (False, True, "overview", ("roe", 18.0)),
-    (True, False, "ratio", ("pe", 12.0)),
+@pytest.mark.parametrize("listing_ok, ratio_ok, block, kept", [
+    (False, True, "listing", ("roe", 18.0)),
+    (True, False, "ratio", ("shares_outstanding", 2.0e9)),
 ])
 def test_partial_fundamental_is_logged_and_not_disk_cached(
-        tmp_path, monkeypatch, caplog, overview_ok, ratio_ok, block, kept):
-    fn, cache = _fund_env(tmp_path, monkeypatch, overview_ok, ratio_ok)
+        tmp_path, monkeypatch, caplog, listing_ok, ratio_ok, block, kept):
+    fn, cache = _fund_env(tmp_path, monkeypatch, listing_ok, ratio_ok)
     with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):
         out = fn("AAA")
     assert out[kept[0]] == kept[1]          # nửa còn lại vẫn hiện
@@ -1236,6 +1326,199 @@ def test_complete_fundamental_is_disk_cached(tmp_path, monkeypatch):
     out = fn("AAA")
     assert out["pe"] == 12.0 and out["roe"] == 18.0
     assert json.loads(cache.read_text(encoding="utf-8"))["roe"] == 18.0
+
+
+def test_fundamental_maps_gen6_ratio_and_listing_keys(tmp_path, monkeypatch):
+    """Tên chỉ số thế hệ 6 → khoá tab hiển thị; lấy NĂM MỚI NHẤT dù nguồn trả cũ trước;
+    trường thế hệ 6 không có (tăng trưởng DT/LN, KL khớp TB 10 phiên) = None ⇒ "—"."""
+    fn, _ = _fund_env(tmp_path, monkeypatch, ratio_df=_GEN6_RATIO)
+    out = fn("AAA")
+    assert fn.asked["ratio"] == {"period": "year"}
+    assert out["shares_outstanding"] == 2.0e9 and out["shares_listed"] == 2.1e9
+    assert (out["pe"], out["pb"], out["eps"], out["book_value"]) == (12.0, 1.5, 5_000.0, 33_000.0)
+    assert (out["roe"], out["roa"], out["dividend_yield"]) == (18.0, 2.0, 4.0)
+    assert (out["gross_margin"], out["operating_margin"], out["net_margin"]) == (42.0, 22.0, 13.0)
+    assert (out["debt_ratio"], out["debt_to_equity"]) == (0.45, 1.1)
+    assert (out["current_ratio"], out["quick_ratio"], out["asset_turnover"]) == (1.2, 0.9, 0.6)
+    assert out["market_cap"] == 1.0e13
+    assert out["earnings_yield"] == round(100 / 12.0, 2)
+    for missing in ("revenue_growth", "profit_growth", "avg_vol_10"):
+        assert out.get(missing) is None, missing
+
+
+def test_fundamental_unsupported_ratio_is_a_failed_block(tmp_path, monkeypatch, caplog):
+    """Nguồn không đọc được ratio (UnsupportedError) ⇒ khối ratio lỗi, số cổ phiếu vẫn hiện,
+    không khoá cache 24h."""
+    pytest.importorskip("vnstock")
+    from vnstock.errors import UnsupportedError
+    fn, cache = _fund_env(tmp_path, monkeypatch)
+    ns = sys.modules["vnstock"]
+    ns.Fundamental = lambda *a, **k: types.SimpleNamespace(equity=lambda t: types.SimpleNamespace(
+        ratio=lambda **kw: (_ for _ in ()).throw(UnsupportedError("không có ratio"))))
+    with caplog.at_level(logging.WARNING, logger="vnstock_dashboard"):
+        out = fn("AAA")
+    assert out["shares_outstanding"] == 2.0e9 and out.get("pe") is None
+    assert not cache.exists() and "ratio" in caplog.text
+
+
+# ── Volume Profile on-demand: Market().equity(t).volume_profile() ───────────
+
+def test_volume_profile_direct_maps_gen6_columns(monkeypatch):
+    rows = pd.DataFrame({
+        "price": [100.0 + i for i in range(25)],
+        "buy_volume": [10.0] * 25, "sell_volume": [5.0] * 25,
+        "unknown_volume": [1.0] * 25, "total_volume": [16.0 + i for i in range(25)],
+    })
+    monkeypatch.setitem(sys.modules, "vnstock", types.SimpleNamespace(
+        Market=lambda *a, **k: types.SimpleNamespace(
+            equity=lambda t: types.SimpleNamespace(volume_profile=lambda **kw: rows))))
+    fn = load_source_fns("vnstock_dashboard.py", "fetch_volume_profile_direct",
+                         pd=pd, ensure_api_key=lambda: None,
+                         log=logging.getLogger("t"))["fetch_volume_profile_direct"]
+    out = fn("FPT")
+    assert len(out) == 20                                  # top 20 theo total_vol
+    assert out[0] == {"price": 124.0, "buy_vol": 10.0, "sell_vol": 5.0,
+                      "unknown_vol": 1.0, "total_vol": 40.0}
+    assert [r["price"] for r in out] == sorted((r["price"] for r in out), reverse=True)
+    assert min(r["price"] for r in out) == 105.0
+
+
+# ── NN ròng theo mã theo ngày: vnstock_foreign_flow.foreign_net_for_date ────
+
+def test_foreign_net_flow_uses_shared_screener_helper(tmp_path, monkeypatch):
+    """D1: mỗi ngày làm việc MỘT lượt `foreign_net_for_date` (đồng); không bịa mua/bán."""
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+    asked: list = []
+
+    def _for_date(day):
+        asked.append(day)
+        return pd.DataFrame({"symbol": ["VCB", "FPT"],
+                             "foreign_net_value": [5e9, -2e9],
+                             "foreign_net_volume": [50_000, -20_000]})
+
+    monkeypatch.setitem(sys.modules, "vnstock_foreign_flow",
+                        types.SimpleNamespace(foreign_net_for_date=_for_date))
+    ns = load_source_fns(
+        "vnstock_dashboard.py", "_fetch_foreign_net_flow", "_aggregate_nn_by_window",
+        "_aggregate_nn_buy_sell_by_window", "_nn_window", "_NN_WINDOW_SESSIONS",
+        pd=pd, log=logging.getLogger("t"), _NN_DIAG={},
+        _load_nn_from_disk=lambda: pd.DataFrame(), _save_nn_to_disk=lambda df: None,
+    )
+    out = ns["_fetch_foreign_net_flow"](trading_days=3)
+    assert len(asked) == 3 and all(pd.Timestamp(d).weekday() < 5 for d in asked)
+    assert "nn_coverage" not in out.attrs                  # lượt đủ ⇒ không đánh dấu cụt
+    assert list(out.columns) == ["symbol", "date", "net_value"]
+    assert ns["_aggregate_nn_by_window"](out, 7) == {"VCB": 15.0, "FPT": -6.0}
+    assert ns["_aggregate_nn_buy_sell_by_window"](out, 7) == {}
+
+
+def test_foreign_net_flow_stops_on_config_error(monkeypatch):
+    """Chưa khai nguồn (InputError) lặp lại MỌI ngày ⇒ dừng sau lượt đầu, ghi trạng thái."""
+    pytest.importorskip("vnstock")
+    from vnstock.errors import InputError
+    asked: list = []
+
+    def _for_date(day):
+        asked.append(day)
+        raise InputError("Chưa chọn nguồn")
+
+    monkeypatch.setitem(sys.modules, "vnstock_foreign_flow",
+                        types.SimpleNamespace(foreign_net_for_date=_for_date))
+    diag: dict = {}
+    fn = load_source_fns(
+        "vnstock_dashboard.py", "_fetch_foreign_net_flow", pd=pd, log=logging.getLogger("t"),
+        _NN_DIAG=diag, _load_nn_from_disk=lambda: pd.DataFrame(),
+        _save_nn_to_disk=lambda df: None)["_fetch_foreign_net_flow"]
+    out = fn(trading_days=20)
+    assert out.empty and len(asked) == 1
+    assert "InputError" in diag["state"]
+
+
+
+def test_foreign_net_flow_rate_limit_waits_and_truncated_run_is_not_cached(monkeypatch):
+    """RateLimitError ⇒ chờ rồi gọi lại (không cụt cửa sổ); lỗi dừng giữa chừng ⇒ KHÔNG ghi cache."""
+    pytest.importorskip("vnstock")
+    import vnstock_ratelimit as rl
+    from vnstock.errors import AuthError, RateLimitError
+    monkeypatch.setattr(rl.time, "sleep", lambda s: None)
+    asked: list = []
+
+    def _for_date(day):
+        asked.append(day)
+        if len(asked) == 2:
+            raise RateLimitError("vượt giới hạn", code="VNSTOCK_SOURCE_RATE_LIMITED", retry_after=1)
+        if len(asked) == 5:
+            raise AuthError("khoá hết hạn")
+        return pd.DataFrame({"symbol": [f"M{i}" for i in range(8)],
+                             "foreign_net_value": [1e9] * 8})
+
+    monkeypatch.setitem(sys.modules, "vnstock_foreign_flow",
+                        types.SimpleNamespace(foreign_net_for_date=_for_date))
+    saved: list = []
+    fn = load_source_fns(
+        "vnstock_dashboard.py", "_fetch_foreign_net_flow", pd=pd, log=logging.getLogger("t"),
+        _NN_DIAG={}, _load_nn_from_disk=lambda: pd.DataFrame(),
+        _save_nn_to_disk=saved.append)["_fetch_foreign_net_flow"]
+    out = fn(trading_days=20)
+    assert asked[1] == asked[2]                      # ngày chạm hạn mức được gọi lại
+    assert out["date"].nunique() == 3 and saved == []   # 3 phiên < 20 ⇒ không cache
+
+
+
+def test_foreign_net_flow_persistent_rate_limit_returns_partial_not_crash(monkeypatch):
+    """Hạn mức không hạ sau lượt chờ ⇒ trả phần đã tải (tab Dòng tiền không sập), không cache."""
+    pytest.importorskip("vnstock")
+    import vnstock_ratelimit as rl
+    from vnstock.errors import RateLimitError
+    slept: list = []
+    monkeypatch.setattr(rl.time, "sleep", slept.append)
+    asked: list = []
+
+    def _for_date(day):
+        asked.append(day)
+        if len(asked) >= 3:
+            raise RateLimitError("vượt giới hạn", code="VNSTOCK_SOURCE_RATE_LIMITED", retry_after=3600)
+        return pd.DataFrame({"symbol": [f"M{i}" for i in range(8)], "foreign_net_value": [1e9] * 8})
+
+    monkeypatch.setitem(sys.modules, "vnstock_foreign_flow",
+                        types.SimpleNamespace(foreign_net_for_date=_for_date))
+    saved: list = []
+    diag: dict = {}
+    fn = load_source_fns(
+        "vnstock_dashboard.py", "_fetch_foreign_net_flow", pd=pd, log=logging.getLogger("t"),
+        _NN_DIAG=diag, _load_nn_from_disk=lambda: pd.DataFrame(),
+        _save_nn_to_disk=saved.append)["_fetch_foreign_net_flow"]
+    out = fn(trading_days=20)
+    assert out["date"].nunique() == 2 and saved == [] and "rate limit" in diag["state"]
+    # độ phủ đi THEO BẢNG (attrs sống qua pickle của st.cache_data) — _NN_DIAG bị Streamlit
+    # đặt lại mỗi lượt chạy script nên không dùng được cho lượt cache hit
+    assert out.attrs["nn_coverage"] == {"sessions": 2, "asked": 20, "source": "dashboard",
+                                        "failed_dates": [], "truncated": True}
+    import pickle
+    assert pickle.loads(pickle.dumps(out)).attrs["nn_coverage"]["sessions"] == 2
+    assert len(slept) == 1                     # MỘT lượt chờ, không treo UI nhiều phút
+
+
+
+def test_market_data_tier2_marks_partial_nn_from_the_cached_flow(tmp_path, monkeypatch):
+    """Tầng 2 dùng NN của tab Dòng tiền: bảng NN cụt (attrs, kể cả bản trong cache) ⇒ bảng ngành
+    mang độ phủ."""
+    import vnstock_runner as vr
+    seen = {}
+
+    def _build(wh, fetch_nn):
+        seen["attrs"] = dict(fetch_nn().attrs)
+        return {"sectors": [{"industry": "Ngân hàng"}], "breadth": {}, "tickers": [],
+                "nn_coverage": seen["attrs"].get("nn_coverage")}
+    monkeypatch.setattr(vr, "build_market_overview", _build)
+    nn_raw = pd.DataFrame({"symbol": ["AAA"], "date": ["2026-11-10"], "net_value": [1e9]})
+    nn_raw.attrs["nn_coverage"] = {"sessions": 2, "asked": 20, "source": "dashboard"}
+    out = load_source_fns(
+        "vnstock_dashboard.py", "_load_all_market_data", pd=pd, json=json,
+        log=logging.getLogger("t"), _MARKET_OVERVIEW_PATH=tmp_path / "none.json",
+        PRICES_DIR=tmp_path / "prices", _NN_DIAG={},          # Streamlit đặt lại mỗi lượt
+        _fetch_foreign_net_flow=lambda **k: nn_raw)["_load_all_market_data"]()
+    assert out[0].attrs["nn_coverage"] == {"sessions": 2, "asked": 20, "source": "dashboard"}
 
 
 # ── Live quote ghép vào nến intraday: đúng lưới timeframe, volume là phần chênh ─
@@ -1391,6 +1674,12 @@ def test_market_data_loader_skips_mid_session_overview_file(tmp_path, monkeypatc
                        encoding="utf-8")
     sectors, breadth, tickers = load()
     assert breadth == {"up": 7} and list(tickers["ticker"]) == ["VCB"]
+    assert sectors.attrs["nn_coverage"] is None            # file cũ không có khoá ⇒ coi như đủ
+
+    cov = {"sessions": 12, "asked": 20, "failed_days": 8}
+    ov_path.write_text(json.dumps({**payload, "generated_at": "2026-10-16 15:30:00",
+                                   "nn_coverage": cov}), encoding="utf-8")
+    assert load()[0].attrs["nn_coverage"] == cov           # Tầng 1 chuyển độ phủ NN cho tab
 
 
 def _files(root: Path) -> dict:
@@ -1405,11 +1694,12 @@ def test_market_data_tier2_is_the_runner_overview_and_writes_nothing(tmp_path, m
 
     import vnstock_brief as vb
     import vnstock_runner as vr
-    from tests.test_market_analyzer import fake_vnstock_data, mini_warehouse
+    from tests.test_market_analyzer import fake_gen6_market, mini_warehouse
 
+    vnstock = pytest.importorskip("vnstock")
     wh = mini_warehouse(tmp_path / "wh")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setitem(sys.modules, "vnstock_data", fake_vnstock_data(1e9))
+    monkeypatch.setattr(vnstock, "Market", fake_gen6_market(1e9))
     monkeypatch.setattr(vb, "_warehouse_eod_date", lambda: None)
     days = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=20)
     nn_raw = pd.DataFrame({"symbol": "AAA", "date": days, "net_value": 1e9})
@@ -1419,7 +1709,7 @@ def test_market_data_tier2_is_the_runner_overview_and_writes_nothing(tmp_path, m
         return load_source_fns(
             "vnstock_dashboard.py", "_overview_file_is_current", "_load_all_market_data",
             pd=pd, json=json, datetime=datetime, log=logging.getLogger("t"),
-            _MARKET_OVERVIEW_PATH=path, PRICES_DIR=wh / "prices",
+            _MARKET_OVERVIEW_PATH=path, PRICES_DIR=wh / "prices", _NN_DIAG={},
             _fetch_foreign_net_flow=lambda **k: nn_raw)["_load_all_market_data"]()
 
     vr.save_market_overview(vr.compute_market_overview(str(wh)), str(wh))

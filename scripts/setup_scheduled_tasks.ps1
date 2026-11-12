@@ -20,8 +20,10 @@
 #      RSS (11 feed VN+EN + 20 nguon nuoc ngoai + Bluesky) -> loc tin moi 3h -> Claude Code cham muc do 1-5
 #      -> tin >= 3 day Telegram. Khong tin moi = im lang, khong goi LLM.
 #      Command: python run.py --warehouse data_warehouse news-alert
-#      Chi dang ky o DESKTOP (laptop khong task) — so da-gui nam trong kho
-#      (Dropbox) nen khong gui trung. Tat: VNSTOCK_NEWS_ALERT=0 trong .env.
+#      Chi dang ky o MOT may — so da-gui nam trong kho (Dropbox) nhung hai may
+#      cung no luc :00 thi Dropbox chua kip dong bo => gui trung. Chuyen may:
+#      may cu `Disable-ScheduledTask -TaskName 'VnStock News Alert'`, may moi
+#      `-OnlyNewsAlert`. Tat: VNSTOCK_NEWS_ALERT=0 trong .env.
 #
 # Note: News sentiment (run.py news) is now a built-in step of the daily
 # pipeline — no separate task needed. Skip with --no-news if desired.
@@ -42,6 +44,9 @@
 #   -NewsAlertStart "00:00" -NewsAlertEnd "23:00"   # khung gio news-alert (moi gio)
 #   -NewsAlertDays Monday,Tuesday,...                # ngay chay (mac dinh ca 7 ngay)
 #   -NoNewsAlert                        # khong dang ky task 3 (go neu da co)
+#   -OnlyNewsAlert                      # CHI dang ky task 3 (laptop chay tin moi gio,
+#                                       #  KHONG dang ky Daily/Weekend — hai may cung chay
+#                                       #  pipeline tren kho Dropbox chung = conflicted copy)
 # ============================================================================
 
 param(
@@ -54,7 +59,8 @@ param(
     [string]$NewsAlertStart = "00:00",
     [string]$NewsAlertEnd   = "23:00",
     [string[]]$NewsAlertDays = @("Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"),
-    [switch]$NoNewsAlert
+    [switch]$NoNewsAlert,
+    [switch]$OnlyNewsAlert
 )
 
 $ErrorActionPreference = "Stop"
@@ -196,6 +202,22 @@ $TaskDefinitions = @(
         Description = "Canh bao tin quan trong moi gio 24/7 (#31, 2026-10-02; 24/7 tu 2026-10-04): RSS -> loc tin 3h -> Claude cham muc do 1-5 -> Telegram. Code gac khung gio: VNSTOCK_NEWS_ALERT_HOURS/DAYS; tat: VNSTOCK_NEWS_ALERT=0"
     }
 )
+
+if ($NoNewsAlert -and $OnlyNewsAlert) {
+    Write-Error "-NoNewsAlert va -OnlyNewsAlert loai tru nhau"
+    exit 1
+}
+
+# -OnlyNewsAlert: chi giu task 3. Khong dung toi Daily/Weekend dang co tren may (neu co).
+if ($OnlyNewsAlert) {
+    $TaskDefinitions = @($TaskDefinitions | Where-Object { $_.Name -eq "VnStock News Alert" })
+    $others = @(Get-ScheduledTask -TaskName "VnStock *" -ErrorAction SilentlyContinue |
+                Where-Object { $_.TaskName -ne "VnStock News Alert" })
+    if ($others.Count -gt 0) {
+        Write-Host "[WARN] May nay CON task pipeline: $(($others | ForEach-Object { $_.TaskName }) -join ', ')" -ForegroundColor Yellow
+        Write-Host "       -OnlyNewsAlert KHONG go chung. Hai may cung chay pipeline tren kho chung la sai." -ForegroundColor Yellow
+    }
+}
 
 # -NoNewsAlert: bo task 3 khoi danh sach dang ky (va go neu da co tu lan truoc)
 if ($NoNewsAlert) {

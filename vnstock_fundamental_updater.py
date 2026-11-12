@@ -42,6 +42,9 @@ from vnstock_fund_periods import (LEDGER_NAME as PERIODS_LEDGER_NAME,
                                  record_frame, row_period_label)
 
 warnings.filterwarnings("ignore")
+from vnstock_auth import keep_schema_warnings
+
+keep_schema_warnings()
 console = Console()
 
 WAREHOUSE     = Path("data_warehouse")
@@ -167,47 +170,69 @@ def _archive_monthly_snapshot(table, now=None) -> "Path | None":
         return None
 
 
-# Sponsor / free Finance classes accept different keyword combos across
-# versions — try them in order and take the first non-empty frame, mirroring
-# the proven retry loop in vnstock_dashboard.py.
-_RATIO_PARAMS = [
-    {"period": "year", "lang": "vi"},
-    {"period": "year", "lang": "en"},
-    {"period": "year"},
-    {"period": "annual"},
-    {},
-]
-_CF_PARAMS = [
-    {"period": "year", "lang": "vi"},
-    {"period": "year", "lang": "en"},
-    {"period": "year"},
-    {"period": "annual"},
-    {},
-]
+# Tham số thế hệ 6 (`Fundamental().equity(t)`): tham số lạ ném `VNSTOCK_INPUT_PARAM`
+# chứ không bị bỏ qua ⇒ MỘT bộ đúng, không thử nhiều bộ. `ratio` chỉ nhận
+# `period, year`; BCTC nhận `company_type, period, lang, drop_empty, format` —
+# `lang="en"` vì bộ dò nhãn bên dưới đọc tên chỉ tiêu tiếng Anh.
+_RATIO_PARAMS = {"period": "year"}
+_CF_PARAMS = {"period": "year", "lang": "en"}
+
+# `ratio()` thế hệ 6 (hồ sơ v5) đặt tên cột snake_case; bộ dò `get_val` đọc nhãn
+# bảng ratio dòng cũ ⇒ đổi tên ngay chỗ lấy. `debt_to_assets` (Nợ/Tổng TS — đúng nhãn
+# "Tỷ lệ nợ/TS" của tab Phân tích) thay "Financial Leverage" dòng cũ: thế hệ 6 không có.
+_RATIO_GEN6_LABELS = {
+    "pe": "P/E", "pb": "P/B", "roe": "ROE (%)", "roa": "ROA (%)", "eps": "EPS (VND)",
+    "net_margin": "After-tax Profit Margin (%)", "gross_margin": "Gross Margin (%)",
+    "liabilities_to_equity": "Debt/Equity", "debt_to_assets": "Debt/Assets",
+}
 
 
-def _try_statement(method, param_combos):
-    """Call a finance-statement method trying several param combos.
+def _ratio_legacy_labels(df):
+    """Bảng `ratio()` thế hệ 6 → nhãn dòng cũ, kỳ mới nhất lên đầu (cột `year`, `quarter`).
+    Bảng dạng cũ (không có `year`) trả nguyên."""
+    if df is None or "year" not in df.columns:
+        return df
+    keys = [c for c in ("year", "quarter") if c in df.columns]
+    return (df.rename(columns=_RATIO_GEN6_LABELS)
+              .sort_values(keys, ascending=False, na_position="last")
+              .reset_index(drop=True))
 
-    Returns the first non-empty DataFrame, or None if every combo fails or
-    returns empty. Swallows TypeError (wrong kwargs) and other call errors so
-    one bad signature never aborts the whole fetch.
+
+def _statement_by_period(df):
+    """BCTC thế hệ 6 dạng DÀI (`period, id, name, …, value`) → dạng code đọc: MỘT hàng mỗi
+    kỳ (`report_period`), MỘT cột mỗi chỉ tiêu theo `name`, giữ thứ tự taxonomy (dòng tổng
+    "Total liabilities and owners' equity" đứng SAU "Owners' equity"). Bảng không phải dạng
+    dài trả nguyên."""
+    if df is None or not {"period", "name", "value"} <= set(df.columns):
+        return df
+    names = list(pd.unique(df["name"]))
+    wide = df.pivot_table(index="period", columns="name", values="value", aggfunc="first")
+    wide = wide.reindex(columns=[n for n in names if n in wide.columns])
+    return wide.rename_axis(columns=None).reset_index().rename(columns={"period": "report_period"})
+
+
+def _try_statement(method, params):
+    """Gọi MỘT hàm BCTC/ratio với ``params``; trả DataFrame (BCTC đã về dạng mỗi kỳ một
+    hàng) hoặc None khi rỗng / nguồn không đọc được (`VnstockError`).
+
+    `RateLimitError` KHÔNG nuốt: `_fetch_one` bọc `call_with_rate_limit_retry`, nó phải
+    thấy lỗi để chờ rồi thử lại.
     """
-    for kw in param_combos:
-        try:
-            df = method(**kw)
-        except TypeError:
-            continue
-        except Exception:
-            continue
-        if df is not None and hasattr(df, "empty") and not df.empty:
-            return df
-    return None
+    from vnstock.errors import RateLimitError, VnstockError
+    try:
+        df = method(**params)
+    except RateLimitError:
+        raise
+    except VnstockError:
+        return None
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return None
+    return _statement_by_period(df)
 
 
 def _fetch_ratios(ticker: str) -> dict:
     """
-    Gọi vnstock VCI để lấy ratio cho 1 ticker.
+    Gọi `Fundamental().equity(t).ratio(period="year")` (qua mặt tiền) lấy ratio cho 1 ticker.
     Trả về dict với pe, pb, roe, roa, eps, net_margin, gross_margin, debt_ratio.
     """
     try:
@@ -216,7 +241,7 @@ def _fetch_ratios(ticker: str) -> dict:
     except Exception as e:
         raise RuntimeError(f"API error: {e}")
 
-    ratios = _try_statement(fin.ratio, _RATIO_PARAMS)
+    ratios = _ratio_legacy_labels(_try_statement(fin.ratio, _RATIO_PARAMS))
     if ratios is None or ratios.empty:
         return {}
 
@@ -248,15 +273,13 @@ def _fetch_ratios(ticker: str) -> dict:
         return None
 
     def pct(v):
-        """Convert thập phân → % nếu cần (ROE=0.167 → 16.7)."""
-        if v is not None and abs(v) <= 2:
-            return round(v * 100, 2)
+        """ROE/ROA/biên LN: `ratio()` thế hệ 6 ĐÃ là điểm phần trăm (hợp đồng nguồn `roe * 100`,
+        cả hồ sơ v5) ⇒ KHÔNG nhân lại. Luật cũ "|v| ≤ 2 ⇒ ×100" làm ROA 1,7% thành 170%."""
         return round(v, 2) if v is not None else None
 
-    # The VCI sponsor ratio table is labelled in ENGLISH (P/E, ROE (%),
-    # Debt/Equity, Financial Leverage, Gross Margin (%), After-tax Profit
-    # Margin (%) …) regardless of lang=. Match English first, keep Vietnamese
-    # labels as a fallback for other sources.
+    # Nhãn tiếng Anh của bảng ratio dòng cũ (P/E, ROE (%), Debt/Equity, …) —
+    # thế hệ 6 được đổi về đúng các nhãn này ở `_ratio_legacy_labels`. Nhãn
+    # tiếng Việt giữ làm dự phòng.
     result = {
         "pe":           get_val(ratios, "p/e"),
         "pb":           get_val(ratios, "p/b"),
@@ -266,7 +289,8 @@ def _fetch_ratios(ticker: str) -> dict:
         "net_margin":   pct(get_val(ratios, "after-tax profit margin",
                                     "net profit margin", "biên lợi nhuận ròng")),
         "gross_margin": pct(get_val(ratios, "gross margin", "biên lợi nhuận gộp")),
-        "debt_ratio":   get_val(ratios, "financial leverage", "đòn bẩy tài chính"),
+        "debt_ratio":   get_val(ratios, "financial leverage", "đòn bẩy tài chính",
+                                "debt/assets"),
         # D/E = Nợ phải trả / Vốn chủ sở hữu. The VCI ratio table exposes it
         # directly under a few possible labels; fall back to None if absent
         # (the brief then derives nothing rather than guessing).
@@ -455,14 +479,11 @@ def _annual_operating_cf_period(df: "pd.DataFrame") -> "tuple[float | None, str 
 def _fetch_cash_flow(ticker: str) -> dict:
     """Fetch latest annual / TTM net operating cash flow (tỷ VND) for one ticker.
 
-    Returns {"operating_cf": <tỷ VND>} or {} on any failure — best-effort so a
-    single missing statement never aborts the whole update run.
+    Returns {"operating_cf": <tỷ VND>} or {} when the source has no statement
+    (`VnstockError`) — best-effort; `RateLimitError` propagates to the retry wrapper.
     """
-    try:
-        from vnstock_auth import get_vnstock
-        cf = _try_statement(get_vnstock(ticker).finance.cash_flow, _CF_PARAMS)
-    except Exception:
-        return {}
+    from vnstock_auth import get_vnstock
+    cf = _try_statement(get_vnstock(ticker).finance.cash_flow, _CF_PARAMS)
 
     val, label = _annual_operating_cf_period(cf)
     if val is None:
@@ -496,13 +517,10 @@ def _fetch_debt_to_equity(ticker: str) -> float | None:
     """Compute D/E = Tổng nợ phải trả / Vốn chủ sở hữu from the balance sheet.
 
     More reliable than the ratio table's Debt/Equity, which VCI leaves at 0
-    for banks. Returns None on any failure. Units cancel (both raw VND).
+    for banks. Returns None when the source has no statement. Units cancel.
     """
-    try:
-        from vnstock_auth import get_vnstock
-        bs = _try_statement(get_vnstock(ticker).finance.balance_sheet, _CF_PARAMS)
-    except Exception:
-        return None
+    from vnstock_auth import get_vnstock
+    bs = _try_statement(get_vnstock(ticker).finance.balance_sheet, _CF_PARAMS)
     row = _latest_row(bs)
     if row is None:
         return None
@@ -530,11 +548,10 @@ def _fetch_one(ticker: str, delay: float) -> "tuple[str, dict | None, str | None
     ThreadPoolExecutor (fetch I/O-bound); KHÔNG đụng file/console ở đây —
     mọi ghi/in đều ở luồng chính.
     """
-    # Mỗi call API bọc call_with_rate_limit_retry: vnai chạm trần req/phút thì
-    # sys.exit (SystemExit — xuyên except Exception) → từng giết cả run cập
-    # nhật giá 13/07; fundamentals 3 call/mã còn dễ dính hơn. Helper ngủ theo
-    # "Chờ X giây" rồi thử lại; hết lượt → RuntimeError (Exception thường) để
-    # except dưới đếm thành 1 mã lỗi. Không in gì ở đây (worker thread).
+    # Mỗi call API bọc call_with_rate_limit_retry: chạm trần (thế hệ 6:
+    # `RateLimitError`, `_try_statement` để nó lọt ra) → helper chờ rồi thử lại;
+    # hết lượt → RuntimeError (Exception thường) để except dưới đếm thành 1 mã
+    # lỗi. Không in gì ở đây (worker thread).
     from vnstock_ratelimit import call_with_rate_limit_retry as _rl
     try:
         data = _rl(_fetch_ratios, ticker)
@@ -768,9 +785,15 @@ def diag(ticker: str):
         if method is None:
             console.print("  [red]method không tồn tại trên Finance[/red]")
             continue
-        df = _try_statement(method, params)
+        try:
+            df = _try_statement(method, params)
+        except Exception as e:
+            console.print(f"  [red]→ {type(e).__name__} [{getattr(e, 'code', '')}]: {e}[/red]")
+            continue
+        if name == "ratio":
+            df = _ratio_legacy_labels(df)
         if df is None:
-            console.print("  [yellow]→ rỗng / lỗi với mọi bộ tham số[/yellow]")
+            console.print(f"  [yellow]→ rỗng / nguồn không đọc được ({params})[/yellow]")
             continue
         console.print(f"  shape = {df.shape}")
         cols = [

@@ -8,7 +8,7 @@ day?". This module aggregates everything we know about a single
 
 * Warehouse OHLCV around the date (5 days before/after)
 * Day-over-day % change pattern → signals corp action
-* Cached corp-action events (vnstock_data.capital_history → bonus/split)
+* Cached corp-action events (registry + cache vnstock_adjust từ `events()` thế hệ 6)
 * Reconciler discrepancy detail (api_close vs rolled_close, volumes)
 * Anomaly entries (kind, severity, detail)
 * Quarantine entries (if any)

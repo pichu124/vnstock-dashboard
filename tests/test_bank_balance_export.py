@@ -2,18 +2,16 @@
 Lưới cho `scripts/export_bank_balance_sheets.py`.
 
 Yêu cầu user chốt: **format bảng cân đối phải ĐỒNG NHẤT giữa các sheet.** Đó
-chính xác là thứ nguồn dữ liệu KHÔNG cho sẵn — `vnstock` mặc định
-`dropna=True`, và chỗ đó làm `df.loc[:, (df != 0).any(axis=0)]`, tức **bỏ các
-CHỈ TIÊU toàn 0**, mỗi ngân hàng bỏ một bộ khác nhau.
+chính xác là thứ nguồn dữ liệu KHÔNG cho sẵn — `vnstock` dòng cũ mặc định
+`dropna=True` **bỏ các CHỈ TIÊU toàn 0**, mỗi ngân hàng bỏ một bộ khác nhau
+(thế hệ 6: script luôn gọi `drop_empty=False`).
 
-Ca nguy hiểm thứ hai, tệ hơn: `_get_financial_report` có
-`effective_limit = limit if limit is not None else 4`, mà phương thức công
-khai `balance_sheet()` KHÔNG nhận `limit`. Đi đường thường ⇒ chỉ 4 quý gần
-nhất. **File rỗng trông như thật là thứ nguy hiểm nhất ở đây**, nên script từ
-chối ghi khi không mã nào có dữ liệu trong khoảng đã xin.
+Ca nguy hiểm thứ hai, tệ hơn: dòng cũ chỉ trả 4 quý gần nhất. **File rỗng
+trông như thật là thứ nguy hiểm nhất ở đây**, nên script từ chối ghi khi
+không mã nào có dữ liệu trong khoảng đã xin.
 
-⚠️ DẠNG FRAME THẬT (đo bằng `--probe VCB`, 26/08) — **ngược hẳn giả định đầu
-tiên của tôi**:
+⚠️ DẠNG FRAME mà các hàm thuần đọc (VCI dòng cũ, đo `--probe VCB` 26/08; thế
+hệ 6 dạng dài được đổi về dạng này ở `gen6_item_rows`):
 
     86 hàng × 37 cột
     item | item_en | item_id | 2018-Q1 | 2018-Q2 | … | 2026-Q2
@@ -302,51 +300,111 @@ class TestRefusesToShipAnEmptyFile:
         assert set(load_workbook(out).sheetnames[1:]) == {"AAA"}
 
 
-class TestTheTrapsAreDocumentedWhereTheyBite:
-    def test_the_fetch_passes_limit_and_disables_dropna(self):
-        """Hai cái bẫy của nguồn: `limit` mặc định 4 kỳ, và `dropna=True` bỏ
-        chỉ tiêu toàn 0 (khác nhau giữa các mã ⇒ phá format đồng nhất)."""
-        import inspect
-        src = inspect.getsource(_m.fetch_balance_sheet)
-        assert "dropna=False" in src and "limit=limit" in src
-        assert "_get_financial_report" in src   # đường CÔNG KHAI không nhận limit
+def _gen6_long(rows, unit="VND"):
+    """BCTC thế hệ 6 dạng DÀI (hồ sơ v5): period, id, name, order, level, off_balance, unit, value, line_code."""
+    return pd.DataFrame([
+        {"period": p, "id": i, "name": n, "order": o, "level": 1, "off_balance": False,
+         "unit": unit, "value": v, "line_code": i}
+        for (p, i, n, o, v) in rows])
+
+
+def _patch_fundamental(monkeypatch, frame, calls):
+    import vnstock
+
+    class _Eq:
+        def balance_sheet(self, **kw):
+            calls.append(kw)
+            return frame
+
+    class _Fund:
+        def __init__(self, *a, **k):
+            pass
+
+        def equity(self, t):
+            calls.append(t)
+            return _Eq()
+
+    monkeypatch.setattr(vnstock, "Fundamental", _Fund)
+
+
+class TestGen6Fetch:
+    """Thế hệ 6: `Fundamental().equity(t).balance_sheet(period="quarter", drop_empty=False, lang=…)`.
+    `drop_empty=False` giữ chỉ tiêu toàn 0 (dòng cũ `dropna=True` bỏ — mỗi mã bỏ một bộ ⇒ phá
+    format đồng nhất). Không còn trần 4 kỳ của `_get_financial_report` dòng cũ."""
+
+    _ROWS = [
+        ("2018-Q2", "BS_LOANS", "Cho vay khách hàng", 2, 20.0),
+        ("2018-Q1", "BS_CASH", "Tiền mặt", 1, 1.0),
+        ("2018-Q1", "BS_LOANS", "Cho vay khách hàng", 2, 10.0),
+        ("2018-Q1", "BS_ZERO", "Chỉ tiêu toàn 0", 3, 0.0),
+        ("2018-Q2", "BS_ZERO", "Chỉ tiêu toàn 0", 3, 0.0),
+    ]
+
+    def test_calls_gen6_with_quarter_and_keeps_empty_items(self, monkeypatch):
+        pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+        calls: list = []
+        _patch_fundamental(monkeypatch, _gen6_long(self._ROWS), calls)
+        _m.fetch_balance_sheet("VCB", lang="vi", source="vnstock")
+        assert calls == ["VCB", {"period": "quarter", "drop_empty": False, "lang": "vi"}]
+
+    def test_long_frame_becomes_item_rows_period_columns(self, monkeypatch):
+        pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+        _patch_fundamental(monkeypatch, _gen6_long(self._ROWS), [])
+        df = _m.fetch_balance_sheet("VCB", lang="vi", source="vnstock")
+
+        assert [qq for _, qq in _m.detect_period_columns(df.columns)] == [(2018, 1), (2018, 2)]
+        assert _m.label_column(df.columns, "vi") == "item"
+        # thứ tự bảng cân đối theo `order`, KHÔNG theo thứ tự xuất hiện
+        assert _m.source_item_order(df, "vi") == ["Tiền mặt", "Cho vay khách hàng",
+                                                  "Chỉ tiêu toàn 0"]
+        data = _m.tidy(df, "vi")
+        assert data[(2018, 1)]["Cho vay khách hàng"] == 10.0
+        assert data[(2018, 2)]["Chỉ tiêu toàn 0"] == 0.0           # số 0 giữ nguyên
+        assert _m._is_blank(data[(2018, 2)]["Tiền mặt"])            # thiếu ⇒ TRỐNG, không 0
+        assert df.attrs["unit_note"] == "Đơn vị (nguồn): VND"
+
+    def test_english_labels_go_to_item_en(self, monkeypatch):
+        pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+        _patch_fundamental(monkeypatch, _gen6_long(
+            [("2018-Q1", "BS_TOTAL_ASSETS", "Total assets", 1, 5.0)]), [])
+        df = _m.fetch_balance_sheet("VCB", lang="en", source="vnstock")
+        assert _m.source_item_order(df, "en") == ["Total assets"]
 
     def test_default_limit_is_deep_enough_for_2015(self):
-        # 2015-Q1 cách hiện tại ~46 quý
+        # 2015-Q1 cách hiện tại ~46 quý (tham số chỉ còn dùng cho nguồn ngoài vnstock)
         assert _m.DEFAULT_LIMIT >= 60
 
 
 class TestSourceSelection:
-    """Ba nguồn, TẦM PHỦ khác nhau: VCI sớm nhất 2018-Q1 (đo 26/08) · KBS trả
-    RỖNG (đo 26/08) · TCBS gọi HTTP thẳng, chưa đo sống. Script phải cho
-    chọn, và `--probe` phải in ra nguồn nào đang dùng, chứ không để người đọc
-    tự đoán."""
+    """`vnstock` = thế hệ 6, nguồn do user chọn ở `.env` (độ sâu lịch sử tuỳ nguồn — đo bằng
+    `--probe-all`) · `tcbs` / `cafef` = HTTP thẳng ngoài vnstock. Script phải cho chọn, và
+    `--probe` phải in ra nguồn nào đang dùng, chứ không để người đọc tự đoán."""
 
-    def test_all_four_sources_are_offered(self):
-        assert set(_m.SOURCES) == {"vci", "kbs", "tcbs", "cafef"}
+    def test_offered_sources(self):
+        assert set(_m.SOURCES) == {"vnstock", "tcbs", "cafef"}
 
     def test_cafef_is_present_because_it_is_the_only_2015_source(self):
-        # Đo 26/08: vci sớm nhất 2018-Q1 · kbs rỗng · tcbs 404 · cafef có 2016.
+        # Đo 26/08 (dòng cũ): vci sớm nhất 2018-Q1 · kbs rỗng · tcbs 404 · cafef có 2016.
         assert "cafef" in _m.SOURCES
 
-    def test_kbs_goes_through_the_kbs_explorer(self):
+    def test_no_old_line_explorer_or_source_name_in_the_vnstock_path(self):
         import inspect
         src = inspect.getsource(_m.fetch_balance_sheet)
-        assert "vnstock.explorer.kbs.financial" in src
-        assert "vnstock.explorer.vci.financial" in src
+        assert "vnstock.explorer" not in src
+        assert '"vci"' not in src and '"kbs"' not in src
 
     def test_probe_names_the_source_it_used(self, monkeypatch, capsys):
         monkeypatch.setattr(_m, "fetch_balance_sheet",
                             lambda *a, **k: _frame(["TS"], [(2018, 1)],
                                                    {("TS", 2018, 1): 1}))
-        _m.probe("VCB", 200, "vi", "kbs")
-        assert "nguồn=kbs" in capsys.readouterr().out
+        _m.probe("VCB", 200, "vi", "tcbs")
+        assert "nguồn=tcbs" in capsys.readouterr().out
 
     def test_probe_shouts_the_earliest_period(self, monkeypatch, capsys):
         """Câu hỏi sống còn với yêu cầu 2015-2016 là 'nguồn có từ bao giờ'."""
         monkeypatch.setattr(_m, "fetch_balance_sheet",
                             lambda *a, **k: _frame(["TS"], [(2018, 1), (2019, 2)],
                                                    {("TS", 2018, 1): 1}))
-        _m.probe("VCB", 200, "vi", "vci")
+        _m.probe("VCB", 200, "vi", "vnstock")
         out = capsys.readouterr().out
         assert "KỲ SỚM NHẤT" in out and "2018-Q1" in out

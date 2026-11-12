@@ -8,9 +8,17 @@ Tách khỏi `vnstock_dashboard.py` (12/08) vì hai lý do:
 2. Nó là **bất biến dữ liệu** của cả pipeline, không riêng UI: `vnstock_brief`
    cũng nhắc tới ngưỡng >500 (dòng ~1820) như "cùng quy ước".
 
-Bối cảnh: vnstock (free VCI) trả giá ở NGHÌN VND (FPT = 77.7), còn
+Bối cảnh: dòng cũ vnstock (free VCI) trả giá ở NGHÌN VND (FPT = 77.7), còn
 vnstock_data (sponsor) trả giá ở VND (FPT = 77700). Kho + bars parquet vì thế
 pha trộn cả hai — thậm chí trong CÙNG 1 row (open=77.8 nghìn, close=77700 VND).
+
+vnstock thế hệ 6, hồ sơ cột `v5` (mặc định của dự án) giữ đơn vị dòng cũ: bảng giá
+`Market().equity.quote` / `Market().futures(s).quote` trả ĐỒNG như `price_board` của
+vnstock_data, nến `ohlcv` (mặt tiền `get_vnstock(t).quote.history`) trả NGHÌN. Hồ sơ `v6`
+đổi bảng giá sang NGHÌN — đừng bật nó mà không đối chiếu lại các ngưỡng ở đây.
+⚠️ CẦN ĐỐI CHIẾU khi có khoá nguồn: đơn vị `close_price` bảng giá và `close` nến 1m/1D
+của từng nguồn đã chọn (`VNSTOCK_SOURCE`) — logic dưới đây quy đổi theo TỶ LỆ nên chịu
+được cả hai, nhưng mã chưa có kho (không mốc) rơi về ngưỡng cứng > 500.
 
 Không đụng tới Streamlit ở đây: cache (`@st.cache_data`) là chuyện của lớp UI.
 """
@@ -69,9 +77,9 @@ def normalize_price_units(df: pd.DataFrame) -> pd.DataFrame:
 def normalize_live_price(historical_last_close: float, live_price: float) -> float:
     """Chuẩn hoá giá live cho khớp scale của chart historical.
 
-    vnstock thường trả intraday dạng nghìn (25.55 = 25,550đ) trong khi
-    `Market.price_board()` trả giá VND thật (25550). Merge thẳng sẽ phá scale
-    chart (triệu chứng "chart 1D trắng bóc").
+    Nến intraday (`quote.history`) trả dạng nghìn (25.55 = 25,550đ) trong khi bảng giá
+    `Market().equity.quote()` (hồ sơ v5) trả giá VND thật (25550). Merge thẳng sẽ phá
+    scale chart (triệu chứng "chart 1D trắng bóc").
 
     Giá trị <= 0 (không đo được / thiếu data) được trả NGUYÊN — không suy đoán
     đơn vị từ số vô nghĩa.

@@ -67,6 +67,17 @@ from vnstock_brief_canon import (  # noqa: F401  (re-export: giữ nguyên đư�
     _MKT_NEWS_SENT_ICON,
     _SR_MAX_MOVE_PCT,
     _WATCHLIST_GTGD_MIN_TY,
+    TA_LEVEL_PROMISE_EXAMPLES,
+    TA_INSIGHT_LABEL,
+    TA_INSIGHT_MAX_SENTENCES,
+    TA_LEVEL_PROMISE_PHRASES,
+    TA_SECTION_TITLES,
+    _TA_LEVEL_FILLER,
+    RSI_OVERBOUGHT,
+    RSI_OVERHEAT_SIDEWAYS,
+    RSI_OVERSOLD,
+    RSI_STRONG,
+    RSI_WEAK,
     _alloc_cap_note,
     _HORIZON_ACTIONS,
     _HORIZON_AGENT_PREFIXES,
@@ -2489,6 +2500,107 @@ def _attach_ticker_sr(movers: list) -> None:
             continue
 
 
+_TA_CARD_MAX_TICKERS = 12
+_TA_CARD_HISTORY_DAYS = 800      # đủ SMA200 + MA40 tuần (như scripts/sample_ta_card.py)
+_TA_PRICE_SCALE = 1000.0         # giá kho (nghìn đồng) → đồng, như "Giá" của dòng mover
+
+
+def _ta_card_tickers(ctx: dict) -> list[str]:
+    """Mã brief nhắc, theo thứ tự ưu tiên: danh mục đang giữ → mover ⭐ (ứng viên watchlist:
+    VN30 hoặc GTGD ≥ ngưỡng) → mover còn lại; tối đa `_TA_CARD_MAX_TICKERS`."""
+    movers = list(ctx.get("vn30_gainers") or []) + list(ctx.get("vn30_losers") or [])
+
+    def _star(m: dict) -> bool:
+        g = m.get("GTGD TB (tỷ)")
+        return m.get("Mã") in VN30_TICKERS or (
+            isinstance(g, (int, float)) and g == g and g >= _WATCHLIST_GTGD_MIN_TY)
+    order = [p.get("ticker") for p in ctx.get("portfolio") or []]
+    order += [m.get("Mã") for m in movers if _star(m)] + [m.get("Mã") for m in movers]
+    out: list[str] = []
+    for tk in order:
+        tk = str(tk or "").strip().upper()
+        if tk and tk not in out:
+            out.append(tk)
+    return out[:_TA_CARD_MAX_TICKERS]
+
+
+def _blank_live_volume(df: "pd.DataFrame", session: str) -> "pd.DataFrame":
+    """Phiên đang dở: KL bar cuối là KL NỬA phiên — so với TB20 cả phiên là luôn "không xác
+    nhận" giả ⇒ bỏ KL bar đó (thẻ in "KL chưa đủ dữ liệu")."""
+    if "volume" not in df.columns or "time" not in df.columns or df.empty:
+        return df
+    import pandas as pd
+    d = df.copy()
+    last = pd.to_datetime(d["time"]).dt.date.astype(str) == str(session)
+    d["volume"] = d["volume"].astype(float).where(~last)
+    return d
+
+
+def _attach_ta_cards(ctx: dict, idx: "pd.DataFrame | None" = None) -> None:
+    """Bước 6b của collect_context: ``ctx["ta_card"]`` (VN-Index) + ``ctx["ta_cards"]`` (≤12 mã).
+
+    Lưu NHÃN thẻ (dict gọn `card_labels` + dòng đã dựng) — không DataFrame — để prompt, guard và
+    `ta-score` cùng đọc một bản.
+
+    Mức S/R của VN-Index = ``vnindex_tech`` support/resistance — tính TỪ bar CUỐI (`_vnindex_
+    technicals` chỉ lấy ứng viên nằm hai phía giá đóng cửa), KHÔNG phải mức công bố phiên trước.
+    Vì vậy thẻ chỉ in khoảng cách dương theo bội ATR, "đã vượt/đã thủng" và "thủng hỗ trợ" không
+    bao giờ phát ở đây. Cố ý KHÔNG tính lại mức phiên trước: `enforce_pivot_labels`/
+    `enforce_sr_direction` ghim chữ model về đúng mức của ``vnindex_tech`` — thẻ in mức khác thì
+    hai nguồn số đá nhau. Từng mã cùng lý do: ``sr_support/sr_resistance`` (`_attach_ticker_sr`,
+    tính từ giá cuối); danh mục không phải mover ⇒ thẻ không có mức.
+
+    Thêm ``vnindex_tech["ta_levels"]`` = biên 1 ATR để `enforce_scenario_levels` coi là mức ĐÃ
+    BIẾT (không ghim nhầm số biên trong câu nhận định về mức khác). Mã lỗi/thiếu kho ⇒ bỏ mã đó.
+
+    ``idx`` = bản đọc VN-Index mà ``vnindex_tech`` đã tính (`collect_context` truyền): brief sáng
+    có live, WSS ghi file giữa hai lần đọc thì lần đọc thứ hai ra close khác ⇒ ValueError dưới.
+    """
+    import vnstock_ta_card as tc
+    vt = ctx.get("vnindex_tech") or {}
+    if not vt.get("close"):
+        return                     # kho trống = "rỗng", không phải "hỏng": prompt có sentinel riêng
+    session = ctx.get("date")
+    idx = _load_vnindex_df() if idx is None else idx
+    if vt.get("intraday"):
+        idx = _blank_live_volume(idx, session)
+    sr = {k: vt.get(k) for k in ("support_1", "support_2", "resistance_1", "resistance_2")}
+    card = tc.ta_card(idx, sr=sr, label="VN-Index")
+    if card.get("close") is None or abs(card["close"] - float(vt["close"])) > 0.01:
+        raise ValueError(f"thẻ VN-Index lệch vnindex_tech: {card.get('close')} vs {vt['close']}")
+    ta = {**tc.card_labels(card), "label": "VN-Index",
+          "day_change_pct": vt.get("day_change_pct"),
+          "lines": tc.brief_lines(card, session, intraday=bool(vt.get("intraday")))}
+
+    from vnstock_strategy import _load_history_from_parquet
+    mover_sr = {str(m.get("Mã") or "").upper(): m for m in
+                list(ctx.get("vn30_gainers") or []) + list(ctx.get("vn30_losers") or [])}
+    cards: dict = {}
+    failed: list[str] = []
+    for tk in _ta_card_tickers(ctx):
+        try:
+            df = _load_history_from_parquet(tk, days=_TA_CARD_HISTORY_DAYS)
+            if df is None or df.empty:
+                continue
+            if vt.get("intraday"):
+                df = _blank_live_volume(df, session)
+            m = mover_sr.get(tk) or {}
+            tsr = {"support_1": m.get("sr_support"), "resistance_1": m.get("sr_resistance")}
+            c = tc.ta_card(df, sr=tsr, label=tk)
+            if c.get("close") is None:
+                continue
+            cards[tk] = {**tc.card_labels(c), "label": tk,
+                         "line": tc.brief_facts(c, session, price_scale=_TA_PRICE_SCALE)}
+        except Exception as e:                     # một mã hỏng không kéo cả thẻ
+            failed.append(f"{tk}: {type(e).__name__}: {e}")
+    if failed:
+        _note_loader_error(ctx, "ta_cards", RuntimeError("; ".join(failed)))
+    ctx["ta_card"] = ta
+    ctx["ta_cards"] = cards
+    if ta.get("band_lo") is not None:
+        vt["ta_levels"] = [ta["band_lo"], ta["band_hi"]]
+
+
 def _upcoming_window_start(brief_type: str, data_date: str) -> "date | None":
     """Ngày ĐẦU cửa sổ "Sự kiện sắp tới" theo loại brief (None = hôm nay).
 
@@ -2507,6 +2619,55 @@ def _upcoming_window_start(brief_type: str, data_date: str) -> "date | None":
         return None
 
 
+def _sector_alpha_enabled() -> bool:
+    """`VNSTOCK_BRIEF_SECTOR_ALPHA` (mặc định TẮT; 1/true/yes/on bật) — quant ngành của brief
+    chấm theo alpha vs VN-Index + tín hiệu xoay vòng, như dashboard (PTKT P1 §14b)."""
+    return (os.environ.get("VNSTOCK_BRIEF_SECTOR_ALPHA", "0").strip().lower()
+            in ("1", "true", "yes", "on"))
+
+
+def _quant_index_returns(ctx: dict) -> "dict | None":
+    """Lợi suất 1T/1M/3M của VN-Index cho `compute_scores(index_returns=…)` — cùng hàm
+    `compute_index_returns` của dashboard (`dashboard/market_commentary.py`), nhưng đọc KHO
+    (bar EOD, không gộp bar live: số ngành của runner cũng là EOD). Công tắc tắt ⇒ None
+    (lời gọi cũ). Kho thiếu/lỗi ⇒ ghi vết `sector_alpha` + None: lợi suất 0 sẽ biến giá
+    ngành thành "alpha" giả."""
+    if not _sector_alpha_enabled():
+        return None
+    try:
+        import pandas as pd
+        from vnstock_market_analyzer import compute_index_returns
+        df = _load_vnindex_df(augment=False)
+        closes = (df["close"].astype(float).dropna()
+                  if df is not None and "close" in df.columns else pd.Series(dtype=float))
+        if len(closes) <= 60:
+            raise ValueError(f"VNINDEX trong kho chỉ có {len(closes)} phiên (cần > 60 cho 3M)")
+        idx = pd.DataFrame({"VNINDEX": closes.iloc[::-1].to_numpy()})   # mới nhất trước
+        return compute_index_returns(idx, index_col="VNINDEX")
+    except Exception as e:
+        _note_loader_error(ctx, "sector_alpha", e)
+        return None
+
+
+def _fill_quant(ctx: dict) -> None:
+    """Quant ngành + regime từ `ctx["sectors"]` (bước 2 của `collect_context`)."""
+    import pandas as pd
+    from vnstock_market_analyzer import compute_scores, rank, market_regime
+    df = pd.DataFrame(ctx["sectors"])
+    idx_ret = _quant_index_returns(ctx)
+    scores = (compute_scores(df) if idx_ret is None
+              else compute_scores(df, index_returns=idx_ret))
+    ranked = rank(df, scores, name_col="Ngành")
+    regime = market_regime(scores, ctx["breadth"])
+    ctx["quant_regime"] = regime
+    ctx["quant_top"] = ranked.get("top", [])[:3]
+    ctx["quant_avoid"] = ranked.get("avoid", [])[:3]
+    ctx["quant_rotation"] = ranked.get("rotation", [])[:3]
+    ctx["quant_stealth"] = ranked.get("stealth", [])[:2]
+    ctx["quant_distribution"] = ranked.get("distribution", [])[:2]
+    ctx["vol_regime"] = scores["_vol_regime"].mode().iloc[0] if "_vol_regime" in scores.columns else "normal"
+
+
 def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> dict:
     """Collect all available market data for brief generation.
 
@@ -2517,7 +2678,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # Determine effective trading date: use the last bar date from VNINDEX
     # warehouse instead of calendar today. Avoids "no data" briefs when called
     # early morning (market not open yet) or on weekends/holidays.
-    _vt_early = _vnindex_technicals()
+    _vni_df = _load_vnindex_df()        # MỘT bản đọc cho vnindex_tech + thẻ kỹ thuật (bước 6b)
+    _vt_early = _vnindex_technicals(_vni_df)
     _data_date_str = effective_trading_date(_vt_early)
 
     _today_str = date.today().isoformat()
@@ -2570,6 +2732,8 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
             # NOT gate on count/universe — only ~60% of classified names trade
             # on any given day (observed 808/1388 on a normal session).
             ctx["nn_data_date"] = data.get("nn_data_date")
+            # Lượt tải NN của runner có ngày lỗi ⇒ NN ngành tính thiếu phiên (prompt + guard)
+            ctx["nn_coverage"] = data.get("nn_coverage")
             _byd = data.get("gtgd_by_date") or {}
             _gd = data.get("gtgd_date")
             _entry = _byd.get(_data_date_str)
@@ -2612,21 +2776,7 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # 2. Quant scores + regime
     if ctx["sectors"]:
         try:
-            import pandas as pd
-            from vnstock_market_analyzer import (
-                compute_scores, rank, market_regime, compute_index_returns,
-            )
-            df = pd.DataFrame(ctx["sectors"])
-            scores = compute_scores(df)
-            ranked = rank(df, scores, name_col="Ngành")
-            regime = market_regime(scores, ctx["breadth"])
-            ctx["quant_regime"] = regime
-            ctx["quant_top"] = ranked.get("top", [])[:3]
-            ctx["quant_avoid"] = ranked.get("avoid", [])[:3]
-            ctx["quant_rotation"] = ranked.get("rotation", [])[:3]
-            ctx["quant_stealth"] = ranked.get("stealth", [])[:2]
-            ctx["quant_distribution"] = ranked.get("distribution", [])[:2]
-            ctx["vol_regime"] = scores["_vol_regime"].mode().iloc[0] if "_vol_regime" in scores.columns else "normal"
+            _fill_quant(ctx)
         except Exception as e:
             ctx["quant_error"] = str(e)      # giữ khoá cũ
             _note_loader_error(ctx, "quant_scores", e)
@@ -2761,6 +2911,17 @@ def collect_context(brief_type: str = "morning", auto_refresh: bool = False) -> 
     # 6. VNINDEX technical levels — already fetched above to determine the
     # effective date; reuse the result instead of calling again.
     ctx["vnindex_tech"] = _vt_early
+
+    # 6b. Thẻ kỹ thuật (PTKT P2c, sau VNSTOCK_TA_CARD — mặc định TẮT ⇒ ctx không có khoá).
+    if brief_type in ("morning", "afternoon"):
+        from vnstock_ta_card import ta_card_enabled
+        if ta_card_enabled():
+            try:
+                _attach_ta_cards(ctx, _vni_df)
+            except Exception as _e:
+                ctx.pop("ta_card", None)
+                ctx.pop("ta_cards", None)
+                _note_loader_error(ctx, "ta_card", _e)
 
     # 7. Fundamentals (D/E, ROE, operating cash flow) from weekly cache — VN30
     #    plus the liquid mid-cap movers so the risk section can flag mid-cap
@@ -3118,6 +3279,9 @@ def _augment_with_live_vnindex(
         return df
 
 
+_VNINDEX_PRICES_DIR = Path(__file__).parent / "data_warehouse" / "prices"
+
+
 def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
     """Read VNINDEX price history directly from parquet — no Streamlit cache.
 
@@ -3136,7 +3300,7 @@ def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
     except ImportError:
         return pd.DataFrame()
 
-    prices_dir = Path(__file__).parent / "data_warehouse" / "prices"
+    prices_dir = _VNINDEX_PRICES_DIR
 
     df = pd.DataFrame()
     for sym in ("VNINDEX", "VN-INDEX", "^VNINDEX"):
@@ -3165,7 +3329,10 @@ def _load_vnindex_df(augment: bool = True) -> "pd.DataFrame":
             continue
 
         _df["time"] = pd.to_datetime(_df["time"])
-        _df = _df.sort_values("time").reset_index(drop=True)
+        # Dropbox "(conflicted copy).parquet" trong year-dir ⇒ mỗi phiên 2 dòng ⇒ MA/RSI/
+        # lợi suất N phiên lùi sai số phiên (review PTKT P1, 04/11). Khử trùng theo ngày.
+        _df = (_df.sort_values("time").drop_duplicates("time", keep="last")
+               .reset_index(drop=True))
 
         if "close" not in _df.columns:
             continue
@@ -3259,7 +3426,7 @@ def _select_sr_levels(cands: "list[float]", last: float) -> "list[float]":
     return out
 
 
-def _vnindex_technicals() -> dict:
+def _vnindex_technicals(df: "pd.DataFrame | None" = None) -> dict:
     """Compute VNINDEX close, MAs, day/52w range, and pivot levels.
 
     Best-effort — returns {} on any failure. The brief prompt then renders a
@@ -3274,11 +3441,11 @@ def _vnindex_technicals() -> dict:
     """
     try:
         import pandas as pd
-        import numpy as np
     except Exception:
         return {}
 
-    df = _load_vnindex_df()
+    if df is None:
+        df = _load_vnindex_df()
     if df is None or df.empty or "close" not in df.columns:
         return {}
 
@@ -3339,14 +3506,12 @@ def _vnindex_technicals() -> dict:
         res1, res2 = (res + [None, None])[:2]
         sup1, sup2 = (sup + [None, None])[:2]
 
-        # RSI(14) via EWM (same formula as ticker indicators)
+        # RSI(14) Wilder (EWM alpha=1/14) — `vnstock_indicators.rsi_wilder`, cùng công thức
+        # screener/độ rộng/chart/`analyze_ticker` từ PTKT P1 đợt 2 (§16).
         rsi14 = None
         try:
-            delta = close.diff(1)
-            up = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
-            dn = (-delta).clip(lower=0).ewm(com=13, adjust=False).mean()
-            rs = up / dn.replace(0, np.nan)
-            v = (100.0 - 100.0 / (1.0 + rs)).iloc[-1]
+            from vnstock_indicators import rsi_wilder
+            v = rsi_wilder(close).iloc[-1]
             rsi14 = None if pd.isna(v) else float(v)
         except Exception:
             pass
@@ -3511,6 +3676,82 @@ def _quant_regime_prompt_lines(ctx: dict) -> list[str]:
     return lines
 
 
+def _vnindex_indicator_lines(vt: dict) -> list[str]:
+    """Dòng tự đọc chỉ báo của khối "## VNINDEX kỹ thuật" (độ dốc MA20, RSI, CHOP, nến,
+    Heikin-Ashi) — tách khỏi `build_prompt` để thẻ kỹ thuật (P2c) thay được cả cụm."""
+    out: list[str] = []
+    if (slope := vt.get("ma20_slope_pct")) is not None:
+        slope_tag = "↗ tăng" if slope > 0.2 else ("↘ giảm" if slope < -0.2 else "→ đi ngang")
+        out.append(f"- MA20 slope (5 phiên): {slope:+.2f}% {slope_tag}")
+    if (rsi := vt.get("rsi14")) is not None:
+        rsi_tag = ("quá mua" if rsi > RSI_OVERBOUGHT
+                   else "quá bán" if rsi < RSI_OVERSOLD else "trung tính")
+        out.append(f"- RSI(14): {rsi:.1f} ({rsi_tag})")
+    if (chop := vt.get("chop14")) is not None:
+        chop_tag = ("đi ngang/choppy" if chop > 61.8
+                    else "có xu hướng rõ" if chop < 38.2 else "trung gian")
+        out.append(
+            f"- CHOP(14): {chop:.1f} ({chop_tag} — đo độ choppy, KHÔNG chỉ hướng)"
+        )
+    if pats := vt.get("candle_patterns"):
+        out.append(
+            "- Mẫu nến phiên gần nhất: " + "; ".join(pats)
+            + " (tín hiệu nến tham khảo, cần nến xác nhận)"
+        )
+    if abs(streak := int(vt.get("ha_streak") or 0)) >= 2:
+        _ha_dir = "xanh (tăng)" if streak > 0 else "đỏ (giảm)"
+        out.append(
+            f"- Heikin-Ashi: {abs(streak)} nến {_ha_dir} sạch liên tiếp"
+            " — lọc nhiễu trend, chỉ ngữ cảnh"
+        )
+    return out
+
+
+def _ta_card_prompt_lines(ta: dict) -> list[str]:
+    return (["Thẻ kỹ thuật VN-Index — HỆ THỐNG IN NGUYÊN các dòng sau vào mục \"📈 Mức kỹ thuật\" "
+             "(KHÔNG chép lại, KHÔNG đổi số/nhãn):"]
+            + [str(l) for l in ta["lines"]]
+            + ["Số tham chiếu cho TLDR / kịch bản / watchlist (KHÔNG chép vào mục 📈):"])
+
+
+def _ta_ticker_cards_block(ctx: dict, shown: "set[str]") -> str:
+    """Thẻ của mã danh mục KHÔNG có dòng mover (mover đã mang thẻ trong dòng của nó)."""
+    cards = ctx.get("ta_cards") or {}
+    rows = [f"- {tk}: {c['line']}" for tk, c in cards.items()
+            if tk not in shown and isinstance(c, dict) and c.get("line")]
+    if not rows:
+        return ""
+    # Tiêu đề KHÔNG mở bằng 📈: model chép lại thì guard không nhận nhầm là mục 📈 Mức kỹ thuật.
+    return ("\n## Thẻ kỹ thuật mã đang giữ (dữ kiện code dựng; S1/R1 = mốc THAM CHIẾU, "
+            "KHÔNG phải dự báo)\n" + "\n".join(rows))
+
+
+_TA_SECTION_TEMPLATE = (
+    "[hệ thống tự chèn các dòng \"Thẻ kỹ thuật VN-Index\" ở block \"## VNINDEX kỹ thuật\" vào "
+    "đây — KHÔNG chép, KHÔNG viết lại số]\n"
+    "**Nhận định:** [TỐI ĐA 3 câu, CHỈ dùng số có trong thẻ: (1) ý chính từ thẻ + dòng \"Tín "
+    "hiệu lệch nhau\" nếu có; (2) kịch bản HAI chiều GỘP TRONG MỘT câu (chiều tăng; chiều giảm), "
+    "MỖI chiều có điều kiện mức (S1/R1 của thẻ) + khối lượng (KL so TB20, xác nhận khi "
+    "≥ {vol_mult:.2f}× TB20); (3) mức huỷ — điều gì "
+    "làm nhận định sai. S/R và biên 1 ATR là MỐC THAM CHIẾU, KHÔNG phải lợi thế: TUYỆT ĐỐI KHÔNG "
+    "viết {promises}. RSI > 70 = \"đà mạnh\", KHÔNG gọi là quá mua/cảnh báo.]\n")
+
+
+def _swap_ta_template(tmpl: str, vol_mult: float) -> str:
+    """Thân mục "## 📈 Mức kỹ thuật …" của template sáng/chiều ⇒ khung thẻ + ≤3 câu nhận định.
+    Mỏ neo thiếu ⇒ trả nguyên."""
+    head = tmpl.find("\n## 📈 Mức kỹ thuật")
+    if head < 0:
+        return tmpl
+    body = tmpl.find("\n", head + 1) + 1
+    nxt = tmpl.find("\n## ", body)
+    if body <= 0 or nxt < 0:
+        return tmpl
+    promises = ", ".join(f"\"{p}\"" for p in TA_LEVEL_PROMISE_EXAMPLES)
+    return (tmpl[:body] + _TA_SECTION_TEMPLATE.format(vol_mult=vol_mult, promises=promises)
+            + tmpl[nxt:])
+
+
 def build_prompt(ctx: dict, brief_type: str = "morning",
                  few_shot: str = "", rec_block: str = "",
                  news_block: str = "") -> str:
@@ -3608,6 +3849,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
     # VNINDEX block" and a missing block leaves a vacuum the LLM fills from
     # training data (the original 1.240 hallucination bug).
     vt = ctx.get("vnindex_tech") or {}
+    # Thẻ kỹ thuật (PTKT P2c): có khoá ⇒ dòng thẻ THAY các dòng tự đọc chỉ báo (độ dốc MA20,
+    # RSI, CHOP, nến, Heikin-Ashi); giữ giá/range/MA/pivot cho TLDR, kịch bản và guard cũ.
+    ta = ta_ctx(ctx) if brief_type in ("morning", "afternoon") else None
     if vt:
         def _f(v) -> str:
             return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
@@ -3617,6 +3861,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
             if vt.get("intraday") else ""
         )
         vt_lines = [f"\n## VNINDEX kỹ thuật (số liệu hiện tại — DÙNG CHÍNH XÁC, KHÔNG ĐƯỢC THAY){_intraday_tag}"]
+        if ta:
+            vt_lines += _ta_card_prompt_lines(ta)
         vt_lines.append(
             f"- {'Giá hiện tại' if vt.get('intraday') else 'Giá đóng cửa'}: **{_f(vt.get('close'))}** "
             f"(prev {_f(vt.get('prev_close'))}, "
@@ -3648,29 +3894,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 ma_parts.append(f"{label}={_f(v)} ({vs:+.1f}%)")
         if ma_parts:
             vt_lines.append("- " + " | ".join(ma_parts))
-        if (slope := vt.get("ma20_slope_pct")) is not None:
-            slope_tag = "↗ tăng" if slope > 0.2 else ("↘ giảm" if slope < -0.2 else "→ đi ngang")
-            vt_lines.append(f"- MA20 slope (5 phiên): {slope:+.2f}% {slope_tag}")
-        if (rsi := vt.get("rsi14")) is not None:
-            rsi_tag = "quá mua" if rsi > 70 else ("quá bán" if rsi < 30 else "trung tính")
-            vt_lines.append(f"- RSI(14): {rsi:.1f} ({rsi_tag})")
-        if (chop := vt.get("chop14")) is not None:
-            chop_tag = ("đi ngang/choppy" if chop > 61.8
-                        else "có xu hướng rõ" if chop < 38.2 else "trung gian")
-            vt_lines.append(
-                f"- CHOP(14): {chop:.1f} ({chop_tag} — đo độ choppy, KHÔNG chỉ hướng)"
-            )
-        if pats := vt.get("candle_patterns"):
-            vt_lines.append(
-                "- Mẫu nến phiên gần nhất: " + "; ".join(pats)
-                + " (tín hiệu nến tham khảo, cần nến xác nhận)"
-            )
-        if abs(streak := int(vt.get("ha_streak") or 0)) >= 2:
-            _ha_dir = "xanh (tăng)" if streak > 0 else "đỏ (giảm)"
-            vt_lines.append(
-                f"- Heikin-Ashi: {abs(streak)} nến {_ha_dir} sạch liên tiếp"
-                " — lọc nhiễu trend, chỉ ngữ cảnh"
-            )
+        if not ta:                        # thẻ kỹ thuật đã thay các dòng này
+            vt_lines += _vnindex_indicator_lines(vt)
         sr_parts = []
         if vt.get("support_2") is not None:
             sr_parts.append(f"S2={_f(vt['support_2'])}")
@@ -3820,13 +4045,29 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         # A/D 0.90 wrongly called "tích cực" — 0.90 < 1.0 is NEGATIVE breadth).
         _bl = "tích cực" if _ad > 1.05 else "tiêu cực" if _ad < 0.95 else "cân bằng"
         _sign = ">" if _ad > 1 else "<" if _ad < 1 else "≈"
-        _weak = " · ít mã trên MA200 → thị trường yếu" if _ma200 < 30 else ""
+        from vnstock_breadth_universe import display_split, label_suffix
+        # VNSTOCK_BREADTH_DISPLAY=investable (PTKT §18): IN tập thanh khoản làm số chính, nhãn
+        # ĐỘ RỘNG + câu "ít mã … yếu" vẫn theo _ma200 (toàn thị trường) — chỉ đổi chữ.
+        _disp = display_split(b)
+        _weak = (f" · ít mã trên MA200{' toàn thị trường' if _disp else ''} → thị trường yếu"
+                 if _ma200 < 30 else "")
+        _set = label_suffix(b)          # tập thanh khoản (PTKT §16); tập mọi mã ⇒ ""
+        _set_note = (f"\n→ % trên MA200 chỉ tính {_set.strip()[1:-1]} (≥200 phiên, GTGD TB20 ≥1 tỷ, "
+                     f"có giao dịch gần đây) — nêu số này PHẢI ghi kèm \"{_set.strip()}\"."
+                     if _set else "")
+        _ma200_txt = f"Trên MA200{_set}: {_ma200:.0f}%"
+        if _disp:
+            _ma200_txt = (f"Trên MA200{_disp['label']}: {_disp['pct']:.0f}% · "
+                          f"toàn thị trường {_ma200:.0f}%")
+            _set_note = (f"\n→ Số chính % trên MA200 chỉ tính {_disp['label'].strip()[1:-1]} (≥200 "
+                         f"phiên, GTGD TB20 ≥1 tỷ, có giao dịch gần đây) — nêu số này PHẢI ghi kèm "
+                         f"\"{_disp['label'].strip()}\"; số {_ma200:.0f}% PHẢI ghi \"toàn thị trường\".")
         lines.append(f"\n## Market Breadth\n"
-                     f"Trên MA200: {_ma200:.0f}% | "
+                     f"{_ma200_txt} | "
                      f"A/D ratio: {_ad:.2f} | "
                      f"Net new highs: {b.get('net_new_highs',0):+d} | "
                      f"RSI oversold: {b.get('rsi_oversold',0)} mã | RSI overbought: {b.get('rsi_overbought',0)} mã"
-                     f"\n→ ĐỘ RỘNG: {_bl.upper()} (A/D {_sign} 1.0{_weak}) — DÙNG ĐÚNG nhãn này, KHÔNG tự suy ngược (A/D<1 = tiêu cực).")
+                     f"\n→ ĐỘ RỘNG: {_bl.upper()} (A/D {_sign} 1.0{_weak}) — DÙNG ĐÚNG nhãn này, KHÔNG tự suy ngược (A/D<1 = tiêu cực)." + _set_note)
     else:
         lines.append(
             "\n## Market Breadth\n⚠️ KHÔNG CÓ breadth data — "
@@ -3964,6 +4205,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
              for s in _ts.get(sector, []) if s.get("Mã") == ticker),
             0.0,
         )
+        _tac = (ctx.get("ta_cards") or {}).get(ticker) if ta else None
+        _tac_line = _tac.get("line") if isinstance(_tac, dict) else None
         line = f"- {ticker} {ret:+.1f}% (1 tuần/5 phiên) [{sector}]"
         if price not in (None, "") and not (isinstance(price, float) and price != price):
             # "last" is in thousand VND → render absolute VND as the watchlist anchor.
@@ -4001,6 +4244,12 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 _parts.append(f"hỗ trợ {_round_tick(float(_sup) * 1000, _p):,}")
             if _res:
                 _parts.append(f"kháng cự {_round_tick(float(_res) * 1000, _p):,}")
+            if _parts and _tac_line and (_tac.get("s1") or _tac.get("r1")):
+                # P2c: thẻ THAY khối mốc ⭐ — S1/R1 của thẻ chính là pivot ở trên
+                return line + (f" ⭐ [thẻ: {_tac_line} — S1/R1 = hỗ trợ/kháng cự pivot "
+                               "60 phiên, mốc THAM CHIẾU"
+                               + (", CHƯA có mốc còn lại trong tầm" if len(_parts) == 1 else "")
+                               + "]")
             if _parts:
                 line += (f" ⭐ [{' / '.join(_parts)} — pivot 60 phiên"
                          + (", CHƯA có mốc còn lại trong tầm"
@@ -4009,6 +4258,8 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                 line += (f" ⭐ [dải ±3% quanh giá: {_round_tick(_p * 0.97, _p):,} – "
                          f"{_round_tick(_p * 1.03, _p):,} — mốc THAM CHIẾU tính từ "
                          f"giá, KHÔNG phải hỗ trợ/kháng cự đo được]")
+        if _tac_line:
+            line += f" [thẻ: {_tac_line}]"
         return line
 
     if gainers := ctx.get("vn30_gainers"):
@@ -4042,6 +4293,11 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
                                    session_date=ctx.get("date"))
         if block:
             lines.append(block)
+            if _nn_cov := nn_coverage_label(ctx):
+                lines.append(
+                    f"⚠️ NN ròng NGÀNH tính THIẾU phiên ({_nn_cov}; nguồn báo lỗi/chạm hạn mức). "
+                    "Khi nêu số NN ngành của khung đó ghi nhãn trong ngoặc đúng một lần; KHÔNG "
+                    "kết luận mạnh từ NN ngành của khung thiếu.")
 
     # VN30 fundamentals (debt-to-equity, ROE, operating cash flow) so the agent
     # can ground "rủi ro cơ bản" comments in real leverage / cash-flow numbers.
@@ -4111,6 +4367,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         block = _portfolio_block(_pf, defensive=ctx.get("defensive"))
         if block:
             lines.append(block)
+    if ta and (block := _ta_ticker_cards_block(
+            ctx, {str(m.get("Mã")) for m in (gainers or []) + (losers or [])})):
+        lines.append(block)
 
     # Mục Rủi ro theo phơi nhiễm (06/10): dữ kiện CÙNG hàm với guard — model
     # thấy đúng thứ hệ thống sẽ in, khỏi chép lại hay tự bịa.
@@ -4150,6 +4409,9 @@ def build_prompt(ctx: dict, brief_type: str = "morning",
         tmpl = _swap_risk_rules(tmpl)
     if _horizon_prompt_lines(ctx, brief_type):
         tmpl = _swap_horizon_template(tmpl)
+    if ta:
+        from vnstock_ta_score import VOL_MULT
+        tmpl = _swap_ta_template(tmpl, float(ta.get("vol_mult") or VOL_MULT))
     return tmpl.format(system=_SYSTEM, data=data_block)
 
 
@@ -4287,6 +4549,19 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_gtgd_baseline_pct,
     _GTGD_MISSING_MARK,
     enforce_gtgd_missing_note,
+    _NN_COVERAGE_MARK,
+    enforce_nn_coverage_note,
+    nn_coverage_label,
+    nn_coverage_labels,
+    _NN_WINDOWS,
+    _label_first_sector_figure,
+    _NN_FIG_RE,
+    _NN_FRAME,
+    _NN_SAME_SECTOR_GAP,
+    _NN_OWN_LABEL,
+    _NN_WINDOW_WORD,
+    _nn_label,
+    _NN_CARRY_TAIL,
     enforce_gtgd_compare_frame,
     enforce_gtgd_total,
     enforce_lead_lag,
@@ -4322,6 +4597,24 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_risk_section,
     enforce_scenario_levels,
     enforce_sector_nn_figures,
+    _NN_MONTH_AFTER_RE,
+    _NN_MONTH_NOT,
+    _NN_MONTH_NOT_TRONG,
+    _NN_MONTH_NAMES,
+    _NN_ONE,
+    _NN_NUM_WORD,
+    _NN_OTHER_SPAN_RE,
+    _NN_SPAN,
+    _NN_SPAN_NOT,
+    _NN_SPAN_HEAD,
+    _NN_SPAN_TRONG,
+    _NN_CLAUSE_STOP,
+    _NN_CLAUSE_END,
+    _nn_other_span,
+    _NN_COMMON_WORD_NAMES,
+    _nn_close,
+    _nn_month_framed,
+    _nn_month_value,
     enforce_sentiment_consistency,
     enforce_session_direction,
     enforce_sr_direction,
@@ -4354,6 +4647,63 @@ from vnstock_brief_guards import (  # noqa: F401  (re-export: giữ nguyên đư
     enforce_watchlist_levels,
     _REC_RAW_LINE_RE, _REC_QTY_RE, _STRATEGY_TAG_RE, _STRATEGY_BARE_RE, _rec_line_vi,
     enforce_rec_line_format,
+    # thẻ kỹ thuật (PTKT P2c/P3)
+    enforce_ta_card_block,
+    enforce_ta_numbers,
+    enforce_ta_trend_words,
+    enforce_ta_rsi_words,
+    enforce_ta_breakout_volume,
+    enforce_ta_no_level_promise,
+    _TA_INSIGHT_RE,
+    _TA_SENTENCE_SPLIT_RE,
+    _TA_TICKER_RE,
+    is_ta_heading,
+    ta_card_for,
+    ta_ctx,
+    ta_rewrite_insight,
+    ta_split_sentences,
+    _TA_FACT_LINE_RE,
+    _TA_LABEL_RE,
+    _TA_BULLET_RE,
+    _ta_agent_sentences,
+    _TA_LIST_MARK_RE,
+    _TA_LABEL_ONLY_RE,
+    _TA_INV_RE,
+    _TA_UP_RE,
+    _TA_DOWN_RE,
+    _ta_role,
+    _ta_join_sides,
+    ta_pick_insight,
+    _TA_BREAK_RE,
+    _TA_DATE_RE,
+    _TA_GLUED_RE,
+    _TA_NUM_RE,
+    _TA_RSI_ZONE_RE,
+    _TA_TREND_RE,
+    _TA_VOLUME_RE,
+    _ta_allowed,
+    _ta_known,
+    _ta_numbers,
+    _TA_PROMISE_RES,
+    _TA_NEGATION_RE,
+    _TA_CLAUSE_SEP_RE,
+    _TA_NOT_TICKERS,
+    _TA_OTHER_INDEX_RE,
+    _TA_TITLE_CORES,
+    _TA_TITLE_TAIL_RE,
+    _TA_VNINDEX_RE,
+    ta_drop_clauses,
+    ta_subject,
+    _BREADTH_ALL,
+    _BREADTH_SET_TAG,
+    _breadth_fix_swapped,
+    _TA_DONE_RE,
+    _TA_NEGATED_TAIL_RE,
+    _TA_OTHER_FRAME_RE,
+    _TA_RSI_ALARM_RE,
+    _TA_RSI_MOMENTUM,
+    _TA_SESSIONS_RE,
+    _ta_promises,
     _PRICE_SCAFFOLD_RE,
     enforce_no_price_scaffold,
     validate_brief_factuality,
@@ -4408,6 +4758,14 @@ def _agent_outcome_line(name: str, elapsed_s: float, text: str,
     if text:
         return f"[brief] ⏱ {name}: {elapsed_s:,.0f}s · ✅ {len(text):,} ký tự"
     return f"[brief] ⏱ {name}: {elapsed_s:,.0f}s · ❌ {(err or 'không rõ')[:160]}"
+
+
+def _ctx_for_agent(ctx_small: dict, pinned: dict, name: str) -> dict:
+    """ctx lưu cho MỘT agent: chỉ mang `stance_pinned` của chính nó."""
+    out = {k: v for k, v in ctx_small.items() if k != "stance_pinned"}
+    if name in pinned:
+        out["stance_pinned"] = pinned[name]
+    return out
 
 
 def generate_brief(
@@ -4628,12 +4986,20 @@ def generate_brief(
     # list when the model claims "Không có sự kiện đáng chú ý" despite the data,
     # and re-attach the land-bank context when a BĐS ticker is cited for weak
     # Op.CF without it.
+    # `stance_pinned` (enforce_stance_horizon ghi khi code đổi nhãn) phải là cờ CỦA TỪNG agent:
+    # ctx dùng chung ⇒ không xoá thì cờ agent trước lây sang agent sau + ctx lưu chung ⇒ sổ
+    # Stance tính cả phiên là "code" (PTKT 04/11). Xoá trước mỗi lượt, cất riêng.
+    pinned_by_agent: dict = {}
     for agent in available:
         text, _err = results.get(agent.name, ("", None))
         if text:
+            ctx.pop("stance_pinned", None)
             fixed = apply_brief_guards(text, ctx)
             if fixed != text:
                 results[agent.name] = (fixed, _err)
+            if ctx.get("stance_pinned"):
+                pinned_by_agent[agent.name] = ctx["stance_pinned"]
+    ctx.pop("stance_pinned", None)
 
     # Defensive layer: scan each agent's output for hallucinated VNINDEX
     # numbers. Stored in results["_warnings"] so the UI can surface them.
@@ -4662,7 +5028,7 @@ def generate_brief(
                 prompt=prompt,
                 output=text,
                 error=err,
-                context=ctx_small,
+                context=_ctx_for_agent(ctx_small, pinned_by_agent, agent.name),
                 auto_score=score,
             )
             brief_ids[agent.name] = bid
@@ -5079,8 +5445,10 @@ def _extract_section(text: str, header: str) -> str:
 # Match canonical "Stance ngày mai: <X>" / "Stance: <X>" line in TLDR.
 # Prompt template asks every agent to emit this exact pattern, so parsing
 # it is far more reliable than counting keywords across the whole section.
+# Brief SÁNG ghi nhãn là "**Bias:**" (_MORNING_TEMPLATE), chiều là "Stance ngày mai:" — đọc
+# cả hai; trước 04/11 chỉ đọc "Stance" ⇒ 14/34 brief sáng rơi về "unknown" (ta-score).
 _STANCE_LINE_RE = _re.compile(
-    r"[Ss]tance(?:\s+(?:ngày\s+mai|sáng\s+mai|hôm\s+nay))?\s*[:：]\s*([^.\n]+)",
+    r"(?:[Ss]tance(?:\s+(?:ngày\s+mai|sáng\s+mai|hôm\s+nay))?|\bBias)\s*\**\s*[:：]\s*\**\s*([^.\n]+)",
     _re.IGNORECASE,
 )
 

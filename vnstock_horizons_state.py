@@ -33,6 +33,8 @@ import numpy as np
 import pandas as pd
 
 import vnstock_horizons as hz
+from vnstock_breadth_universe import ALL, INVESTABLE, breadth_fields, investable_mask
+from vnstock_indicators import indicator_legacy, rsi_wilder, sma
 from vnstock_price_units import normalize_price_units
 
 _REPO = Path(__file__).resolve().parent
@@ -98,13 +100,10 @@ def load_vnindex(warehouse: Path = _WAREHOUSE) -> tuple[list[date], list[float]]
 def tech_frame(dates: list[date], closes: list[float]) -> pd.DataFrame:
     """Kỹ thuật VNINDEX từng phiên — cùng công thức `_vnindex_technicals`."""
     c = pd.Series(closes, index=pd.to_datetime(dates), dtype=float)
-    d = c.diff(1)
-    up = d.clip(lower=0).ewm(com=13, adjust=False).mean()
-    dn = (-d).clip(lower=0).ewm(com=13, adjust=False).mean()
     return pd.DataFrame({
         "close": c, "ma20": c.rolling(20).mean(), "ma50": c.rolling(50).mean(),
         "ma200": c.rolling(200).mean(),
-        "rsi14": 100.0 - 100.0 / (1.0 + up / dn.replace(0, np.nan)),
+        "rsi14": rsi_wilder(c),
         "chg": (c / c.shift(1) - 1.0) * 100,
     })
 
@@ -124,20 +123,33 @@ def load_nn(warehouse: Path = _WAREHOUSE) -> dict[str, float]:
     return out
 
 
-def breadth_history(warehouse: Path, targets: list[date]) -> dict[date, dict]:
-    """% mã trên EMA200 + A/D cho TỪNG phiên, đếm như `compute_market_overview`:
-    mã ≥5 bar trong 400 ngày lùi vào mẫu số; EMA200 (adjust=False) bắt đầu ở bar
-    đầu cửa sổ, chỉ tính khi ≥200 bar; A/D = bar cuối so bar liền trước.
-    EMA cửa sổ = EMA toàn chuỗi − (1−α)^k·(F[lo] − x[lo]) — O(1) mỗi phiên.
-    Đối chiếu ctx đã in 58 phiên 06–10/2026: lệch TB 0.8 điểm %."""
+def breadth_history(warehouse: Path, targets: list[date], universe: str | None = None,
+                    sessions: list[date] | None = None) -> dict[date, dict]:
+    """% mã trên MA200 + A/D cho TỪNG phiên, đếm như `compute_market_overview`:
+    mã ≥5 bar trong 400 ngày lùi vào mẫu số; MA200 chỉ tính khi ≥200 bar trong cửa sổ;
+    A/D = bar cuối so bar liền trước. MA200 = SMA200 (PTKT P1 đợt 2) — 200 bar cuối luôn
+    nằm trong cửa sổ nên SMA toàn chuỗi = SMA cửa sổ. `VNSTOCK_INDICATOR_LEGACY=1` ⇒
+    EMA200 (adjust=False) gieo ở bar đầu cửa sổ như runner cũ: EMA cửa sổ = EMA toàn chuỗi
+    − (1−α)^k·(F[lo] − x[lo]) — O(1) mỗi phiên (đối chiếu ctx 58 phiên 06–10/2026: lệch TB
+    0.8 điểm %).
+
+    Tập mã (PTKT §16): đếm CẢ mọi mã lẫn tập đầu tư được (`vnstock_breadth_universe`, lịch
+    phiên = `sessions` hay VNINDEX trong kho); `above_ma200_pct` = tập `universe` (None ⇒
+    `VNSTOCK_BREADTH_UNIVERSE`), đúng `breadth_fields` của runner."""
     if not targets:
         return {}
+    if sessions is None:
+        sessions = load_vnindex(warehouse)[0]
+    cal = pd.DatetimeIndex(pd.to_datetime(list(sessions))).normalize().unique().sort_values()
+    days = pd.DatetimeIndex(pd.to_datetime(list(targets)))
     tgt = np.array([np.datetime64(d) for d in targets])
     cut = tgt - np.timedelta64(_RUNNER_LOOKBACK_DAYS, "D")
     n_t = len(tgt)
     total = np.zeros(n_t, int); above = np.zeros(n_t, int)
     adv = np.zeros(n_t, int); dec = np.zeros(n_t, int)
+    inv_n = np.zeros(n_t, int); inv_above = np.zeros(n_t, int)
     min_year = targets[0].year - 2
+    legacy = indicator_legacy()
     for td in sorted((warehouse / "prices").glob("ticker=*")):
         tk = td.name.split("=", 1)[1]
         if len(tk) > 5 or not tk.isalpha():
@@ -149,17 +161,24 @@ def breadth_history(warehouse: Path, targets: list[date]) -> dict[date, dict]:
         # (HLB, VNZ) không bị chia 1000.
         x = normalize_price_units(df)["close"].astype(float).to_numpy()
         t = df["time"].to_numpy().astype("datetime64[D]")
-        f = pd.Series(x).ewm(alpha=_EMA_ALPHA, adjust=False).mean().to_numpy()
+        f = (pd.Series(x).ewm(alpha=_EMA_ALPHA, adjust=False).mean() if legacy
+             else sma(x, 200)).to_numpy()
         hi = np.searchsorted(t, tgt, side="right") - 1
         lo = np.searchsorted(t, cut, side="left")
         n = hi - lo + 1
         ok = (hi >= 0) & (n >= 5)
         total += ok
         has200 = ok & (n >= 200)
+        up = np.zeros(n_t, bool)
         if has200.any():
             h, l_ = hi[has200], lo[has200]
-            ema = f[h] - (1 - _EMA_ALPHA) ** (h - l_) * (f[l_] - x[l_])
-            above[np.where(has200)[0][x[h] > ema]] += 1
+            ma = f[h] - (1 - _EMA_ALPHA) ** (h - l_) * (f[l_] - x[l_]) if legacy else f[h]
+            up[np.where(has200)[0][x[h] > ma]] = True
+        above += up
+        if "volume" in df.columns:
+            inv = ok & investable_mask(df["time"], x, df["volume"], cal, days)
+            inv_n += inv
+            inv_above += inv & up
         two = ok & (n >= 2)
         if two.any():
             h = hi[two]
@@ -171,7 +190,8 @@ def breadth_history(warehouse: Path, targets: list[date]) -> dict[date, dict]:
     for i, d in enumerate(targets):
         if total[i]:
             out[d] = {"total": int(total[i]),
-                      "above_ma200_pct": round(above[i] / total[i] * 100, 1),
+                      **breadth_fields(int(total[i]), int(above[i]), int(inv_n[i]),
+                                       int(inv_above[i]), universe),
                       "advances": int(adv[i]), "declines": int(dec[i]),
                       "ad_ratio": round(adv[i] / max(dec[i], 1), 2)}
     return out
@@ -219,6 +239,9 @@ def score_inputs(dates: list[date], closes: list[float], targets: list[date],
                   "breadth_pct": b.get("above_ma200_pct"),
                   "ad": [b.get("advances"), b.get("declines")] if b.get("advances") is not None else None,
                   "nn": nn_d}
+        # Vắng khoá = tập mọi mã (mọi bản ghi trước PTKT §16) ⇒ chỉ ghi khi là tập thanh khoản.
+        if b.get("breadth_universe") == INVESTABLE:
+            out[d].update(breadth_universe=INVESTABLE, breadth_n=b.get("breadth_n"))
     return out
 
 
@@ -393,6 +416,7 @@ def brief_view(lp: Latest) -> dict:
               if pub[i].get("as_of") == snap.get("as_of")), None)
     prev = pub[k - 1] if k else None             # bản published NGAY TRƯỚC snap (dòng 🔁)
     breadth = [inputs[k].get("breadth_pct") for k in days]
+    univ = [inputs[k].get("breadth_universe", ALL) for k in days]
     alert = snap.get("alert") or {}
     known = [lv["price"] for lv in snap.get("levels") or [] if lv.get("price")]
     if alert.get("anchor"):
@@ -413,8 +437,12 @@ def brief_view(lp: Latest) -> dict:
         "short_sessions": max(1, sum(1 for k in days if k >= short_since)),
         "medium_weeks": max(1, weeks),
         "breadth_pct": breadth[-1] if breadth else None,
+        # 4 tuần trước đo trên TẬP KHÁC (vừa bật/tắt công tắc) thì không so được ⇒ bỏ.
         "breadth_pct_4w": (breadth[-1 - _BREADTH_4W_SESSIONS]
-                           if len(breadth) > _BREADTH_4W_SESSIONS else None),
+                           if len(breadth) > _BREADTH_4W_SESSIONS
+                           and univ[-1 - _BREADTH_4W_SESSIONS] == univ[-1] else None),
+        **({"breadth_universe": INVESTABLE, "breadth_n": inputs[days[-1]].get("breadth_n")}
+           if univ and univ[-1] == INVESTABLE else {}),
         "known_levels": known,
     }
 

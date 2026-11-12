@@ -12,6 +12,7 @@ module THẬT (không replica) — bài học audit 06/08 về test trôi xa b�
 
 import json
 
+import pandas as pd
 import pytest
 
 from tests.conftest import HAS_VNSTOCK_SDK, VNSTOCK_SKIP_REASON
@@ -342,3 +343,130 @@ def test_llm_failure_does_not_abort_the_batch(tmp_path, monkeypatch):
                     tickers_override=["AAA", "VCB"])
     assert not store.is_classified("AAA")
     assert store.is_classified("VCB")
+
+
+# ── Hồ sơ công ty trên vnstock thế hệ 6 ──────────────────────────────────────
+
+
+class _Gen6Company:
+    def __init__(self, t, info, listing):
+        self.t, self._info, self._listing = t, info, listing
+
+    def info(self):
+        return self._info
+
+    def listing(self):
+        if isinstance(self._listing, Exception):
+            raise self._listing
+        return self._listing
+
+
+def _patch_gen6(monkeypatch, *, info, listing, equity_list, income, calls):
+    class _Equity:
+        def list(self, **kw):
+            calls.append(("equity.list", kw))
+            if isinstance(equity_list, Exception):
+                raise equity_list
+            return equity_list
+
+    class _Ref:
+        def __init__(self, *a, **k):
+            self.equity = _Equity()
+
+        def company(self, t):
+            calls.append(("company", t))
+            return _Gen6Company(t, info, listing)
+
+    class _FundEq:
+        def income_statement(self, **kw):
+            calls.append(("income_statement", kw))
+            return income
+
+    class _Fund:
+        def __init__(self, *a, **k):
+            pass
+
+        def equity(self, t):
+            return _FundEq()
+
+    monkeypatch.setattr(vc, "Reference", _Ref)
+    monkeypatch.setattr(vc, "Fundamental", _Fund)
+
+
+_INFO = pd.DataFrame([{"symbol": "FPT", "name": "CTCP FPT", "sector": "Công nghệ",
+                       "profile": "Dịch vụ CNTT, viễn thông, giáo dục.", "name_en": "FPT Corp"}])
+_LISTING = pd.DataFrame([{"symbol": "FPT", "exchange": "HOSE", "listing_date": "2006-12-13",
+                          "listed_shares": 1_480_000_000.0, "outstanding_shares": 1_470_000_000.0,
+                          "treasury_shares": 10_000_000.0, "free_float_shares": 1.0e9,
+                          "free_float_percent": 68.0}])
+_EQ_LIST = pd.DataFrame([{"symbol": "FPT", "exchange": "HOSE", "icb_code": "9530",
+                          "icb_name": "Phần mềm & Dịch vụ máy tính"},
+                         {"symbol": "VCB", "exchange": "HOSE", "icb_code": "8355",
+                          "icb_name": "Ngân hàng"}])
+_INCOME = pd.DataFrame([
+    {"period": p, "id": i, "name": n, "order": k, "level": 1, "unit": "VND", "value": v,
+     "line_code": i}
+    for k, (p, i, n, v) in enumerate([
+        ("2023", "IS_NET_REVENUE", "Net revenue", 52.6e12),
+        ("2023", "IS_NET_PROFIT", "Net profit", 7.8e12),
+        ("2024", "IS_NET_REVENUE", "Net revenue", 62.8e12),
+        ("2024", "IS_NET_PROFIT", "Net profit", 9.4e12),
+        ("2025", "IS_NET_REVENUE", "Net revenue", 71.1e12),
+        ("2025", "IS_NET_PROFIT", "Net profit", 11.2e12),
+    ])])
+
+
+def test_gen6_profile_maps_info_listing_and_icb(tmp_path, monkeypatch):
+    calls: list = []
+    _patch_gen6(monkeypatch, info=_INFO, listing=_LISTING, equity_list=_EQ_LIST,
+                income=_INCOME, calls=calls)
+    wh = vc.CompanyWarehouse(str(tmp_path))
+
+    got = wh._fetch_from_api("FPT")
+
+    assert got["company_name"] == "CTCP FPT"
+    assert got["profile"] == "Dịch vụ CNTT, viễn thông, giáo dục."
+    assert got["exchange"] == "HOSE"
+    assert got["issue_share"] == 1_470_000_000.0      # cổ phiếu lưu hành, không phải niêm yết
+    assert got["sector_icb"] == "Phần mềm & Dịch vụ máy tính"
+    assert got["charter_capital"] is None             # thế hệ 6 không còn trường này
+    assert ("income_statement", {"period": "year"}) in calls
+    # 2 kỳ gần nhất, kỳ cũ bị bỏ
+    assert "2025" in got["revenue_str"] and "2024" in got["revenue_str"]
+    assert "2023" not in got["revenue_str"]
+    assert "Net revenue" in got["revenue_str"]
+    wh.save_profile(got)                               # khớp PROFILE_SCHEMA
+    assert wh.load_profile("FPT")["issue_share"] == 1_470_000_000.0
+
+
+def test_gen6_icb_list_is_fetched_once_per_sync(tmp_path, monkeypatch):
+    calls: list = []
+    _patch_gen6(monkeypatch, info=_INFO, listing=_LISTING, equity_list=_EQ_LIST,
+                income=_INCOME, calls=calls)
+    wh = vc.CompanyWarehouse(str(tmp_path))
+    wh._fetch_from_api("FPT")
+    wh._fetch_from_api("VCB")
+    assert [c for c in calls if c[0] == "equity.list"] == [("equity.list", {})]
+
+
+def test_gen6_icb_falls_back_to_info_sector(tmp_path, monkeypatch):
+    from vnstock.errors import UnsupportedError
+    calls: list = []
+    _patch_gen6(monkeypatch, info=_INFO, listing=_LISTING,
+                equity_list=UnsupportedError("không đọc", code="VNSTOCK_ROUTE_UNSUPPORTED"),
+                income=pd.DataFrame(), calls=calls)
+    got = vc.CompanyWarehouse(str(tmp_path))._fetch_from_api("FPT")
+    assert got["sector_icb"] == "Công nghệ"
+    assert got["revenue_str"] == ""
+
+
+def test_gen6_listing_failure_does_not_save_a_half_profile(tmp_path, monkeypatch):
+    """Hồ sơ thiếu `issue_share` mà vẫn lưu thì sync sau BỎ QUA mã đó (skip_existing) ⇒
+    runner tính vốn hoá = 0 mãi mãi."""
+    from vnstock.errors import SourceError
+    calls: list = []
+    _patch_gen6(monkeypatch, info=_INFO, listing=SourceError("503", code="VNSTOCK_SOURCE"),
+                equity_list=_EQ_LIST, income=_INCOME, calls=calls)
+    wh = vc.CompanyWarehouse(str(tmp_path))
+    assert wh.fetch_and_save("FPT") is False
+    assert not wh.has_profile("FPT")

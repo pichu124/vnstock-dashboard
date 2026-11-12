@@ -59,14 +59,23 @@ from vnstock_brief_canon import (
     _market_news_body_lines,
     _portfolio_fact_line,
     _round_tick,
+    TA_INSIGHT_LABEL,
+    TA_INSIGHT_MAX_SENTENCES,
+    TA_SECTION_TITLES,
 )
 from vnstock_brief_guards_common import (
+    _NN_MONTH_NAMES,
     _PIVOT_LABEL_RE,
+    _TA_INSIGHT_RE,
+    _nn_other_span,
     _is_section_start,
     _parse_vn_number,
     defensive_level,
     floor_dir,
     is_defensive,
+    is_ta_heading,
+    ta_ctx,
+    ta_split_sentences,
 )
 from vnstock_fund_periods import period_text as _period_text
 
@@ -1059,6 +1068,44 @@ def enforce_lead_lag(text: str, ctx: dict) -> str:
     return result
 
 
+# ── Khung của một số NN ngành: nhãn THÁNG đứng NGAY sau số / tên ngành (11/11) ────────
+# Chỉ nhìn NGAY SAU (không nhìn lùi, không cả câu): "Tuần này … 2,536 tỷ, cao nhất trong tháng" là
+# số tuần. "tháng 10" (tên tháng) và "11 tháng" không phải khung 1M.
+# Sau "tháng"/"20 phiên" mà là SỐ (kể cả có dấu / sau ":"), thứ/tới/tên tháng ⇒ mệnh đề khác
+# ("1 tháng -2,536 tỷ", "tháng thứ ba", "tháng Mười"). "trước/sau" trần ("1 tháng trước còn mua
+# ròng") cũng là mệnh đề khác — NHƯNG "trong (1) tháng trước kỳ review" / "trong tháng sau khi FTSE
+# công bố" vẫn là khung tháng: sau "trong" chỉ loại "trước/sau" khi theo sau là "đó"/dấu câu/hết.
+_NN_MONTH_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|thứ|tới|rưỡi|qua\s+nữa|"
+                 + _NN_MONTH_NAMES + r")\b)")
+_NN_MONTH_NOT_TRONG = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:thứ|tới|rưỡi|qua\s+nữa|" + _NN_MONTH_NAMES
+                       + r")\b|\s*(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
+# Nhánh dấu phẩy (", 1 tháng") chỉ khi nó ĐÓNG cụm: ")"/dấu câu/hết — ", 1 tháng qua ngành giảm
+# 5%" là mệnh đề khác.
+# "1 tháng" hay "một tháng" (viết chữ) đều là khung 1M; "tháng một" (tên tháng) thì không.
+_NN_ONE = r"(?:1|một)\s+"
+_NN_MONTH_AFTER_RE = _re.compile(
+    r"(?:\s*đồng)?\s*(?:\(\s*(?:NN\s+)?(?:1M\b|(?:" + _NN_ONE + r"tháng|20\s+phiên)\b" + _NN_MONTH_NOT + r")"
+    r"|,\s*(?:" + _NN_ONE + r"tháng|20\s+phiên)\b(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
+    + r"|trong\s+(?:" + _NN_ONE + r")?tháng\b" + _NN_MONTH_NOT_TRONG
+    + r"|trong\s+20\s+phiên\b" + _NN_MONTH_NOT_TRONG
+    + r"|(?:" + _NN_ONE + r")?tháng\b" + _NN_MONTH_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
+
+
+def _nn_month_framed(s: str, pos: int) -> bool:
+    return bool(_NN_MONTH_AFTER_RE.match(s, pos))
+
+
+def _nn_month_value(ctx: dict, name: str):
+    for sec in ctx.get("sectors") or []:
+        if sec.get("Ngành") == name and isinstance(v := sec.get("NN 1M (tỷ)"), (int, float)):
+            return v
+    return None
+
+
+def _nn_close(a: float, b: float) -> bool:
+    return abs(a - b) <= max(1.0, 0.02 * abs(b))
+
+
 def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
     """Deterministic guard: the money-flow commentary must carry BOTH the
     strongest foreign net-buy AND net-sell sector (observed 15:20: only the
@@ -1106,10 +1153,17 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
             if av < 30:                       # skip noise / tiny flows
                 continue
 
-            def _fix(m: "_re.Match", _av=av) -> str:
+            def _fix(m: "_re.Match", _av=av, _nm=nm) -> str:
                 cur = _parse_vn_number(m.group(1))
+                if cur is None or _nn_other_span(m.string, m.end()):
+                    return m.group(0)
+                if _nn_month_framed(m.string, m.end()):      # "… trong ngành X (1M)" ⇒ khung tháng
+                    v1m = _nn_month_value(ctx, _nm)
+                    if v1m is None or _nn_close(cur, abs(v1m)):
+                        return m.group(0)                   # động từ: enforce_net_flow_label
+                    return f"{abs(v1m):,.0f}{m.group(2)}"
                 return (f"{_av:,.0f}{m.group(2)}"
-                        if cur is not None and abs(cur - _av) > max(1.0, 0.02 * _av)
+                        if abs(cur - _av) > max(1.0, 0.02 * _av)
                         else m.group(0))
 
             new = _re.sub(
@@ -1123,14 +1177,22 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
             # tỷ)" while the real NN 1T was nowhere near that; the before-name
             # regex above can't see it). The sign is explicit here, so correct
             # to the real SIGNED value — a wrong magnitude can't survive.
-            def _fix_after(m: "_re.Match", _vv=vv) -> str:
+            def _fix_after(m: "_re.Match", _vv=vv, _nm=nm) -> str:
                 cur = _parse_vn_number(m.group(2))
+                if cur is None or _nn_other_span(m.string, m.end()) or _re.match(
+                        r"\s*(?:đồng\s*)?(?:GTGD|thanh\s+khoản)", m.string[m.end():], _re.IGNORECASE):
+                    return m.group(0)                   # "X (+1,500 tỷ GTGD)": số thanh khoản, không phải NN
+                if _nn_month_framed(m.string, m.end()):      # "X (NN -2,536 tỷ, 1 tháng)"
+                    v1m = _nn_month_value(ctx, _nm)
+                    if v1m is None or _nn_close(cur, v1m):
+                        return m.group(0)
+                    return f"{m.group(1)}{v1m:+,.0f}{m.group(3)}"
                 return (f"{m.group(1)}{_vv:+,.0f}{m.group(3)}"
-                        if cur is not None and abs(cur - _vv) > max(1.0, 0.02 * abs(_vv))
+                        if abs(cur - _vv) > max(1.0, 0.02 * abs(_vv))
                         else m.group(0))
 
             new = _re.sub(
-                rf"({_re.escape(nm)}\s*\(\s*(?:NN\s*|khối\s+ngoại\s*)?)(-?\d[\d.,]*)(\s*tỷ)",
+                rf"({_re.escape(nm)}\s*\(\s*(?:NN\s*|khối\s+ngoại\s*)?)([-+]?\d[\d.,]*)(\s*tỷ)",
                 _fix_after, lines[i])
             if new != lines[i]:
                 lines[i] = new
@@ -1142,8 +1204,15 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
     def _num_present(v: float) -> bool:
         # the strongest side's tỷ figure already on the line (either , or .
         # thousands sep) — so we don't duplicate when the model gave the number.
-        s = f"{abs(v):,.0f}"
-        return s in region_low or s.replace(",", ".") in region_low
+        # Số kèm nhãn THÁNG ngay sau ("1,032 tỷ (1M)") không phải số tuần của ngành — guard sau
+        # (enforce_sector_nn_figures) sẽ ghim nó về NN 1M; tính nó là "đã có" thì lượt chạy lại
+        # (`--from-file`) mới chèn dòng chuẩn ⇒ mất idempotent.
+        for fig in {f"{abs(v):,.0f}", f"{abs(v):,.0f}".replace(",", ".")}:
+            for occ in _re.finditer(_re.escape(fig), region_low):
+                ty = _re.match(r"\s*tỷ", region_low[occ.end():])
+                if not _nn_month_framed(region_low, occ.end() + (ty.end() if ty else 0)):
+                    return True
+        return False
 
     _clauses = _re.split(r"[.;\n]", "\n".join(lines[anchor:region_end]).lower())
 
@@ -1174,6 +1243,9 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
     return rebuilt if rebuilt != text else text
 
 
+_NN_COMMON_WORD_NAMES = frozenset({"khác", "chứng khoán", "tiêu dùng"})
+
+
 def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
     """Correct a per-sector foreign-flow figure stated ANYWHERE in the brief, not
     just the money-flow section. Observed morning 14:11: the "Tránh/Bán" line
@@ -1198,15 +1270,36 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
     for nm, vv in rows:
         def _fix(m: "_re.Match", _vv=vv, _nm=nm) -> str:
             cur = _parse_vn_number(m.group(2))
-            if cur is None or abs(cur - _vv) <= max(1.0, 0.02 * abs(_vv)):
+            if cur is None or _nn_other_span(m.string, m.end()):
+                return m.group(0)
+            if _nn_month_framed(m.string, m.end()):
+                # Khung THÁNG ngay sau số ⇒ so với NN 1M thật, cả độ lớn lẫn CHIỀU (dấu viết ra,
+                # không có thì theo động từ): đúng ⇒ giữ; sai ⇒ ghim NN 1M có dấu + động từ đúng.
+                v1m = _nn_month_value(ctx, _nm)
+                if v1m is None:
+                    return m.group(0)
+                verb = _re.search(r"(bán|mua)\s+ròng\s*$", m.group(1))
+                said = cur if m.group(2)[:1] in "+-" else (
+                    -abs(cur) if verb and verb.group(1) == "bán" else abs(cur))
+                verb_ok = not verb or (verb.group(1) == "bán") == (v1m < 0)
+                if _nn_close(said, v1m) and verb_ok:
+                    return m.group(0)
+                head = m.group(1)
+                if verb:
+                    head = (head[:verb.start(1)] + ("bán" if v1m < 0 else "mua")
+                            + head[verb.end(1):])
+                return f"{head}{v1m:+,.0f}{m.group(3)}"
+            if abs(cur - _vv) <= max(1.0, 0.02 * abs(_vv)):
                 return m.group(0)
             # Số này thuộc NGÀNH KHÁC nếu ngay sau nó gắn "trong ngành <other>"
             # (close 15/07: "…Họ VIN (1 tuần), trong khi bán ròng 703 tỷ đồng
             # trong ngành Ngân hàng" — pass Họ VIN nuốt số 703 của Ngân hàng
             # rồi pin thành +1,496). Đừng đụng nếu attribution ngay sau là ngành
             # khác nm.
-            tail = m.string[m.end():m.end() + 44]
-            tm = _re.match(r"\s*(?:đồng\s*)?trong\s+ngành\s+(.+)",
+            # Cho phép MỘT cặp ngoặc chen giữa số và "trong ngành X" (nhãn khung/thiếu phiên guard khác
+            # vừa gắn — review 12/11: thiếu cái này thì lượt chạy lại ghim số ngành này đè ngành kia).
+            tail = m.string[m.end():m.end() + 140]
+            tm = _re.match(r"\s*(?:đồng\s*)?(?:\([^()\n]*\)\s*)?trong\s+ngành\s+(.+)",
                            tail, _re.IGNORECASE)
             if tm:
                 trailing = tm.group(1).strip().lower()
@@ -1221,8 +1314,25 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
         # "tỷ" (số+đơn vị đã chốt = mệnh đề ngành TRƯỚC đó) VÀ connector "trong
         # khi" (nối 2 vế dòng-tiền — close 15/07: pass Họ VIN vượt "…, trong
         # khi bán ròng…" sang số của Ngân hàng, pin nhầm thành +1,496).
+        # …và không vượt qua TÊN NGÀNH KHÁC (11/11: "Thép & Kim loại tăng mạnh, Ngân hàng bán ròng
+        # 2,536 tỷ" — pass Thép nuốt số của Ngân hàng, ghim thành +300/+120 và đổi cả chiều).
+        # Tên khác chứa trong chính tên này (tiền tố) không tính.
+        # Tên viết THƯỜNG cũng chặn ("…, nhóm ngân hàng bán ròng"), trừ tên trùng chữ phổ thông của
+        # văn brief ("khác hẳn", "thị trường chứng khoán", "người tiêu dùng") — chặn nhầm chỉ làm
+        # guard BỎ QUA số đó (không gán sai), còn vượt sang ngành khác là gán sai.
+        others = [o for o in all_names if o != nm and o.lower() not in nm.lower()]
+        # Viết thường chỉ chặn khi đứng sau "nhóm/ngành/cổ phiếu/cp" — đó mới là cách nhắc NGÀNH
+        # KHÁC; "tín dụng bất động sản", "giá năng lượng" là chữ thường của văn (review 12/11).
+        # …và (review 12/11) tên viết thường/HOA đứng NGAY TRƯỚC động từ dòng tiền ("…, ngân hàng bị NN
+        # bán ròng") — câu đó nói về ngành kia, không phải ngành đang soát.
+        _verb_next = r"(?=\s+(?:bị\s+)?(?:NN\s+|khối\s+ngoại\s+)?(?:bán|mua)\s+ròng)"
+        stop = "".join(
+            f"|{_re.escape(o)}|(?<!\\w)(?i:{_re.escape(o)}){_verb_next}"
+            + ("" if o.lower() in _NN_COMMON_WORD_NAMES
+               else f"|(?i:(?:nhóm|ngành|cổ\\s+phiếu|cp)\\s+{_re.escape(o)})(?!\\w)")
+            for o in sorted(others, key=len, reverse=True))
         out = _re.sub(
-            rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b|trong\s+khi)[^;\n]){{0,40}}?"
+            rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b|trong\s+khi{stop})[^;\n]){{0,40}}?"
             rf"(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
             rf"([-+]?\d[\d.,]*)(\s*tỷ)",
             _fix, out)
@@ -1253,9 +1363,18 @@ def enforce_net_flow_label(text: str, ctx: dict) -> str:
             continue
         want = "mua ròng" if vv > 0 else "bán ròng"
 
-        def _fix(m: "_re.Match", _want=want, _v=vv) -> str:
+        def _fix(m: "_re.Match", _want=want, _v=vv, _nm=nm) -> str:
             mag = _parse_vn_number(m.group(3))
-            if mag is None or abs(mag - abs(_v)) > max(1.0, 0.02 * abs(_v)):
+            if mag is None:
+                return m.group(0)
+            if _nn_month_framed(m.string, m.end()):  # "… trong ngành X (1M)" ⇒ theo NN 1M
+                # Tên ngành nằm TRONG match ⇒ số là của ngành này: động từ theo dấu NN 1M, độ lớn
+                # ghim về |NN 1M| (ngoài vùng dòng tiền không guard nào khác ghim độ lớn).
+                v1m = _nn_month_value(ctx, _nm)
+                if v1m is None:
+                    return m.group(0)
+                return f"{'mua ròng' if v1m > 0 else 'bán ròng'}{m.group(2)}{abs(v1m):,.0f}{m.group(4)}"
+            if abs(mag - abs(_v)) > max(1.0, 0.02 * abs(_v)):
                 return m.group(0)              # number isn't this sector's → skip
             return f"{_want}{m.group(2)}{abs(_v):,.0f}{m.group(4)}"
 
@@ -1307,7 +1426,15 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             ls = out.rfind("\n", 0, m.start()) + 1
             window = out[ls:m.end()].lower()
             after = out[m.end():m.end() + 12].lower()
-            if "tuần" in window or "1t" in window or "tuần" in after:
+            # Ngay sau là khoảng thời gian KHÔNG có dữ liệu ("(3 tháng)", "trong quý") ⇒ không gắn "(1 tuần)"
+            # (tự mâu thuẫn; guard ghim cũng để nguyên số này) — 12/11.
+            if _nn_other_span(out, m.end()):
+                return m.group(0)
+            # NGAY SAU số đã có khung TUẦN viết tắt "(1T)" / "(1T; …)" (kể cả qua "đồng") ⇒ đừng chèn
+            # "(1 tuần)" lần nữa. CHỈ khung trùng: "(1M)" sau một số khớp |NN 1T| là số tuần bị ghim
+            # vào chỗ số tháng — giữ "(1 tuần)" làm dấu vết như cũ.
+            if ("tuần" in window or "1t" in window or "tuần" in after
+                    or _re.match(r"(?:\s*đồng)?\s*\(1t[);]", out[m.end():m.end() + 24].lower())):
                 return m.group(0)
             # cần từ khóa "ròng" trong cùng mệnh đề (đây là số NN, không phải GTGD)
             if "ròng" not in window[-80:]:
@@ -1326,7 +1453,15 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             ls = out.rfind("\n", 0, m.start()) + 1
             window = out[ls:m.end()].lower()
             after = out[m.end():m.end() + 12].lower()
-            if "tuần" in window or "1t" in window or "tuần" in after:
+            # Ngay sau là khoảng thời gian KHÔNG có dữ liệu ("(3 tháng)", "trong quý") ⇒ không gắn "(1 tuần)"
+            # (tự mâu thuẫn; guard ghim cũng để nguyên số này) — 12/11.
+            if _nn_other_span(out, m.end()):
+                return m.group(0)
+            # NGAY SAU số đã có khung TUẦN viết tắt "(1T)" / "(1T; …)" (kể cả qua "đồng") ⇒ đừng chèn
+            # "(1 tuần)" lần nữa. CHỈ khung trùng: "(1M)" sau một số khớp |NN 1T| là số tuần bị ghim
+            # vào chỗ số tháng — giữ "(1 tuần)" làm dấu vết như cũ.
+            if ("tuần" in window or "1t" in window or "tuần" in after
+                    or _re.match(r"(?:\s*đồng)?\s*\(1t[);]", out[m.end():m.end() + 24].lower())):
                 return m.group(0)
             return m.group(0) + _frame_label(after)
         out = _re.sub(
@@ -2781,3 +2916,134 @@ def enforce_rec_line_format(text: str, ctx: dict | None = None) -> str:
     if not changed:
         return text
     return "\n".join(out) + ("\n" if text.endswith("\n") else "")
+
+
+# ── 📈 Mức kỹ thuật = thẻ của CODE + ≤3 câu nhận định (PTKT P2c/P3, §10d) ─────
+# Dòng model viết mà mở bằng các cụm này là bản chép (đúng/sai) của dữ kiện thẻ hoặc khung template
+# cũ ⇒ bỏ, code in lại; còn lại là chữ nhận định.
+_TA_FACT_LINE_RE = _re.compile(
+    r"^(?:phiên \d{4}-|xu hướng ma20\s*:|mức tham chiếu\s*:|tín hiệu lệch nhau\s*:|⚠️|"
+    r"thẻ kỹ thuật|số tham chiếu|\[hệ thống|đóng cửa(?: hiện tại)?\s*:|giá hiện tại\s*:|"
+    r"hỗ trợ gần\s*:|kháng cự gần\s*:|vị trí[^:]{0,25}:|vs ma\s*:)", _re.IGNORECASE)
+_TA_LABEL_RE = _re.compile(r"^\*\*[^*\n]{1,40}?(?:\*\*\s*[:：]|[:：]\s*\*\*)\s*")   # "**Nhãn:**"
+_TA_BULLET_RE = _re.compile(r"^\s*(?:[-•>]|\*(?=\s))\s*")
+# Model đánh số "1. … 2. … 3. …" trong dòng nhận định ⇒ bộ tách câu cắt ra mảnh "2." làm một câu
+# (replay 05/10: 8 "câu", 2 trong đó là "2." và "3.") ⇒ mảnh chỉ có số bị bỏ, số đầu câu bị gọt.
+_TA_LIST_MARK_RE = _re.compile(r"^\(?\d{1,2}[.)]\s*")
+# Mảnh chỉ là nhãn ("Hai kịch bản:") — chiếm một suất trong trần 3 câu mà không nói gì.
+_TA_LABEL_ONLY_RE = _re.compile(r"[^.!?…:]{1,40}:\s*\.?")
+# Vai của câu nhận định — trần 3 câu chọn theo VAI, không theo vị trí. Replay 20 phiên 05/10→04/11:
+# model viết ý chính + mỗi chiều kịch bản một câu + mức huỷ (4–5 câu); cắt 3 câu ĐẦU làm mất mức
+# huỷ ở 17/20 phiên và mất HẲN chiều tăng ở 7 phiên (brief thành kịch bản một chiều, nghiêng giảm).
+_TA_INV_RE = _re.compile(r"\bsai\s+(?:nếu|khi)\b|\bh(?:ủy|uỷ)\s+(?:nếu|khi)\b|\bmức h(?:ủy|uỷ)\b|"
+                         r"\bvô hiệu\b", _re.IGNORECASE)
+_TA_UP_RE = _re.compile(r"\bvượt\b|\bđóng(?: cửa)? trên\b|\bchiều (?:tăng|hồi)\b|"
+                        r"\bkịch bản (?:tăng|hồi)\b", _re.IGNORECASE)
+_TA_DOWN_RE = _re.compile(r"\bthủng\b|\bđóng(?: cửa)? dưới\b|\bchiều giảm\b|\bkịch bản giảm\b|"
+                          r"\bmất (?:mốc|mức|hỗ trợ)\b", _re.IGNORECASE)
+
+
+def _ta_role(s: str) -> str:
+    if _TA_INV_RE.search(s):
+        return "inv"
+    up, down = bool(_TA_UP_RE.search(s)), bool(_TA_DOWN_RE.search(s))
+    return "both" if up and down else "up" if up else "down" if down else "other"
+
+
+def _ta_join_sides(a: str, b: str) -> str:
+    """Hai câu kịch bản (mỗi chiều một câu) ⇒ MỘT câu "a; b" — nối, không đổi chữ."""
+    if b[:1].isupper() and b[1:2].islower():            # "Chiều giảm" → "chiều giảm"; "VN-Index" giữ
+        b = b[0].lower() + b[1:]
+    return f"{a.rstrip(' .!…')}; {b}"
+
+
+def ta_pick_insight(sents: "list[str]", cap: int = TA_INSIGHT_MAX_SENTENCES) -> "list[str]":
+    """≤ ``cap`` câu theo khung prompt: (1) ý chính = câu đầu; (2) kịch bản HAI chiều — hai câu
+    một chiều ⇒ nối thành một; (3) mức huỷ. Thiếu vai nào thì lấp bằng câu còn lại theo thứ tự gốc.
+    Đủ ``cap`` câu trở xuống ⇒ giữ nguyên (không đảo thứ tự chữ model)."""
+    if len(sents) <= cap:
+        return list(sents)
+    first, rest = sents[0], sents[1:]
+    roles = [(_ta_role(s), s) for s in rest]
+
+    def _first(role: str) -> "str | None":
+        return next((s for r, s in roles if r == role), None)
+    up, down, both, inv = _first("up"), _first("down"), _first("both"), _first("inv")
+    used: list[str] = []
+    if both:
+        scen, used = both, [both]
+    elif up and down:
+        a, b = (up, down) if rest.index(up) < rest.index(down) else (down, up)
+        scen, used = _ta_join_sides(a, b), [up, down]
+    else:
+        scen = up or down
+        used = [scen] if scen else []
+    picked = [first] + ([scen] if scen else [])
+    tail = [inv] if inv else []
+    used += tail
+    for s in rest:
+        if len(picked) + len(tail) >= cap:
+            break
+        if s not in used:
+            picked.append(s)
+    return (picked + tail)[:cap]
+
+
+def _ta_agent_sentences(agent_lines: "list[str]", card: "list[str]") -> "list[str]":
+    out: list[str] = []
+    for raw in agent_lines:
+        s = raw.strip()
+        if not s or s in card:
+            continue
+        if m := _TA_INSIGHT_RE.match(s):
+            body = s[m.end():]
+        else:
+            core = _TA_BULLET_RE.sub("", s)
+            if _TA_FACT_LINE_RE.match(core.replace("**", "")):
+                continue
+            lab = _TA_LABEL_RE.match(core)
+            body = core[lab.end():] if lab else core
+        sents = [_TA_LIST_MARK_RE.sub("", x).strip() for x in ta_split_sentences(body)]
+        sents = [x for x in sents if x and not _TA_LABEL_ONLY_RE.fullmatch(x)]
+        if sents and not sents[-1].endswith((".", "!", "?", "…")):
+            sents[-1] += "."
+        out += sents
+    return out
+
+
+def enforce_ta_card_block(text: str, ctx: dict) -> str:
+    """Mục "📈 Mức kỹ thuật" khi có thẻ kỹ thuật: thân = dòng thẻ CỦA CODE (``ctx["ta_card"]
+    ["lines"]``, chép nguyên — model sửa/bỏ ⇒ dựng lại) + MỘT dòng "**Nhận định:**" gom chữ model
+    trong mục, cắt còn ≤ `TA_INSIGHT_MAX_SENTENCES` câu. Dòng model chép lại dữ kiện thẻ / khung
+    template cũ ("Đóng cửa:", "Hỗ trợ gần:"…) bị bỏ. Model bỏ cả mục ⇒ chèn mục (sau 📊, không có
+    thì sau TLDR, không có nữa thì cuối brief) — khối không bao giờ trống. Nhiều mục 📈 ⇒ gộp về
+    chỗ mục đầu. No-op khi ctx không có thẻ (`VNSTOCK_TA_CARD` tắt). Idempotent."""
+    ta = ta_ctx(ctx)
+    if not text or not ta:
+        return text
+    card = [str(l) for l in ta["lines"]]
+    lines = text.split("\n")
+    title, at, agent = None, None, []
+    while (s := next((i for i, l in enumerate(lines) if is_ta_heading(l)), None)) is not None:
+        e = _hz_section_end(lines, s)
+        if title is None:
+            title, at = lines[s].strip(), s
+        agent += lines[s + 1:e]
+        del lines[s:e]
+    sents = ta_pick_insight(_ta_agent_sentences(agent, card))
+    block = [title or TA_SECTION_TITLES[ctx.get("brief_type") or "afternoon"]] + card
+    if sents:
+        block.append(f"{TA_INSIGHT_LABEL} {' '.join(sents)}")
+    if at is None:
+        anchor = _first_section(lines, ("📊",))
+        if anchor is None:
+            anchor = next((i for i, l in enumerate(lines)
+                           if _is_section_start(l) and "tldr" in l.lower()), None)
+        at = _after_section(lines, anchor, len(lines))
+    while at > 0 and not lines[at - 1].strip():
+        at -= 1
+    tail = lines[at:]
+    while tail and not tail[0].strip():
+        tail.pop(0)
+    head = lines[:at] + ([""] if at else [])
+    return "\n".join(head + block + ([""] + tail if tail else [""]))

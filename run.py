@@ -853,6 +853,19 @@ def cmd_test(args) -> int:
             "tests/test_doctor_env_duplicates.py",  # khoá trùng .env (05/10)
             "tests/test_horizons.py",     # lõi brief 3 khung (P0, 05/10)
             "tests/test_horizons_state.py",  # brief 3 khung chạy bóng (P1a)
+            "tests/test_ta_score.py",     # thước đo nhận định kỹ thuật + cờ briefs.sent (P0 PTKT)
+            "tests/test_ta_score_readability.py",  # thước đo PTKT: nhóm 3 khung, mốc T2, phễu
+            "tests/test_ta_card.py",      # thẻ kỹ thuật 3 khung (P2a PTKT)
+            "tests/test_brief_ta_card.py",  # thẻ vào brief + guard chữ kỹ thuật (P2c+P3 PTKT)
+            "tests/test_replay_ta_brief.py",  # chạy lại lịch sử brief có thẻ (PTKT §14 câu 2)
+            "tests/test_setup_scheduled_tasks.py",  # -OnlyNewsAlert: tin mỗi giờ chạy ở laptop
+            "tests/test_vnstock_auth_gen6.py",  # vnstock thế hệ 6: nguồn tập trung + mặt tiền get_vnstock
+            "tests/test_freefloat.py",  # vnstock thế hệ 6: free-float từ company.listing()/shareholders()
+            "tests/test_session_stats.py",  # vnstock thế hệ 6: GTGD chỉ số từ Market().index(s).trade_history
+            "tests/test_nn_coverage_brief.py",  # NN ngành thiếu phiên ⇒ nhãn trong brief (guard)
+            "tests/test_sector_nn_month_frame.py",  # guard số NN ngành nhận khung THÁNG (1M)
+            "tests/test_gen6_check.py",  # scripts/gen6_check.py: so giá kho/nguồn (thế hệ 6)
+            "tests/test_foreign_flow.py",  # NN ròng cả thị trường + đệm theo ngày (thế hệ 6)
             "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",
             "tests/test_unit_continuity.py",
@@ -890,6 +903,10 @@ def cmd_test(args) -> int:
             "tests/test_reachability.py",
             "tests/test_strategy_tiers.py",
             "tests/test_div_check.py",
+            "tests/test_indicators_shared.py",  # PTKT P1: RSI Wilder/Cutler, ngưỡng canon, alpha ngành
+            "tests/test_compare_indicator_quality.py",  # PTKT P1: chất lượng tín hiệu + mẫu số độ rộng
+            "tests/test_breadth_universe.py",  # PTKT §16: độ rộng trên tập mã thanh khoản
+            "tests/test_sr_methods.py",  # PTKT P2b: các cách tìm S/R + script đo
         ]
     else:
         test_paths = ["tests/"]
@@ -1054,6 +1071,18 @@ def cmd_horizons(args) -> int:
     if getattr(args, "force", False):
         cmd.append("--force")
     return 1 if _run(cmd) != 0 else 0
+
+
+def cmd_ta_score(args) -> int:
+    """Thước đo nhận định kỹ thuật (P0 PTKT, docs/THIET-KE-PHAN-TICH-KY-THUAT.md §14a):
+    chấm S1/R1, trigger, Stance, trạng thái horizons, S/R từng mã từ brief_memory.db +
+    kho giá ⇒ `_meta/ta_score.json` + bảng. Chạy tay (○, ngoài giờ pipeline); KHÔNG nằm
+    trong `all`. `--show` in bản đã ghi; `--backfill` dựng lại ngắn hạn horizons toàn
+    lịch sử (đọc mọi mã)."""
+    import vnstock_ta_score_io as _io
+    argv = ["--warehouse", str(REPO_ROOT / getattr(args, "warehouse", "data_warehouse"))]
+    argv += [f for f in ("--show", "--backfill") if getattr(args, f[2:], False)]
+    return _io.main(argv)
 
 
 def cmd_mcp_enrich(args) -> int:
@@ -1265,6 +1294,7 @@ def cmd_telegram(args) -> int:
             _write_close_marker(args, engine=engine,
                                 agent=getattr(args, "brief_agent", None),
                                 note=getattr(args, "claude_error", None))
+            _mark_brief_sent(args)
         elif action == "screener":
             resp = _tg.push_screener_alerts()
             print(f"[telegram] screener sent — message_id={resp.get('result',{}).get('message_id')}")
@@ -1635,7 +1665,25 @@ def cmd_brief(args) -> int:
     _write_close_marker(args, engine=engine,
                         agent=getattr(args, "brief_agent", None),
                         note=getattr(args, "claude_error", None))
+    _mark_brief_sent(args)
     return 0
+
+
+def _mark_brief_sent(args) -> None:
+    """Đánh dấu `briefs.sent` cho bản vừa gửi (`args.brief_id`, do `_send_close_brief`
+    gắn) — thước đo P0 PTKT chấm riêng "bản đã gửi". Gọi SAU khi gửi + ghi marker;
+    lỗi ghi sổ chỉ in cảnh báo, không bao giờ chặn đường gửi. Sổ chưa có ⇒ bỏ (không
+    để sqlite đẻ DB rỗng)."""
+    bid = getattr(args, "brief_id", None)
+    if not bid:
+        return
+    try:
+        import vnstock_memory as _mem
+        if Path(_mem.DB_PATH).exists():
+            _mem.mark_sent(int(bid))
+    except Exception as e:
+        print(f"[brief] ⚠️ không ghi được cờ đã gửi cho brief #{bid}: "
+              f"{type(e).__name__}: {str(e)[:120]}")
 
 
 def _brief_engine(args) -> str:
@@ -1663,6 +1711,7 @@ def _send_close_brief(args) -> "tuple[dict, str]":
         print("[brief] ↩ rơi về ladder agent free")
     resp = _tg.push_close_brief()
     args.brief_agent = getattr(_tg, "LAST_BRIEF_AGENT", None)
+    args.brief_id = getattr(_tg, "LAST_BRIEF_ID", None)
     return resp, "ladder"
 
 
@@ -1699,6 +1748,7 @@ def _close_brief_via_claude(args) -> "dict | None":
         return None
     _bp.write_final(fin["text"], wh)              # gửi lại bằng --from-file nếu Telegram lỗi
     args.brief_agent = label
+    args.brief_id = fin.get("brief_id")
     return _tg.push_close_brief(ai_block=fin["text"], engine=label)
 
 
@@ -1723,6 +1773,7 @@ def _close_brief_from_file(args, path: str) -> "tuple[dict, str]":
     if not fin.get("text"):
         raise RuntimeError(f"file {path} không có thân brief sau guard")
     args.brief_agent = _bp.engine_label(model) + " (file)"
+    args.brief_id = fin.get("brief_id")
     return _tg.push_close_brief(ai_block=fin["text"],
                                 engine=_bp.engine_label(model)), "claude-file"
 
@@ -2201,6 +2252,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("weekend",
                    help="Gộp 3 việc cuối tuần: rates-weekly → vietstock corp "
                         "actions → fundamentals --force (task 09:00 T7)")
+    tsp = sub.add_parser("ta-score",
+                         help="Thước đo nhận định kỹ thuật (P0 PTKT): chấm lịch sử brief + "
+                              "kho giá ⇒ _meta/ta_score.json (--show / --backfill)")
+    tsp.add_argument("--show", action="store_true", help="in bảng đã ghi, không chấm lại")
+    tsp.add_argument("--backfill", action="store_true",
+                     help="dựng lại ngắn hạn horizons toàn lịch sử (đọc mọi mã, chậm)")
     sub.add_parser("allocation",
                    help="Refresh asset-allocation band B0-B4 + scorecard")
     sub.add_parser("gold",
@@ -2362,6 +2419,7 @@ _DISPATCH = {
     "gold": cmd_gold,
     "horizons": cmd_horizons,
     "mcp-enrich": cmd_mcp_enrich,
+    "ta-score": cmd_ta_score,
     "assets": cmd_assets,
     "assets-mcp": cmd_assets_mcp,
     "futures-foreign": cmd_futures_foreign,
@@ -2381,6 +2439,38 @@ _DISPATCH = {
 # `_meta/pipeline_running.json` để máy kia không bấm chạy trùng (Dropbox).
 _PIPELINE_MARKED = ("all", "sync")
 
+# Lệnh chạy LÂU ⇒ giữ máy thức tới khi xong. 05/11: desktop ngủ 18:19→20:58 GIỮA task Daily
+# (Windows không coi tiến trình python là "đang bận"), đông cứng 2,5 giờ rồi bị trần 240′ tính
+# theo giờ thực giết lúc 22:00 — mất brief tối, phải bấm chạy bù 23:17. Màn hình vẫn được tắt.
+_KEEP_AWAKE = ("all", "sync", "weekend")
+_ES_CONTINUOUS = 0x80000000
+_ES_SYSTEM_REQUIRED = 0x00000001
+
+
+@contextlib.contextmanager
+def _keep_awake(subcommand: str):
+    """Chặn Windows ngủ do rảnh (SetThreadExecutionState) trong lúc lệnh chạy; ra khỏi thì trả.
+    Best-effort: không phải Windows / lỗi ctypes ⇒ no-op. Tắt: VNSTOCK_KEEP_AWAKE=0."""
+    on = (subcommand in _KEEP_AWAKE and sys.platform == "win32"
+          and os.environ.get("VNSTOCK_KEEP_AWAKE", "1").strip() != "0")
+    kernel = None
+    if on:
+        try:
+            import ctypes
+            kernel = ctypes.windll.kernel32
+            if not kernel.SetThreadExecutionState(_ES_CONTINUOUS | _ES_SYSTEM_REQUIRED):
+                kernel = None
+        except Exception:                        # noqa: BLE001 — giữ thức là phụ, pipeline là chính
+            kernel = None
+    try:
+        yield kernel is not None
+    finally:
+        if kernel is not None:
+            try:
+                kernel.SetThreadExecutionState(_ES_CONTINUOUS)
+            except Exception:                    # noqa: BLE001
+                pass
+
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
@@ -2391,7 +2481,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.subcommand in _PIPELINE_MARKED:
         from vnstock_pipeline_marker import held
         marker = held(REPO_ROOT / args.warehouse, note)
-    with marker:
+    with marker, _keep_awake(args.subcommand):
         rc = handler(args)
     print(f"[run.py] {args.subcommand} → exit {rc}")
     return rc

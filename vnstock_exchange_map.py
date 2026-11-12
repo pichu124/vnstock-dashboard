@@ -7,11 +7,11 @@ vnstock_classifier.py produces `industry_classification.parquet` which
 includes `exchange`, but running the full classifier requires AI API calls
 per ticker (expensive). For the anomaly scanner we only need to know which
 exchange a ticker trades on (HOSE / HNX / UPCOM) to apply the correct
-price-band rule. That's cheap: one ``Reference().equity.list(exchange=…)``
-call per exchange returns the entire listing.
+price-band rule. That's cheap: one ``Reference().equity.list()`` call
+returns the entire listing with an ``exchange`` column.
 
 This module:
-* ``build_exchange_map(warehouse)`` — fetches the 3 listings from vnstock
+* ``build_exchange_map(warehouse)`` — fetches the listing from vnstock
   and writes `_meta/exchange_map.json` as a simple `{ticker: exchange}`.
 * ``load_exchange_map(warehouse)`` — reads both sources (classifier parquet
   + exchange_map.json) and returns the merged dict.
@@ -85,36 +85,26 @@ def build_exchange_map(
 ) -> dict[str, str]:
     """Fetch ticker → exchange from vnstock listing API and persist.
 
-    Tries (in order):
-        1. ``vnstock.Listing().symbols_by_exchange()`` — free tier, stable
-           single-call that returns ALL tickers with an ``exchange`` column.
-        2. ``vnstock_data.Reference().equity.list()`` — Golden-tier endpoint
-           attempted with both no-args and ``exchange=...`` signatures
-           depending on the installed version.
+    One call: ``vnstock.Reference().equity.list()`` (thế hệ 6) returns ALL
+    tickers with an ``exchange`` column. Source is chosen once in
+    ``vnstock_auth.configure_sources`` (``VNSTOCK_SOURCE`` in ``.env``).
 
-    On total failure, returns ``{}`` and leaves the existing file untouched.
+    On a vnstock error (no source, rate limit, network…) or an empty listing,
+    returns ``{}`` and leaves the existing file untouched.
     """
-    mapping: dict[str, str] = {}
+    from vnstock.errors import VnstockError
 
-    for fetcher_name, fetcher in _candidate_fetchers(verbose=verbose):
-        try:
-            result = fetcher()
-        except Exception as e:
-            if verbose:
-                print(f"[exchange_map] {fetcher_name} failed: {e}")
-            continue
-        if not result:
-            if verbose:
-                print(f"[exchange_map] {fetcher_name}: empty result")
-            continue
-        mapping.update(result)
+    try:
+        mapping = _fetch_via_reference()
+    except VnstockError as e:
         if verbose:
-            print(f"[exchange_map] {fetcher_name}: {len(result)} tickers")
-        break   # first successful source wins
+            print(f"[exchange_map] Reference.equity.list failed "
+                  f"({getattr(e, 'code', None) or type(e).__name__}): {e}")
+        return {}
 
     if not mapping:
         if verbose:
-            print("[exchange_map] no source produced data — file unchanged")
+            print("[exchange_map] Reference.equity.list: empty result — file unchanged")
         return mapping
 
     _atomic_write(Path(warehouse) / META_SUBDIR / MAP_FILE, mapping)
@@ -124,56 +114,16 @@ def build_exchange_map(
     return mapping
 
 
-def _candidate_fetchers(*, verbose: bool):
-    """Yield (name, callable) pairs to try until one returns a non-empty dict."""
-    yield "vnstock.Listing.symbols_by_exchange", _fetch_via_listing
-    yield "vnstock_data.Reference.equity.list()", _fetch_via_reference_noargs
-    yield "vnstock_data.Reference.equity.list(exchange=...)", _fetch_via_reference_per_exchange
+def _fetch_via_reference() -> dict[str, str]:
+    """``Reference().equity.list()`` — every listed ticker with its ``exchange``."""
+    from vnstock import Reference
+    from vnstock_auth import ensure_api_key
 
-
-def _fetch_via_listing() -> dict[str, str]:
-    """Single-call free-tier path: ``Listing().symbols_by_exchange()``."""
-    from vnstock import Listing
-    df = Listing().symbols_by_exchange()
-    if df is None or len(df) == 0:
-        return {}
-    return _dataframe_to_map(df)
-
-
-def _fetch_via_reference_noargs() -> dict[str, str]:
-    """vnstock_data newer API: ``ref.equity.list()`` returns all with column."""
-    from vnstock_data import Reference
-    try:
-        from vnstock_auth import ensure_api_key
-        ensure_api_key()
-    except Exception:
-        pass
+    ensure_api_key()
     df = Reference().equity.list()
     if df is None or len(df) == 0:
         return {}
     return _dataframe_to_map(df)
-
-
-def _fetch_via_reference_per_exchange() -> dict[str, str]:
-    """vnstock_data older API: ``ref.equity.list(exchange=HOSE)``."""
-    from vnstock_data import Reference
-    try:
-        from vnstock_auth import ensure_api_key
-        ensure_api_key()
-    except Exception:
-        pass
-    ref = Reference()
-    out: dict[str, str] = {}
-    for ex in EXCHANGES:
-        df = ref.equity.list(exchange=ex)
-        if df is None or len(df) == 0:
-            continue
-        col = _pick_ticker_column(df.columns)
-        if col is None:
-            continue
-        for sym in df[col].dropna().astype(str).str.upper():
-            out[sym] = ex
-    return out
 
 
 def _dataframe_to_map(df) -> dict[str, str]:

@@ -29,6 +29,16 @@ import re as _re
 
 
 from vnstock_brief_guards_common import (  # noqa: F401  (re-export)
+    _NN_MONTH_NAMES,
+    _NN_NUM_WORD,
+    _NN_OTHER_SPAN_RE,
+    _nn_other_span,
+    _NN_SPAN,
+    _NN_SPAN_NOT,
+    _NN_SPAN_HEAD,
+    _NN_SPAN_TRONG,
+    _NN_CLAUSE_STOP,
+    _NN_CLAUSE_END,
     _PIVOT_LABEL_RE,
     _SECTION_EMOJIS,
     _bias_floor_dir,
@@ -38,6 +48,23 @@ from vnstock_brief_guards_common import (  # noqa: F401  (re-export)
     defensive_level,
     floor_dir,
     is_defensive,
+    _TA_INSIGHT_RE,
+    _TA_SENTENCE_SPLIT_RE,
+    _TA_TICKER_RE,
+    is_ta_heading,
+    ta_card_for,
+    ta_ctx,
+    ta_rewrite_insight,
+    ta_split_sentences,
+    _TA_NEGATION_RE,
+    _TA_CLAUSE_SEP_RE,
+    _TA_NOT_TICKERS,
+    _TA_OTHER_INDEX_RE,
+    _TA_TITLE_CORES,
+    _TA_TITLE_TAIL_RE,
+    _TA_VNINDEX_RE,
+    ta_drop_clauses,
+    ta_subject,
 )
 
 from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
@@ -105,6 +132,14 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_realestate_ocf_context,
     enforce_risk_section,
     enforce_sector_nn_figures,
+    _NN_MONTH_AFTER_RE,
+    _NN_MONTH_NOT,
+    _NN_MONTH_NOT_TRONG,
+    _NN_ONE,
+    _NN_COMMON_WORD_NAMES,
+    _nn_close,
+    _nn_month_framed,
+    _nn_month_value,
     enforce_stance_sentiment_caution,
     enforce_unvalidated_strategy_caveat,
     enforce_upcoming_events,
@@ -168,6 +203,19 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     enforce_watchlist_levels,
     _REC_RAW_LINE_RE, _REC_QTY_RE, _STRATEGY_TAG_RE, _STRATEGY_BARE_RE, _rec_line_vi,
     enforce_rec_line_format,
+    enforce_ta_card_block,
+    _TA_FACT_LINE_RE,
+    _TA_LABEL_RE,
+    _TA_BULLET_RE,
+    _ta_agent_sentences,
+    _TA_LIST_MARK_RE,
+    _TA_LABEL_ONLY_RE,
+    _TA_INV_RE,
+    _TA_UP_RE,
+    _TA_DOWN_RE,
+    _ta_role,
+    _ta_join_sides,
+    ta_pick_insight,
 )
 
 from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
@@ -188,6 +236,19 @@ from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     enforce_gtgd_baseline_pct,
     _GTGD_MISSING_MARK,
     enforce_gtgd_missing_note,
+    _NN_COVERAGE_MARK,
+    enforce_nn_coverage_note,
+    nn_coverage_label,
+    nn_coverage_labels,
+    _NN_WINDOWS,
+    _label_first_sector_figure,
+    _NN_FIG_RE,
+    _NN_FRAME,
+    _NN_SAME_SECTOR_GAP,
+    _NN_OWN_LABEL,
+    _NN_WINDOW_WORD,
+    _nn_label,
+    _NN_CARRY_TAIL,
     enforce_gtgd_compare_frame,
     enforce_gtgd_total,
     enforce_number_format,
@@ -199,6 +260,29 @@ from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     enforce_session_direction,
     enforce_sr_direction,
     enforce_vnindex_change,
+    enforce_ta_breakout_volume,
+    enforce_ta_numbers,
+    enforce_ta_rsi_words,
+    enforce_ta_trend_words,
+    _TA_BREAK_RE,
+    _TA_DATE_RE,
+    _TA_GLUED_RE,
+    _TA_NUM_RE,
+    _TA_RSI_ZONE_RE,
+    _TA_TREND_RE,
+    _TA_VOLUME_RE,
+    _ta_allowed,
+    _ta_known,
+    _ta_numbers,
+    _BREADTH_ALL,
+    _BREADTH_SET_TAG,
+    _breadth_fix_swapped,
+    _TA_DONE_RE,
+    _TA_NEGATED_TAIL_RE,
+    _TA_OTHER_FRAME_RE,
+    _TA_RSI_ALARM_RE,
+    _TA_RSI_MOMENTUM,
+    _TA_SESSIONS_RE,
     _ADVERB,
 )
 
@@ -221,6 +305,9 @@ from vnstock_brief_guards_text import (  # noqa: F401  (re-export)
     enforce_no_instruction_leak,
     enforce_no_placeholder_leak,
     enforce_no_record_superlative,
+    enforce_ta_no_level_promise,
+    _TA_PROMISE_RES,
+    _ta_promises,
 )
 
 
@@ -363,6 +450,7 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_stance_sentiment_caution(fixed, ctx)  # TĂNG stance + tâm lý tiêu cực → caveat
     fixed = enforce_gtgd_total(fixed, ctx)            # full-day (close) / sáng (morning)
     fixed = enforce_gtgd_missing_note(fixed, ctx)     # #18: "(chưa gồm N mã lớn thiếu data)"
+    fixed = enforce_nn_coverage_note(fixed, ctx)      # NN ngành thiếu phiên: "(NN chỉ có X/20 phiên)"
     fixed = enforce_gtgd_compare_frame(fixed, ctx)    # close-only: full-day ≠ morning baseline
     fixed = enforce_gtgd_baseline_pct(fixed, ctx)     # close-only: % must match its baseline
     fixed = enforce_compare_direction(fixed, ctx)     # 'thấp/cao hơn' must match % sign
@@ -384,5 +472,14 @@ def apply_brief_guards(text: str, ctx: dict) -> str:
     fixed = enforce_no_record_superlative(fixed, ctx)    # no all-time GTGD claim
     fixed = enforce_no_duplicate_momentum(fixed, ctx)    # state momentum once
     fixed = enforce_range_position(fixed, ctx)
+    # Mục 📈 khi có thẻ kỹ thuật (PTKT P3): SAU mọi guard có thể đụng số trong mục, để dòng
+    # thẻ ra đúng nguyên văn; TRƯỚC number_format (EN hoá số VN trong câu nhận định).
+    # Sai ⇒ BỎ câu/mệnh đề, không thay từ. Bỏ mệnh đề hứa hẹn TRƯỚC: các guard sau phán phần còn lại.
+    fixed = enforce_ta_card_block(fixed, ctx)        # dòng thẻ = code, nhận định ≤3 câu
+    fixed = enforce_ta_no_level_promise(fixed, ctx)  # 'hỗ trợ sẽ giữ' → bỏ mệnh đề
+    fixed = enforce_ta_numbers(fixed, ctx)           # câu có số ngoài thẻ → bỏ câu
+    fixed = enforce_ta_trend_words(fixed, ctx)       # 'xu hướng tăng' ngược thẻ → bỏ câu
+    fixed = enforce_ta_rsi_words(fixed, ctx)         # RSI >70 'quá mua' → bỏ câu
+    fixed = enforce_ta_breakout_volume(fixed, ctx)   # 'vượt R1' thiếu KL → chèn điều kiện KL
     fixed = enforce_number_format(fixed, ctx)            # one number convention (EN)
     return fixed

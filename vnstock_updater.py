@@ -41,41 +41,23 @@ warnings.filterwarnings("ignore")
 console = Console()
 
 # ── vnstock import ────────────────────────────────────────────────────────────
-from vnstock_auth import ensure_api_key, get_vnstock, has_sponsor_package
+# Thế hệ 6: một gói `vnstock`; nguồn + thứ tự nguồn dự phòng khai MỘT chỗ ở
+# `.env` (`VNSTOCK_SOURCE=a,b`), áp trong `vnstock_auth.configure_sources()`.
+from vnstock_auth import (ensure_api_key, get_vnstock, keep_schema_warnings,
+                          sources_configured)
 from vnstock_parquet_io import read_year_frames, write_table_atomic
 
+keep_schema_warnings()       # "ignore" toàn cục ở trên không được nuốt SchemaChangeWarning
+
 try:
-    from vnstock_data import Reference
-    USE_UNIFIED = True
-    ensure_api_key()
-    console.log("[green]✅ Using vnstock_data (Sponsor)[/green]")
+    import vnstock  # noqa: F401 — chỉ kiểm có gói; lệnh gọi đi qua get_vnstock
 except ImportError:
-    USE_UNIFIED = False
-    try:
-        # Verify vnstock is importable (new Quote API used via get_vnstock shim)
-        try:
-            from vnstock.api.quote import Quote  # type: ignore  # noqa: F401
-        except ImportError:
-            from vnstock import Quote  # type: ignore  # noqa: F401
-        ensure_api_key()
-        # Rate limit depends on the API KEY tier, not which Python package
-        # we're calling. vnstock_auth.has_sponsor_package() reflects whether
-        # a Sponsor package is installed (vnii / vnstock_data) — even if
-        # vnstock_data is broken, vnii being present means the device is
-        # registered as Sponsor and the key won't be downgraded.
-        if has_sponsor_package():
-            console.log(
-                "[green]✅ Using vnstock + Sponsor API key "
-                "(600 req/min)[/green]"
-            )
-        else:
-            console.log(
-                "[yellow]⚠ Using vnstock free tier "
-                "(60 req/min — install vnii for Sponsor)[/yellow]"
-            )
-    except ImportError:
-        console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
-        raise
+    console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
+    raise
+ensure_api_key()
+if not sources_configured():
+    console.log("[yellow]⚠ Chưa đặt VNSTOCK_SOURCE trong .env — mọi lệnh gọi giá sẽ lỗi "
+                "VNSTOCK_INPUT_SOURCE[/yellow]")
 
 # ── Schema Parquet (giống warehouse hiện tại) ─────────────────────────────────
 PRICE_SCHEMA = pa.schema([
@@ -235,8 +217,7 @@ def _write_year(ticker_dir: Path, year: int, df: pd.DataFrame):
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _normalize_price_df(df) -> pd.DataFrame:
-    """Chuẩn hoá df thô từ API (mọi nguồn) → cột time/open/high/low/close/
-    volume + quality gate. Dùng chung cho VCI lẫn nguồn fallback."""
+    """Chuẩn hoá df thô từ API → cột time/open/high/low/close/volume + quality gate."""
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -283,68 +264,23 @@ def _normalize_price_df(df) -> pd.DataFrame:
 
 def _fetch_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
     """
-    Fetch OHLCV từ vnstock API (nguồn CHÍNH — VCI qua sponsor shim).
+    Fetch OHLCV qua mặt tiền thế hệ 6 (`get_vnstock(t).quote.history` →
+    `Market().equity(t).ohlcv`, `time` giờ VN không múi, bar ngày về 00:00).
     start/end: 'YYYY-MM-DD'
     Trả về DataFrame với cột: time(date), open, high, low, close, volume
 
-    LỖI PHẢI LỘ RA NGOÀI (fix 22:55 17/07 — user bắt tại trận): bản cũ
-    `except: pass` NUỐT timeout → trả df RỖNG → update_ticker tưởng
-    "no_new_data" → breaker được báo OK → fallback KHÔNG BAO GIỜ kích dù
-    VCI chết cả tối. Nay: cả 2 nấc đều lỗi VÀ không có data → raise lỗi
-    cuối cùng (breaker đếm được, fallback KBS kích được); API trả rỗng
-    THẬT không kèm lỗi (mã hủy niêm yết…) vẫn ra df rỗng như cũ.
+    Nguồn và thứ tự nguồn dự phòng do luật `VNSTOCK_SOURCE` quyết (vnstock 6 tự
+    sang nguồn sau khi nguồn trước lỗi mạng/nguồn/rate-limit) — không chọn nguồn
+    ở đây. LỖI PHẢI LỘ RA NGOÀI (fix 17/07): lỗi có kiểu `vnstock.errors` bay
+    thẳng lên `update_ticker`; API trả rỗng THẬT không kèm lỗi (mã hủy niêm
+    yết…) vẫn ra df rỗng.
+
+    ĐỐI CHIẾU khi có khoá nguồn: đơn vị giá phải là NGHÌN đồng như kho (hồ sơ
+    `v5`). Mã có ≥5 bar chồng lấn thì lệch đơn vị ×1000 bị cửa V1
+    (`vnstock_basis_guard`, lệch >1,2%) chặn; mã ít bar hơn thì KHÔNG.
     """
-    df, last_exc = None, None
-    try:
-        ensure_api_key()
-        df = get_vnstock(ticker).quote.history(start=start, end=end, interval="1D")
-    except Exception as e:
-        last_exc = e
-
-    # Fallback: try Quote directly (works on some vnstock versions)
-    if df is None or (hasattr(df, 'empty') and df.empty):
-        try:
-            try:
-                from vnstock.api.quote import Quote  # type: ignore
-            except ImportError:
-                from vnstock import Quote  # type: ignore
-            q = Quote(source="VCI", symbol=ticker)
-            df = q.history(start=start, end=end, interval="1D")
-        except Exception as e:
-            last_exc = e
-
-    if (df is None or (hasattr(df, "empty") and df.empty)) and last_exc is not None:
-        raise RuntimeError(f"{type(last_exc).__name__}: {last_exc}")
-
+    df = get_vnstock(ticker).quote.history(start=start, end=end, interval="1D")
     return _normalize_price_df(df)
-
-
-def _fetch_prices_fallback(ticker: str, start: str, end: str) -> pd.DataFrame:
-    """Fetch qua nguồn FALLBACK (KBS — bảng xếp hạng vnstock_source_probe
-    17/07). Exception propagate cho caller phân loại; data qua CÙNG normalize
-    + sẽ bị `reconcile_fallback_df` đối chiếu với warehouse trước khi ghi."""
-    import vnstock_price_fallback as _fb
-    try:
-        from vnstock.api.quote import Quote  # type: ignore
-    except ImportError:
-        from vnstock import Quote  # type: ignore
-    q = Quote(source=_fb.FALLBACK_SOURCE, symbol=ticker)
-    return _normalize_price_df(q.history(start=start, end=end, interval="1D"))
-
-
-def _get_close_on(ticker_dir: Path, d: date):
-    """Close trong warehouse tại đúng ngày d (đối chiếu fallback). None khi
-    không đọc được — reconcile sẽ từ chối data fallback (an toàn)."""
-    try:
-        y = _read_year(ticker_dir, d.year)
-        if y.empty:
-            return None
-        y = y.copy()
-        y["time"] = pd.to_datetime(y["time"]).dt.date
-        row = y[y["time"] == d]
-        return float(row["close"].iloc[0]) if not row.empty else None
-    except Exception:
-        return None
 
 
 def _wh_closes_between(ticker_dir: Path, d0: date, d1: date) -> dict:
@@ -454,20 +390,12 @@ def update_ticker(
         result["new_days"] = (today - last_date).days
         return result
 
-    # Fetch dữ liệu mới. Bọc qua call_with_rate_limit_retry: vnai chạm trần
-    # 500 req/phút thì sys.exit (SystemExit — KHÔNG phải Exception) → từng
-    # giết cả run ở 558/1724 mã (13/07). Helper ngủ theo "Chờ X giây" của
-    # vnai rồi thử lại; hết lượt → RuntimeError để except dưới degrade thành
-    # 1 mã lỗi thay vì sập tiến trình.
-    #
-    # LƯỚI ĐỠ NGUỒN (17/07, user "làm fallback đi" sau VCI outage 21h):
-    # breaker mở sau N mã lỗi MẠNG liên tiếp → đi thẳng KBS (hết cày 60-90s/mã);
-    # đang mở vẫn probe VCI định kỳ để tự quay về khi hồi. Data KBS phải qua
-    # `reconcile_fallback_df` (đối chiếu close bar overlap với warehouse —
-    # bắt lệch đơn vị ×1000 + khác adjustment basis) mới được ghi.
-    # Tắt: VNSTOCK_PRICE_FALLBACK=0 → hành vi y như cũ.
+    # Fetch dữ liệu mới. Bọc qua call_with_rate_limit_retry: chạm trần tần suất
+    # thì chờ rồi thử lại; hết lượt → RuntimeError để except dưới degrade thành
+    # 1 mã lỗi thay vì sập tiến trình (13/07 từng chết ở 558/1724 mã).
+    # Nguồn dự phòng không còn ở đây: vnstock 6 tự sang nguồn kế tiếp trong
+    # luật `VNSTOCK_SOURCE` khi nguồn trước lỗi mạng/nguồn/rate-limit.
     from vnstock_ratelimit import call_with_rate_limit_retry
-    import vnstock_price_fallback as fb
 
     # V1 (19/08) — nới cửa sổ fetch lùi lại để CÓ vùng chồng lấn mà đối chiếu
     # cơ sở. KHÔNG tốn thêm lần gọi mạng nào: cùng một call, chỉ khác `start`.
@@ -491,54 +419,13 @@ def update_ticker(
                "end": today.strftime("%Y-%m-%d")}
     _on_wait = lambda w, i: console.print(                       # noqa: E731
         f"  [dim yellow]⏳ {ticker}: rate-limit, chờ {w}s (lần {i})[/dim yellow]")
-    use_fb = fb.enabled()
-    new_df, primary_exc = None, None
-
-    if not use_fb or fb.BREAKER.allow_primary():
-        try:
-            new_df = call_with_rate_limit_retry(
-                _fetch_prices, ticker, on_wait=_on_wait, **_kwargs)
-            if use_fb and fb.BREAKER.record_ok():
-                console.print("  [green]⚡ VCI hồi phục — đóng mạch, quay về "
-                              "nguồn chính[/green]")
-        except Exception as e:
-            primary_exc = e
-            if not use_fb:
-                result["status"] = "error"
-                result["error"] = str(e)[:80]
-                return result
-            if fb.is_outage_error(str(e)):
-                if fb.BREAKER.record_fail():
-                    console.print(
-                        f"  [yellow]⚡ VCI: {fb.BREAKER.open_after} mã lỗi mạng "
-                        f"liên tiếp → MỞ MẠCH, chuyển {fb.FALLBACK_SOURCE} cho "
-                        f"phần còn lại (probe lại VCI mỗi "
-                        f"{fb.BREAKER.probe_every} mã)[/yellow]")
-            else:
-                result["status"] = "error"          # lỗi riêng của mã — không fallback
-                result["error"] = str(e)[:80]
-                return result
-
-    if use_fb and new_df is None:                    # mạch mở / VCI vừa lỗi mạng
-        try:
-            fb_df = call_with_rate_limit_retry(
-                _fetch_prices_fallback, ticker, on_wait=_on_wait, **_kwargs)
-            fb_df, note = fb.reconcile_fallback_df(
-                fb_df, _get_close_on(ticker_dir, last_date), last_date)
-            if fb_df is None:
-                result["status"] = "error"
-                result["error"] = f"{fb.FALLBACK_SOURCE} fallback: {note}"[:80]
-                return result
-            new_df = fb_df
-            result["source"] = fb.FALLBACK_SOURCE.lower()
-            if note:
-                result["fb_note"] = note
-        except Exception as e:
-            result["status"] = "error"
-            result["error"] = (f"VCI: {str(primary_exc)[:36]} | "
-                               f"{fb.FALLBACK_SOURCE}: {str(e)[:36]}"
-                               if primary_exc else str(e)[:80])
-            return result
+    try:
+        new_df = call_with_rate_limit_retry(
+            _fetch_prices, ticker, on_wait=_on_wait, **_kwargs)
+    except Exception as e:          # ranh giới từng mã: 1 mã lỗi, lượt chạy vẫn sống
+        result["status"] = "error"
+        result["error"] = str(e)[:80]
+        return result
 
     if new_df is None or new_df.empty:
         result["status"] = "no_new_data"
@@ -546,9 +433,8 @@ def update_ticker(
 
     # ── V1: NGUỒN có vừa rebase toàn chuỗi dưới chân kho không? ─────────────
     # Đây là chỗ DUY NHẤT biết cả "kho trước khi ghi" lẫn "nguồn sau khi ghi".
-    # Bỏ qua nhánh fallback: data KBS đã có cửa gác riêng
-    # (`reconcile_fallback_df`, ngưỡng 8%) và cơ sở của nó vốn khác nguồn chính.
-    if _guard and not result.get("source"):
+    # Áp cho MỌI nguồn trong luật `VNSTOCK_SOURCE`, kể cả nguồn dự phòng.
+    if _guard:
         try:
             _src_closes = {t: float(c)
                            for t, c in zip(new_df["time"], new_df["close"])}
@@ -651,22 +537,12 @@ def run_update(
                 + (f" | Delay: {delay}s" if workers == 1 else "")
                 + (f" | Skip stale > {skip_stale_days}d" if skip_stale_days else ""))
 
-    # Lưới đỡ nguồn giá: breaker là singleton dùng chung giữa worker — reset
-    # đầu mỗi run để outage run trước không di chứng sang run sau.
-    try:
-        import vnstock_price_fallback as _fb
-        _fb.BREAKER.reset()
-    except Exception:
-        pass
-
-    stats = {"updated": 0, "up_to_date": 0, "error": 0, "skip": 0, "fallback": 0}
+    stats = {"updated": 0, "up_to_date": 0, "error": 0, "skip": 0}
     errors = []
     updated_list = []
 
     def _tally(result: dict) -> None:
         status = result["status"]
-        if result.get("source") and status == "updated":
-            stats["fallback"] += 1
         if status == "updated":
             stats["updated"] += 1
             updated_list.append(result)
@@ -721,10 +597,6 @@ def run_update(
     # ── Summary ────────────────────────────────────────────────────────────────
     console.print()
     action = "Would update" if dry_run else "Updated"
-    if stats.get("fallback"):
-        console.print(
-            f"[yellow]⚡ Fallback KBS: {stats['fallback']} mã (VCI lỗi mạng — "
-            "mỗi mã đã đối chiếu close với warehouse trước khi ghi)[/yellow]")
     console.print(
         f"[green]✅ {action}: {stats['updated']}[/green] | "
         f"[dim]Up-to-date: {stats['up_to_date']}[/dim] | "
@@ -821,10 +693,10 @@ def updater_status_update(stats: dict, *, today: str, now: str,
     ``--skip-if-done`` so; ngày lịch chỉ để in. Lấy giờ bắt đầu vì lượt vắt
     qua 15:05 đã fetch bar dở dang của phiên đó ở những mã đầu.
     error == 0 ⇒ ``success`` (đủ trường như trước). error > 0 ⇒ ``partial``:
-    vẫn ghi last_run_at/last_machine/tickers_updated/errors/fallback để ai đọc
-    marker biết updater ĐÃ chạy chứ không câm — đêm 14/09 VCI timeout, 1.524 mã
-    vẫn vào kho qua KBS + 181 lỗi, mà marker đứng ở 11/09 vì bản cũ chỉ ghi khi
-    lỗi = 0 ⇒ doctor/người đọc thành "updater không chạy". KHÔNG đụng
+    vẫn ghi last_run_at/last_machine/tickers_updated/errors để ai đọc marker
+    biết updater ĐÃ chạy chứ không câm — đêm 14/09 nguồn timeout, 1.524 mã vẫn
+    vào kho + 181 lỗi, mà marker đứng ở 11/09 vì bản cũ chỉ ghi khi lỗi = 0
+    ⇒ doctor/người đọc thành "updater không chạy". KHÔNG đụng
     `last_success_date` ở lượt partial, nên `is_already_done_today` (đòi
     success + đúng hôm nay) vẫn không coi lượt hụt là xong.
     """
@@ -848,7 +720,6 @@ def updater_status_update(stats: dict, *, today: str, now: str,
         "tickers_updated": int(stats.get("updated", 0) or 0),
         "tickers_up_to_date": int(stats.get("up_to_date", 0) or 0),
         "errors": n_err,
-        "fallback": int(stats.get("fallback", 0) or 0),
     }
     if n_err == 0:
         out["last_success_date"] = today
@@ -929,7 +800,7 @@ if __name__ == "__main__":
         )
 
         # Ghi marker sau MỌI lượt thật: success khi 0 lỗi, partial khi có lỗi
-        # (xem updater_status_update — đêm fallback KBS không được câm).
+        # (xem updater_status_update — đêm nguồn ốm không được câm).
         if args.skip_if_done and not args.dry_run and stats is not None:
             try:
                 from vnstock_rollup import (
@@ -945,7 +816,7 @@ if __name__ == "__main__":
                 else:
                     console.log(
                         f"[yellow]pipeline_status.json updated — partial: "
-                        f"{upd['errors']} lỗi · {upd['fallback']} mã qua KBS "
+                        f"{upd['errors']} lỗi "
                         f"(last_success_date giữ nguyên)[/yellow]")
             except Exception as e:
                 console.log(f"[yellow]⚠ write pipeline_status: {e}[/yellow]")

@@ -3,10 +3,9 @@
 
 Why this module exists
 ----------------------
-The dashboard's ``_fetch_foreign_net_flow`` fetches only the TOP-100 foreign
-buy/sell symbols (``limit=100``) via ``vnstock_data.TopStock``, and that cache is
-the ONLY source ``vnstock_regime._load_nn_net_1d`` reads for the brief's
-"NN ròng 1D" sentiment signal. Two consequences (observed 12/06):
+The dashboard once fetched only the TOP-100 foreign buy/sell symbols, and that
+cache was the ONLY source ``vnstock_regime._load_nn_net_1d`` read for the
+brief's "NN ròng 1D" sentiment signal. Two consequences (observed 12/06):
 
 * the top-100 sum OVERSTATES net selling — it misses the long tail of small-cap
   net buyers and drops the buy offset for symbols that appear only on the sell
@@ -15,20 +14,20 @@ the ONLY source ``vnstock_regime._load_nn_net_1d`` reads for the brief's
   ``_load_nn_net_1d`` read it ignoring age → the brief showed a FROZEN value
   labelled "phiên hôm nay" (the same -665 appeared for both 11/06 and 12/06).
 
-This module fetches the FULL universe (a high ``limit``) for each trading day,
-sums the market-total net, caches it PER DATE, and exposes a freshness-aware
-loader so the brief uses the right session's value — or omits it, never a stale
-one.
+This module reads the FULL board for each trading day, sums the market-total
+net, caches it PER DATE, and exposes a freshness-aware loader so the brief uses
+the right session's value — or omits it, never a stale one.
 
-Accuracy note: this is matched-order foreign value from TopStock summed over
-EVERY symbol the API returns (no top-N truncation). It still depends on the API
-returning the whole board for a large ``limit``. Verify on a machine with
-network access:
+Nguồn (vnstock thế hệ 6): ``foreign_net_for_date(day)`` = MỘT lượt
+``Market().equity.screener(date=day)`` — bảng cả thị trường, mỗi mã một dòng
+``foreign_net_value`` (đồng) / ``foreign_net_volume``. Hàm này DÙNG CHUNG cho
+runner (NN ròng theo ngành) và dashboard (tab Dòng tiền). Kiểm trên máy có khoá
+nguồn:
 
     python vnstock_foreign_flow.py --diag 2026-06-12
 
-which prints the net + how many symbols came back (a full HOSE/HNX/UPCOM day is
-several hundred, not 100). Refresh the per-date cache for the pipeline with:
+in net + số mã có giao dịch NN (cả sàn là vài trăm mã, không phải 100). Refresh
+cache theo ngày cho pipeline:
 
     python vnstock_foreign_flow.py --refresh --days 5
 """
@@ -40,82 +39,119 @@ import sys
 from datetime import date as _date, timedelta as _td
 from pathlib import Path
 
+import pandas as pd
+
 _REPO = Path(__file__).resolve().parent
 _CACHE = _REPO / "data_warehouse" / "_meta" / "foreign_net_daily.json"
-# High enough to return the entire HOSE/HNX/UPCOM board in one call.
-_FULL_LIMIT = 3000
 
-# Value-named columns checked first (names drift across vnstock/vnstock_data
-# versions); mirrors the dashboard's extraction so per-symbol values match.
-_VALUE_KEYS = ("net_value", "buy_value", "sell_value", "value", "total_value",
-               "netvalue", "buyvalue", "sellvalue")
+FOREIGN_NET_COLS = ["symbol", "foreign_net_value", "foreign_net_volume"]
+
+# Đệm bảng NN ròng THEO NGÀY (12/11): một lượt screener cả thị trường ≈ 50 giây (1.518 mã, nhiều
+# trang — đo 🖥️ 12/11) ⇒ 20 phiên ≈ 17 phút mỗi lần pipeline/dashboard. Phiên đã ĐÓNG không đổi
+# nữa ⇒ lưu một file mỗi ngày, lần sau đọc đệm; mỗi ngày chỉ tải đúng phiên mới. Nằm trong kho
+# (Dropbox) nên máy nào tải trước thì máy kia dùng chung. Tắt: VNSTOCK_NN_SCREENER_CACHE=0.
+_DAY_CACHE_DIR = _REPO / "data_warehouse" / "_meta" / "nn_screener"
+_DAY_CACHE_ENV = "VNSTOCK_NN_SCREENER_CACHE"
+_SESSION_DONE_HHMM = (15, 30)          # sau giờ này phiên hôm nay coi như đã chốt
+# Bảng cả thị trường thật có vài trăm mã NN ròng ≠ 0 (đo 12/11: 1.518 mã). Ít hơn sàn này = bảng
+# RỖNG/CỤT (chưa có bảng hôm nay, lỗi im lặng, trang dở) ⇒ KHÔNG đệm, lượt sau tải lại.
+_MIN_CACHE_NONZERO = 100
 
 
-def _largest_value(row: dict) -> float:
-    """Largest |numeric| in the row (excluding symbol/date columns)."""
-    best = 0.0
-    for k in _VALUE_KEYS:
-        v = row.get(k)
-        if v is not None:
+def _vn_now():
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone(timedelta(hours=7)))
+
+
+def _day_is_final(day: str) -> bool:
+    """Phiên `day` đã chốt ⇒ đệm được: ngày đã qua, hoặc hôm nay sau 15:30 giờ VN."""
+    now = _vn_now()
+    today = now.date().isoformat()
+    if day < today:
+        return True
+    return day == today and (now.hour, now.minute) >= _SESSION_DONE_HHMM
+
+
+def _day_cache_path(day: str) -> Path:
+    return _DAY_CACHE_DIR / f"{day}.parquet"
+
+
+def foreign_net_for_date(day: str, use_cache: bool = True) -> pd.DataFrame:
+    """NN ròng TỪNG MÃ của phiên ``day`` (ISO) trên cả thị trường.
+
+    Cột ``symbol`` (in hoa), ``foreign_net_value`` (đồng), ``foreign_net_volume`` (cp);
+    bảng rỗng khi nguồn không có phiên đó. Lỗi của vnstock (chưa khai nguồn, hạn mức,
+    mạng…) ném NGUYÊN VẸN — chỗ gọi quyết định giữ cache cũ.
+    """
+    import os
+
+    use_cache = use_cache and os.getenv(_DAY_CACHE_ENV, "1").strip() != "0"
+    path = _day_cache_path(day)
+    if use_cache and path.exists():
+        try:
+            cached = pd.read_parquet(path).reindex(columns=FOREIGN_NET_COLS).reset_index(drop=True)
+            # file rỗng/cụt (vd bản đệm trước khi có sàn) ⇒ coi như không có, tải lại + ghi đè
+            if int((cached["foreign_net_value"].fillna(0) != 0).sum()) >= _MIN_CACHE_NONZERO:
+                return cached
+        except Exception:              # file hỏng/dở (Dropbox) ⇒ tải lại, ghi đè
+            pass
+
+    from vnstock import Market
+    from vnstock_auth import ensure_api_key
+
+    ensure_api_key()
+    df = Market().equity.screener(date=day)
+    if df is None or df.empty or "symbol" not in df.columns:
+        out = pd.DataFrame(columns=FOREIGN_NET_COLS)
+    else:
+        out = df.reindex(columns=FOREIGN_NET_COLS).copy()
+        out["symbol"] = out["symbol"].astype(str).str.strip().str.upper()
+        for c in ("foreign_net_value", "foreign_net_volume"):
+            out[c] = pd.to_numeric(out[c], errors="coerce")
+        out = out[out["symbol"] != ""].reset_index(drop=True)
+    nonzero = int((out["foreign_net_value"].fillna(0) != 0).sum()) if not out.empty else 0
+    if use_cache and _day_is_final(day) and nonzero >= _MIN_CACHE_NONZERO:
+        tmp = path.with_suffix(f".{os.getpid()}.tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            out.to_parquet(tmp, index=False)
+            os.replace(tmp, path)
+        except Exception:              # đệm là tiện ích — không làm hỏng lượt lấy dữ liệu
             try:
-                fv = abs(float(v))
-                if fv > best:
-                    best = fv
-            except (TypeError, ValueError):
+                tmp.unlink(missing_ok=True)
+            except OSError:
                 pass
-    if best == 0.0:
-        for k, v in row.items():
-            if k == "symbol" or "date" in str(k).lower():
-                continue
-            try:
-                fv = abs(float(v))
-                if fv > best:
-                    best = fv
-            except (TypeError, ValueError):
-                pass
-    return best
+    return out
 
 
-def fetch_market_net(date_str: str, limit: int = _FULL_LIMIT) -> dict | None:
-    """Fetch FULL-market foreign buy/sell for one trading day.
+def fetch_market_net(date_str: str, use_cache: bool = True) -> dict | None:
+    """FULL-market foreign net for one trading day.
 
     Returns ``{date, net, buy, sell, n_symbols}`` in tỷ VND, or None when the
-    API is unavailable / returns nothing. ``net = Σ(buy_value − sell_value)``
-    over EVERY symbol returned (not just the top-N).
+    source is unavailable / returns nothing. ``buy`` = Σ NN ròng của mã mua ròng,
+    ``sell`` = Σ |NN ròng| của mã bán ròng, ``net = buy − sell``; ``n_symbols`` =
+    số mã có NN ròng khác 0.
     """
+    from vnstock.errors import VnstockError
+
     try:
-        from vnstock_data import TopStock
-    except ImportError:
+        df = foreign_net_for_date(date_str, use_cache=use_cache)
+    except VnstockError as e:
+        print(f"[foreign-flow] {date_str}: {type(e).__name__} {getattr(e, 'code', '')} — {e}",
+              file=sys.stderr)
         return None
-    ts = TopStock()
-    rows: dict[str, dict] = {}
-    got = False
-    for side, fn in (("buy", ts.foreign_buy), ("sell", ts.foreign_sell)):
-        try:
-            df = fn(date=date_str, limit=limit)
-        except Exception:
-            continue
-        if df is None or getattr(df, "empty", True):
-            continue
-        got = True
-        for _, r in df.iterrows():
-            row = dict(r)
-            sym = str(row.get("symbol", "") or "").strip()
-            if not sym:
-                continue
-            val = _largest_value(row)
-            ent = rows.setdefault(sym, {"buy": 0.0, "sell": 0.0})
-            ent[side] = max(ent[side], val)
-    if not got or not rows:
+    net = df["foreign_net_value"].dropna()
+    net = net[net != 0]
+    if net.empty:
         return None
-    buy = sum(e["buy"] for e in rows.values())
-    sell = sum(e["sell"] for e in rows.values())
+    buy = float(net[net > 0].sum())
+    sell = float(-net[net < 0].sum())
     return {
         "date": date_str,
         "net": round((buy - sell) / 1e9, 1),
         "buy": round(buy / 1e9, 1),
         "sell": round(sell / 1e9, 1),
-        "n_symbols": len(rows),
+        "n_symbols": int(len(net)),
     }
 
 
@@ -135,10 +171,10 @@ def _save_cache(d: dict) -> None:
         pass
 
 
-def refresh(days: int = 5, limit: int = _FULL_LIMIT) -> dict:
+def refresh(days: int = 5) -> dict:
     """Fetch the last ``days`` trading days (skipping weekends) and merge into
     the per-date cache. Returns the updated cache (possibly unchanged when the
-    API is unavailable)."""
+    source is unavailable — a failed day keeps its cached value)."""
     cache = _load_cache()
     today = _date.today()
     fetched, cal = 0, 0
@@ -147,7 +183,7 @@ def refresh(days: int = 5, limit: int = _FULL_LIMIT) -> dict:
         cal += 1
         if dt.weekday() >= 5:        # skip Sat/Sun
             continue
-        rec = fetch_market_net(dt.isoformat(), limit=limit)
+        rec = fetch_market_net(dt.isoformat())
         fetched += 1
         if rec:
             cache[rec["date"]] = {k: rec[k] for k in ("net", "buy", "sell", "n_symbols")}
@@ -179,28 +215,26 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--refresh", action="store_true",
                     help="Fetch last --days trading days → per-date cache")
     ap.add_argument("--days", type=int, default=5)
-    ap.add_argument("--limit", type=int, default=_FULL_LIMIT,
-                    help=f"Symbols per side (default {_FULL_LIMIT} = full board)")
     ap.add_argument("--diag", metavar="YYYY-MM-DD",
                     help="Fetch ONE day live and print the full breakdown (verify vs official)")
     a = ap.parse_args(argv)
 
     if a.diag:
-        rec = fetch_market_net(a.diag, limit=a.limit)
+        rec = fetch_market_net(a.diag)
         if not rec:
-            print(f"[foreign-flow] no data for {a.diag} (API unavailable or empty)")
+            print(f"[foreign-flow] no data for {a.diag} (nguồn lỗi hoặc rỗng)")
             return 1
         print(f"[foreign-flow] {rec['date']}: NN ròng = {rec['net']:+,.1f} tỷ "
-              f"(mua {rec['buy']:,.1f} / bán {rec['sell']:,.1f}) trên "
-              f"{rec['n_symbols']} mã (limit={a.limit}).")
-        print("  → so khớp với NN ròng chính thức của phiên; nếu chỉ ~100 mã thì "
-              "API đang cap limit, cần tăng --limit hoặc đổi nguồn.")
+              f"(mua ròng {rec['buy']:,.1f} / bán ròng {rec['sell']:,.1f}) trên "
+              f"{rec['n_symbols']} mã.")
+        print("  → so khớp với NN ròng chính thức của phiên; chỉ ~100 mã ⇒ nguồn trả "
+              "thiếu bảng, kiểm VNSTOCK_SOURCE_ROUTES cho market.equity.screener.")
         return 0
 
     if a.refresh:
-        c = refresh(days=a.days, limit=a.limit)
+        c = refresh(days=a.days)
         if not c:
-            print("[foreign-flow] refresh got no data (API unavailable)")
+            print("[foreign-flow] refresh got no data (nguồn lỗi)")
             return 1
         latest = max(c)
         print(f"[foreign-flow] cache updated ({len(c)} ngày). Mới nhất {latest}: "

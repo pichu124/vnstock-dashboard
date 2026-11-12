@@ -1,10 +1,14 @@
 """
 Corp-action events layer — fetch & cache per-ticker corporate actions.
 
-Events (cash dividends, splits, bonus issues) are fetched per ticker from
-vnstock (`Company().dividends()` / `Company().events()`) and cached to
+Events (cash dividends, splits, bonus issues, share issuances) are fetched per
+ticker from vnstock thế hệ 6 (`Reference().company(t).events()`) and cached to
 `data_warehouse/_meta/corp_actions/{TICKER}.parquet`. If the fetch fails
 or vnstock lacks the endpoint, the ticker is silently skipped.
+
+Thế hệ 6 không có `capital_history()` (UnsupportedError): tăng vốn (phát hành thêm,
+quyền mua…) nay đọc từ chính `events()` — dòng phát hành có tỷ lệ ⇒ `type="bonus"`,
+đúng loại mà bản `capital_history` cũ ghi để máy dò bất thường bỏ qua vách giá.
 
 Consumers: vnstock_events (upcoming-events brief block), vnstock_anomaly
 (corp-action-aware anomaly suppression), vnstock_corp_registry.
@@ -77,29 +81,67 @@ def refresh_events(
     *,
     verbose: bool = False,
 ) -> pd.DataFrame:
-    """Best-effort fetch of corp-action events from vnstock and cache to parquet."""
-    events = _fetch_events(ticker, verbose=verbose)
+    """Best-effort fetch of corp-action events from vnstock and cache to parquet.
+
+    GỘP với cache cũ: nguồn dòng cũ (DIV/VCI, capital_history) đã chết từ 10/11, thứ nó
+    ghi không lấy lại được ⇒ dòng cũ CHỈ bị bỏ khi có BẰNG CHỨNG DƯƠNG từ nguồn mới:
+      • nguồn mới có dòng cùng loại lệch ≤ `_NEAR_DUP_DAYS` ngày (bản mới thắng), hoặc
+      • dòng cũ là "bonus" mà nguồn mới ghi ngày đó (±`_NEAR_DUP_DAYS`) là sự kiện KHÔNG đổi
+        giá theo enum (ESOP, phát hành riêng lẻ… từng bị dò tiêu đề ghi thành "bonus").
+    Nguồn mới KHÔNG trả một sự kiện không phải là bằng chứng nó không có thật.
+    """
+    events, non_price_dates = _fetch_events_detail(ticker, verbose=verbose)
     if events.empty:
         return events
+    old = load_events(ticker, warehouse)
+    np_days = [d for d in map(_as_local_date, non_price_dates) if d is not None]
+    if not old.empty and np_days:
+        def _refuted(row) -> bool:
+            d = _as_local_date(row["ex_date"])
+            return (row["type"] == "bonus" and d is not None
+                    and any(abs((d - n).days) <= _NEAR_DUP_DAYS for n in np_days))
+        old = old[~old.apply(_refuted, axis=1)]
+    if not old.empty:
+        merged = pd.concat([events, old[EVENT_SCHEMA_COLS]], ignore_index=True)
+        merged = merged.drop_duplicates(subset=["ticker", "ex_date", "type"], keep="first")
+        events = _drop_near_duplicates(merged).sort_values("ex_date").reset_index(drop=True)
     path = _events_path(ticker, warehouse)
     path.parent.mkdir(parents=True, exist_ok=True)
     events.to_parquet(path, index=False)
     return events
 
 
-def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
-    """Query vnstock for corp actions. Returns empty DF on any failure.
+def _as_local_date(v):
+    """str / date / Timestamp (có hoặc không múi giờ — thế hệ 6 trả ngày có múi giờ VN) →
+    `datetime.date` theo giờ VN; rỗng / không đọc được ⇒ None."""
+    try:
+        t = pd.Timestamp(v)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(t):
+        return None
+    if t.tzinfo is not None:
+        t = t.tz_convert("Asia/Ho_Chi_Minh")
+    return t.date()
 
-    GỘP kết quả của MỌI nguồn (đổi 14/08 — trước đó "nguồn đầu có gì đó là
-    dừng", và đó chính là vùng mù 12 mã của div_check: nguồn 1 trả vài dòng
-    CŨ là nguồn 2-3 không bao giờ được hỏi, VNM/SAB/TCB/VPB... vì thế trắng
-    sự kiện 750 ngày dù công ty trả cổ tức đều). Nguồn xếp theo độ giàu sử
-    liệu; trùng lặp khử ở dưới, dòng của nguồn ĐỨNG TRƯỚC thắng.
-      1. vnstock_data.Company (Golden tier — richest history)
-      2. vnstock Vnstock(source="VCI").stock.company
-      3. vnstock Vnstock(source="KBS").stock.company
+
+def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
+    """Query vnstock for corp actions. Returns empty DF on any failure."""
+    return _fetch_events_detail(ticker, verbose=verbose)[0]
+
+
+def _fetch_events_detail(ticker: str, *, verbose: bool = False) -> tuple[pd.DataFrame, list]:
+    """Như `_fetch_events`, kèm danh sách ex_date mà nguồn ghi là sự kiện KHÔNG đổi giá
+    (enum thế hệ 6) — bằng chứng để `refresh_events` bỏ dòng "bonus" cũ ghi nhầm.
+
+    GỘP kết quả của MỌI nguồn trong `_company_sources()` (đổi 14/08 — trước đó
+    "nguồn đầu có gì đó là dừng", và đó chính là vùng mù 12 mã của div_check).
+    Trùng lặp khử ở dưới, dòng của nguồn ĐỨNG TRƯỚC thắng. Thế hệ 6 chỉ còn MỘT
+    lối (`Reference().company(t)`); thứ tự nguồn dữ liệu do luật `VNSTOCK_SOURCE`
+    quyết, không do code.
     """
     rows: list[dict] = []
+    non_price: list = []
 
     for source_name, resolve in _company_sources():
         try:
@@ -111,20 +153,18 @@ def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
         if company is None:
             continue
         dividends = _extract_dividends(company, ticker)
-        events = _extract_events(company, ticker)
-        capital = _extract_capital_history_as_events(company, ticker)
-        found = dividends + events + capital
+        events = _extract_events(company, ticker, skipped=non_price)
+        found = dividends + events
         rows.extend(found)
         if verbose:
             if found:
                 print(f"  [{ticker}] {source_name}: "
-                      f"{len(dividends)} div, {len(events)} event, "
-                      f"{len(capital)} capital-change")
+                      f"{len(dividends)} div, {len(events)} event")
             else:
                 print(f"  [{ticker}] {source_name}: no data")
 
     if not rows:
-        return pd.DataFrame(columns=EVENT_SCHEMA_COLS)
+        return pd.DataFrame(columns=EVENT_SCHEMA_COLS), non_price
 
     df = pd.DataFrame(rows)
     for col in EVENT_SCHEMA_COLS:
@@ -138,7 +178,7 @@ def _fetch_events(ticker: str, *, verbose: bool = False) -> pd.DataFrame:
     # bản "đến trước" luôn là bản giàu thông tin hơn.
     df = df.drop_duplicates(subset=["ticker", "ex_date", "type"], keep="first")
     df = _drop_near_duplicates(df)
-    return df.sort_values("ex_date").reset_index(drop=True)
+    return df.sort_values("ex_date").reset_index(drop=True), non_price
 
 
 # Hai nguồn ghi cùng một sự kiện bằng hai mốc ngày lệch nhau (ex-date vs
@@ -172,30 +212,15 @@ def _drop_near_duplicates(df: pd.DataFrame) -> pd.DataFrame:
 def _company_sources():
     """Yield (name, resolver) pairs. Resolver: str -> company-like object.
 
-    Modern vnstock (>=3.5) dropped TCBS support; supported sources are
-    VCI, KBS, MSN, FMP. We try those plus vnstock_data's native ``Company``.
+    Thế hệ 6: một lối duy nhất `Reference().company(t)` qua mặt tiền `vnstock_auth`
+    (nguồn chọn ở `.env`, không ghi tên nguồn vào lệnh gọi).
     """
 
-    def via_vnstock_data(ticker: str):
-        from vnstock_data import Company
-        try:
-            from vnstock_auth import ensure_api_key
-            ensure_api_key()
-        except Exception:
-            pass
-        return Company(symbol=ticker)
-
-    def via_vnstock_vci(ticker: str):
+    def via_reference(ticker: str):
         from vnstock_auth import get_vnstock
-        return get_vnstock(ticker, "VCI").company
+        return get_vnstock(ticker).company
 
-    def via_vnstock_kbs(ticker: str):
-        from vnstock_auth import get_vnstock
-        return get_vnstock(ticker, "KBS").company
-
-    yield "vnstock_data.Company", via_vnstock_data
-    yield "vnstock:VCI", via_vnstock_vci
-    yield "vnstock:KBS", via_vnstock_kbs
+    yield "vnstock:Reference.company", via_reference
 
 
 _DIVIDEND_METHOD_NAMES = (
@@ -267,8 +292,6 @@ _EVENT_METHOD_NAMES = (
     "corp_events",
     "company_events",
     "events_schedule",
-    "capital_history",          # vnstock_data.Company exposes this — likely
-                                # contains splits/bonuses/capital increases.
 )
 
 
@@ -276,6 +299,33 @@ _EVENT_METHOD_NAMES = (
 # dịch nội bộ, đổi địa chỉ… không làm giá tham chiếu bị điều chỉnh).
 _EVENT_SKIP_CATEGORIES = {"MAJOR_SHAREHOLDER_TRADING", "SHAREHOLDER_MEETING",
                           "OTHER"}
+
+# Thế hệ 6: `event_type` là enum chữ thường của hợp đồng vnstock — ĐỦ 23 giá trị của
+# `reference.company.events` bản 6.0.0. Loại KHÔNG đổi giá tham chiếu ⇒ None (bỏ). Phát hành
+# quyền mua giữ kiểu "bonus" như `capital_history()` dòng cũ (vốn điều lệ tăng ⇒ "bonus");
+# gộp cổ phiếu (stock_merge) đổi giá như chia tách ⇒ "split". Chỉ enum THẬT SỰ lạ (bản
+# vnstock mới thêm) mới rơi về dò tiêu đề.
+_GEN6_EVENT_KIND = {
+    "cash_dividend": "cash",
+    "stock_dividend": "bonus",
+    "bonus_share": "bonus",
+    "rights_issue": "bonus",
+    "stock_split": "split",
+    "stock_merge": "split",
+    "additional_listing": None, "bond_conversion": None, "bond_interest": None,
+    "buyback": None, "delisting": None, "esop": None, "exchange_transfer": None,
+    "info_update": None, "other": None, "private_placement": None,
+    "shareholder_meeting": None, "shareholder_poll": None, "stock_conversion": None,
+    "trading_suspension": None, "treasury_share_sale": None, "voting_right": None,
+    "warrant_settlement": None,
+}
+# Loại PHÁT HÀNH không đổi giá — thứ mà dò tiêu đề ("phát hành"…) từng ghi nhầm thành "bonus".
+# Chỉ chúng mới là bằng chứng để bỏ dòng "bonus" cũ; họp/lấy ý kiến cổ đông, cập nhật thông
+# tin, đình chỉ… hay CHỐT CÙNG NGÀY với đợt thưởng thật ⇒ không bao giờ là bằng chứng.
+_GEN6_ISSUANCE_NO_PRICE = frozenset({
+    "esop", "private_placement", "treasury_share_sale", "bond_conversion",
+    "stock_conversion", "warrant_settlement", "additional_listing",
+})
 
 
 def _first_val(r, *names):
@@ -288,14 +338,18 @@ def _first_val(r, *names):
     return None
 
 
-def _extract_events(company, ticker: str) -> list[dict]:
-    """Đọc events() về CHUẨN schema — hiểu cả hai hình dạng dữ liệu.
+def _extract_events(company, ticker: str, skipped: list | None = None) -> list[dict]:
+    """Đọc events() về CHUẨN schema — hiểu mọi hình dạng dữ liệu đã gặp.
 
     Bài học 14/08 (dump VNM/SAB/GVR): extractor cũ chỉ bắt chia tách/thưởng
     và dò cột `ex_date`/`event_name` — trong khi VCI trả cổ tức TIỀN MẶT
     nằm ngay trong events() (event_code=DIV, `value_per_share` VND/cp) với
     cột tên `exright_date`/`event_name_vi`. Kết quả: nhóm trả tiền mặt
     (VNM/SAB/PLX/GVR…) trắng sự kiện oan suốt — "extractor mù, nguồn sáng".
+
+    Thế hệ 6 (hồ sơ v5): `event_title`, `event_type`, `ex_right_date`, `value`
+    (tiền/cp), `ratio`. Dòng PHÁT HÀNH (thêm, quyền mua…) có tỷ lệ ⇒ `bonus` — thay
+    cho `capital_history()` mà thế hệ 6 không có.
     """
     name, evt = _call_first_working(company, _EVENT_METHOD_NAMES)
     if evt is None:
@@ -304,13 +358,21 @@ def _extract_events(company, ticker: str) -> list[dict]:
     evt.columns = [c.lower() for c in evt.columns]
     out: list[dict] = []
     for _, r in evt.iterrows():
-        cat = str(r.get("category") or "").upper()
-        if cat in _EVENT_SKIP_CATEGORIES:
+        etype = str(r.get("event_type") or "").strip().lower()
+        kind = _GEN6_EVENT_KIND.get(etype, "") if etype else ""
+        if kind is None:                       # enum thế hệ 6 không đổi giá tham chiếu
+            if skipped is not None and etype in _GEN6_ISSUANCE_NO_PRICE:
+                skipped.append(_first_val(r, "ex_date", "exercise_date", "ex_rights_date",
+                                          "exright_date", "ex_right_date"))
+            continue
+        cat = str(_first_val(r, "category", "event_type") or "").upper()
+        if not kind and cat in _EVENT_SKIP_CATEGORIES:
             continue
         ex = _first_val(r, "ex_date", "exercise_date", "ex_rights_date",
-                        "exright_date")
+                        "exright_date", "ex_right_date")
         label = str(_first_val(r, "event_name_vi", "event_name",
-                               "event_title_vi", "title", "event") or "").lower()
+                               "event_title_vi", "event_title", "title",
+                               "event") or "").lower()
         code = str(r.get("event_code") or "").upper()
 
         def _num(*names):
@@ -322,9 +384,17 @@ def _extract_events(company, ticker: str) -> list[dict]:
 
         if ex is None:
             continue
-        if (code == "DIV" or cat == "DIVIDEND" or "cổ tức bằng tiền" in label
-                or "cash dividend" in label):
-            cash_val = _num("value_per_share", "cash_dividend", "cash_value",
+        if kind:                               # thế hệ 6: enum quyết, không dò chữ
+            is_cash, is_split, is_bonus = kind == "cash", kind == "split", kind == "bonus"
+        else:                                  # bảng không có enum: dò tiêu đề như dòng cũ
+            is_cash = ((code == "DIV" or cat == "DIVIDEND" or "cổ tức bằng tiền" in label
+                        or "cash dividend" in label) and "cổ tức bằng cổ phiếu" not in label)
+            is_split = "split" in label or "chia tách" in label or "tách cổ phiếu" in label
+            is_bonus = ("bonus" in label or "thưởng" in label or "stock dividend" in label
+                        or "cổ tức bằng cổ phiếu" in label or "phát hành" in label
+                        or "quyền mua" in label or "rights" in label)
+        if is_cash:
+            cash_val = _num("value_per_share", "cash_per_share", "cash_dividend", "cash_value",
                             "value", "amount")
             if cash_val is None or not cash_val > 0:
                 continue
@@ -333,7 +403,7 @@ def _extract_events(company, ticker: str) -> list[dict]:
                 "cash_amount": cash_val, "ratio": None,
                 "raw": str(r.to_dict()),
             })
-        elif "split" in label or "chia tách" in label or "tách cổ phiếu" in label:
+        elif is_split:
             ratio_val = _num("ratio", "split_ratio", "exercise_ratio")
             if ratio_val is None:
                 continue
@@ -342,8 +412,7 @@ def _extract_events(company, ticker: str) -> list[dict]:
                 "cash_amount": None, "ratio": ratio_val,
                 "raw": str(r.to_dict()),
             })
-        elif ("bonus" in label or "thưởng" in label or "stock dividend" in label
-                or "cổ tức bằng cổ phiếu" in label):
+        elif is_bonus:
             ratio_val = _num("ratio", "exercise_ratio")
             if ratio_val is None:
                 continue
@@ -352,65 +421,6 @@ def _extract_events(company, ticker: str) -> list[dict]:
                 "cash_amount": None, "ratio": ratio_val,
                 "raw": str(r.to_dict()),
             })
-    return out
-
-
-def _extract_capital_history_as_events(company, ticker: str) -> list[dict]:
-    """Derive bonus-like events from ``company.capital_history()``.
-
-    Charter-capital changes don't tell us the exact event type (bonus
-    issue vs rights offer vs private placement), but EVERY such change
-    is a legitimate reason for the market price to move on / around the
-    event date. That's enough for the anomaly scanner to suppress false
-    positives on band / ohlc breaches.
-
-    We do NOT emit cash events — capital_history doesn't capture cash
-    dividends (those come out of retained earnings, not capital).
-
-    Returns event rows with ``type="bonus"`` so they go through the
-    existing skip-band-and-ohlc path in scan_ticker.
-    """
-    try:
-        df = company.capital_history()
-    except Exception:
-        return []
-    if df is None:
-        return []
-    try:
-        if df.empty:
-            return []
-    except Exception:
-        return []
-
-    df = df.copy()
-    df.columns = [c.lower() for c in df.columns]
-    if "date" not in df.columns or "charter_capital" not in df.columns:
-        return []
-
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["charter_capital"] = pd.to_numeric(df["charter_capital"], errors="coerce")
-    df = df.dropna(subset=["date", "charter_capital"]).sort_values("date")
-
-    out: list[dict] = []
-    prev_cap: float | None = None
-    for _, r in df.iterrows():
-        cap = float(r["charter_capital"])
-        if cap <= 0:
-            continue
-        if prev_cap is not None and prev_cap > 0:
-            ratio = cap / prev_cap
-            # Only emit if capital grew by >2% — filters floating-point noise
-            # and tiny ESOP issuances that don't meaningfully move the price.
-            if ratio > 1.02:
-                out.append({
-                    "ticker": ticker,
-                    "ex_date": r["date"],
-                    "type": "bonus",
-                    "cash_amount": None,
-                    "ratio": round(ratio, 4),
-                    "raw": str(r.to_dict()),
-                })
-        prev_cap = cap
     return out
 
 

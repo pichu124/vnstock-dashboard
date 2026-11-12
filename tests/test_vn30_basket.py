@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pytest
+
 import vnstock_vn30 as v30
 from vnstock_wss import split_hot_cold
 
@@ -348,3 +350,60 @@ class TestFinancialsInTheBasketAreClassifiedAsFinancial:
         from vnstock_train import _VN30_SECTOR_MAP
         missing = sorted(set(VN30_TICKERS) - set(_VN30_SECTOR_MAP))
         assert not missing, f"mã trong rổ chưa có ngành: {missing}"
+
+
+class TestFetchLiveOnGen6:
+    """Thế hệ 6: `_fetch_live` đi mặt tiền `get_vnstock(...).listing.symbols_by_group`
+    → `Reference().index("VN30").members()` (cột `symbol, index_symbol`) → Series mã."""
+
+    def _patch_members(self, monkeypatch, frame, seen):
+        import vnstock
+
+        class _Index:
+            def __init__(self, g):
+                seen.append(g)
+
+            def members(self):
+                return frame
+
+        class _Ref:
+            def __init__(self, *a, **k):
+                pass
+
+            def index(self, g):
+                return _Index(g)
+
+        monkeypatch.setattr(vnstock, "Reference", _Ref)
+
+    def test_members_frame_becomes_the_basket(self, monkeypatch):
+        pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+        import pandas as pd
+        seen: list = []
+        self._patch_members(monkeypatch, pd.DataFrame(
+            {"symbol": [s.lower() for s in _REAL30], "index_symbol": ["VN30"] * 30}), seen)
+
+        got = v30._fetch_live()
+
+        assert seen == ["VN30"]
+        assert sorted(got) == sorted(_REAL30)
+        assert v30.validate(got) == sorted(_REAL30)
+
+    def test_empty_members_is_none_not_an_empty_basket(self, monkeypatch):
+        pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+        import pandas as pd
+        self._patch_members(monkeypatch, pd.DataFrame(columns=["symbol", "index_symbol"]), [])
+        assert v30._fetch_live() is None
+
+    def test_train_group_fetch_reads_the_series_shape(self, monkeypatch):
+        """`vnstock_train._fetch_group_live` dò `.columns` ⇒ Series (dạng thật của
+        `symbols_by_group`) ném AttributeError, bị nuốt ⇒ luôn rơi về danh sách chép cứng."""
+        pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
+        import pandas as pd
+        from vnstock_train import _fetch_group_live
+        mid = ["GMD", "HAH", "PNJ", "KDC", "VHC", "ANV", "NLG", "DXG", "KDH", "HSG", "NKG"]
+        seen: list = []
+        self._patch_members(monkeypatch, pd.DataFrame(
+            {"symbol": mid, "index_symbol": ["VNMID"] * len(mid)}), seen)
+
+        assert _fetch_group_live("VNMID") == mid
+        assert seen == ["VNMID"]

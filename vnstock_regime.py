@@ -18,6 +18,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from vnstock_brief_canon import RSI_OVERHEAT_SIDEWAYS, RSI_STRONG, RSI_WEAK
+
 _REPO = Path(__file__).parent
 
 # ── Preset suggestions per regime ─────────────────────────────────────────
@@ -187,9 +189,9 @@ def classify_regime(
 
     # Signal 4 — RSI14
     if rsi is not None:
-        if rsi > 60:
+        if rsi > RSI_STRONG:
             _sig("RSI14", f"{rsi:.0f}", 1, "Momentum tích cực")
-        elif rsi < 40:
+        elif rsi < RSI_WEAK:
             _sig("RSI14", f"{rsi:.0f}", -1, "Momentum yếu")
         else:
             _sig("RSI14", f"{rsi:.0f}", 0, "Trung tính")
@@ -241,7 +243,7 @@ def classify_regime(
         regime = "sideways"
 
     # Special overrides
-    if rsi is not None and rsi > 72 and score >= 2:
+    if rsi is not None and rsi > RSI_OVERHEAT_SIDEWAYS and score >= 2:
         regime = "sideways"   # overbought → caution even if score positive
 
     meta = REGIME_META[regime]

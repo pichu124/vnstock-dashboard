@@ -56,23 +56,14 @@ from rich.table import Table
 warnings.filterwarnings("ignore")
 console = Console()
 
-# ── vnstock_data OR vnstock ───────────────────────────────────────────────────
-from vnstock_auth import ensure_api_key, get_vnstock
+# ── vnstock thế hệ 6 (nguồn chọn MỘT chỗ ở vnstock_auth.configure_sources) ───
+from vnstock import Fundamental, Reference
+from vnstock.errors import RateLimitError, VnstockError
 
-try:
-    from vnstock_data import Reference, Fundamental
-    USE_UNIFIED = True
-    ensure_api_key()
-    console.log("[green]✅ Using vnstock_data[/green]")
-except ImportError:
-    USE_UNIFIED = False
-    try:
-        from vnstock import Vnstock
-        ensure_api_key()
-        console.log("[yellow]⚠ Using vnstock (free)[/yellow]")
-    except ImportError:
-        console.print("[red]❌ Install vnstock: pip install vnstock[/red]")
-        raise
+from vnstock_auth import ensure_api_key, keep_schema_warnings
+
+keep_schema_warnings()
+ensure_api_key()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Symbol filter (tái sử dụng từ screener)
@@ -162,6 +153,23 @@ CLASSIFY_SCHEMA = pa.schema([
 # BƯỚC 1 — Company Profile Warehouse
 # ═════════════════════════════════════════════════════════════════════════════
 
+def _clean_text(v) -> str:
+    s = "" if v is None else str(v).strip()
+    return "" if s in ("nan", "None") else s
+
+
+def _income_summary(inc) -> str:
+    """BCTC thế hệ 6 dạng DÀI (`period, name, value`) → 2 kỳ gần nhất, mỗi kỳ một cột,
+    chỉ tiêu theo thứ tự báo cáo (doanh thu trước) — đoạn chữ cho prompt phân loại."""
+    if inc is None or inc.empty or not {"period", "name", "value"} <= set(inc.columns):
+        return ""
+    periods = sorted(inc["period"].astype(str).unique())[-2:]
+    sub = inc[inc["period"].astype(str).isin(periods)]
+    names = list(pd.unique(sub["name"]))
+    wide = sub.pivot_table(index="name", columns="period", values="value", aggfunc="first")
+    return wide.reindex([n for n in names if n in wide.index]).to_string(max_rows=12)[:600]
+
+
 class CompanyWarehouse:
     """
     Lưu company profiles vào warehouse/companies/ticker=XXX/overview.parquet
@@ -172,6 +180,7 @@ class CompanyWarehouse:
         self.companies_dir = Path(root) / "companies"
         self.prices_dir    = Path(root) / "prices"
         self.companies_dir.mkdir(parents=True, exist_ok=True)
+        self._icb: dict[str, str] | None = None
 
     # ── Danh sách tickers từ prices warehouse ─────────────────────────────────
 
@@ -243,13 +252,33 @@ class CompanyWarehouse:
         """Gọi vnstock API, lưu vào warehouse. Trả True nếu thành công."""
         try:
             data = self._fetch_from_api(ticker)
-            if data:
-                self.save_profile(data)
-                return True
+        except VnstockError as e:
+            console.log(f"  [dim]⚠ {ticker}: {getattr(e, 'code', None) or type(e).__name__}: {e}[/dim]")
             return False
-        except Exception as e:
-            console.log(f"  [dim]⚠ {ticker}: {e}[/dim]")
-            return False
+        if data:
+            self.save_profile(data)
+            return True
+        return False
+
+    def _icb_map(self) -> dict[str, str]:
+        """{mã: icb_name} từ MỘT lệnh `Reference().equity.list()` mỗi lượt sync.
+        Nguồn không đọc được ⇒ {} (ghi log một lần), hồ sơ dùng `info().sector`."""
+        if self._icb is None:
+            self._icb = {}
+            try:
+                df = Reference().equity.list()
+            except RateLimitError:
+                self._icb = None
+                raise
+            except VnstockError as e:
+                console.log(f"  [dim]⚠ ICB (equity.list): {getattr(e, 'code', None) or e} "
+                            f"— dùng ngành của info()[/dim]")
+                return self._icb
+            if df is not None and not df.empty and {"symbol", "icb_name"} <= set(df.columns):
+                sub = df[["symbol", "icb_name"]].dropna()
+                self._icb = {str(k).upper(): str(v) for k, v in zip(sub["symbol"], sub["icb_name"])
+                             if str(v).strip()}
+        return self._icb
 
     def _fetch_from_api(self, ticker: str) -> dict:
         base = {
@@ -260,49 +289,40 @@ class CompanyWarehouse:
             "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
 
-        if USE_UNIFIED:
-            ref = Reference()
-            ov  = ref.company(ticker).info()
-        else:
-            ov = get_vnstock(ticker).company.overview()
-
+        company = Reference().company(ticker)
+        # info() thế hệ 6: symbol, name, sector, profile, name_en — MẤT organ_name,
+        # icb_name2/3, exchange, charter_capital, issue_share của dòng cũ.
+        ov = company.info()
+        sector = ""
         if ov is not None and not ov.empty:
             row = ov.iloc[0]
-            base["company_name"] = str(row.get("organ_name",
-                                    row.get("company_name", ticker)))
-            base["sector_icb"]   = str(row.get("icb_name3",
-                                    row.get("icb_name2", "")))
-            base["exchange"]     = str(row.get("exchange",
-                                    row.get("listing_exchange", "")))
-            for cap_col in ("charter_capital",):
-                try:
-                    base["charter_capital"] = float(row.get(cap_col, 0) or 0)
-                except Exception:
-                    pass
-            for sh_col in ("issue_share", "outstanding_shares"):
-                try:
-                    base["issue_share"] = float(row.get(sh_col, 0) or 0)
-                    break
-                except Exception:
-                    pass
-            for col in ("company_profile", "business_model", "history"):
-                if col in ov.columns:
-                    val = str(row.get(col, "")).strip()
-                    if val and val not in ("nan", "None", ""):
-                        base["profile"] = val[:2000]
-                        break
+            base["company_name"] = str(row.get("name") or ticker)
+            sector = _clean_text(row.get("sector"))
+            base["profile"] = _clean_text(row.get("profile"))[:2000]
 
-        # Income statement (tóm tắt)
+        # listing(): sàn + số cổ phiếu. `issue_share` = cổ phiếu LƯU HÀNH (runner nhân giá
+        # ra vốn hoá), thiếu thì cổ phiếu niêm yết.
+        li = company.listing()
+        if li is not None and not li.empty:
+            row = li.iloc[0]
+            base["exchange"] = _clean_text(row.get("exchange"))
+            for sh_col in ("outstanding_shares", "listed_shares"):
+                v = pd.to_numeric(row.get(sh_col), errors="coerce")
+                if pd.notna(v) and v > 0:
+                    base["issue_share"] = float(v)
+                    break
+        # charter_capital: thế hệ 6 không còn nguồn nào ⇒ để None (không bịa).
+
+        base["sector_icb"] = self._icb_map().get(ticker.upper()) or sector
+
+        # Income statement (tóm tắt) — best-effort, nguồn không đọc BCTC thì bỏ trống
         try:
-            if USE_UNIFIED:
-                inc = Fundamental().equity(ticker).income_statement(period="Y")
-            else:
-                inc = get_vnstock(ticker)\
-                               .finance.income_statement(period="year", lang="en")
-            if inc is not None and not inc.empty:
-                base["revenue_str"] = inc.tail(2).to_string(max_cols=8)[:600]
-        except Exception:
-            pass
+            inc = Fundamental().equity(ticker).income_statement(period="year")
+        except RateLimitError:
+            raise
+        except VnstockError:
+            inc = None
+        base["revenue_str"] = _income_summary(inc)
 
         return base
 

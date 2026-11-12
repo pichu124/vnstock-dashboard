@@ -110,4 +110,172 @@ def brief_section(text: str, marker: str) -> str:
     return "\n".join(lines[start:end]).strip()
 
 
+# ── Mục "📈 Mức kỹ thuật" khi có thẻ kỹ thuật (PTKT P2c/P3) — dùng chung cho guard ở 3 nhóm ──
+_TA_INSIGHT_RE = _re.compile(r"^\s*(?:[-*•]\s*)?\*{0,2}Nhận định\*{0,2}\s*[:：]\s*\*{0,2}\s*",
+                             _re.IGNORECASE)
+_TA_SENTENCE_SPLIT_RE = _re.compile(r"(?<=[.!?…])\s+")
+_TA_TICKER_RE = _re.compile(r"\b[A-Z][A-Z0-9]{2}\b")
+
+
+def ta_ctx(ctx: dict | None) -> dict | None:
+    """Thẻ VN-Index của ctx khi guard chữ kỹ thuật phải chạy: brief sáng/chiều + có dòng thẻ.
+    ctx không có ``ta_card`` (công tắc VNSTOCK_TA_CARD tắt, pack cũ) ⇒ None ⇒ guard no-op."""
+    ta = (ctx or {}).get("ta_card")
+    if not isinstance(ta, dict) or not ta.get("lines"):
+        return None
+    if ((ctx or {}).get("brief_type") or "afternoon") not in ("morning", "afternoon"):
+        return None
+    return ta
+
+
+# Lõi chữ của tiêu đề mục 📈 — `vnstock_brief_canon.TA_SECTION_TITLES` bỏ "## 📈" và "(VNINDEX)"
+# (common là lá, không import canon; test canh hai bên khớp) + bản trơn "Mức kỹ thuật".
+_TA_TITLE_CORES = frozenset({"mức kỹ thuật", "mức kỹ thuật quan trọng", "mức kỹ thuật chốt phiên"})
+_TA_TITLE_TAIL_RE = _re.compile(r"\s*\(?\s*vn-?index\s*\)?\s*$")
+
+
+def is_ta_heading(line: str) -> bool:
+    """Tiêu đề mục "📈 Mức kỹ thuật …" (cả bản model bỏ emoji / đuôi "(VNINDEX)" / in đậm) — CHỈ
+    tiêu đề mục đó, không phải mọi tiêu đề có cụm "mức kỹ thuật" ("⚠️ Rủi ro: thủng mức kỹ
+    thuật" là mục khác: gộp nhầm thì chữ của nó bị bỏ)."""
+    if not _is_section_start(line):
+        return False
+    core = _re.sub(r"^[^\w]+", "", line.replace("*", "").strip().lower())
+    return " ".join(_TA_TITLE_TAIL_RE.sub("", core).split()) in _TA_TITLE_CORES
+
+
+def ta_split_sentences(text: str) -> list[str]:
+    return [s.strip() for s in _TA_SENTENCE_SPLIT_RE.split((text or "").strip()) if s.strip()]
+
+
+def ta_card_for(sentence: str, ta: dict, cards: dict | None) -> dict:
+    """Thẻ mà câu nói tới: mã có thẻ được nêu tên trong câu ⇒ thẻ mã đó; còn lại ⇒ VN-Index."""
+    for tk in _TA_TICKER_RE.findall(sentence or ""):
+        if isinstance((cards or {}).get(tk), dict):
+            return cards[tk]
+    return ta
+
+
+# Chữ hoa 3 ký tự mà KHÔNG phải mã: tên chỉ báo.
+_TA_NOT_TICKERS = frozenset({"RSI", "ATR", "SMA", "EMA", "ADX", "OBV", "CCI", "MFI", "ROC", "SAR"})
+_TA_OTHER_INDEX_RE = _re.compile(
+    r"\b(?:HNX|UPCOM|VN30|VN100|VNMID|VNSML|HNX30)\b|\b(?!vn[- ]?index\b)\w+[- ]index\b",
+    _re.IGNORECASE)
+_TA_VNINDEX_RE = _re.compile(r"\bvn[- ]?index\b", _re.IGNORECASE)
+_TA_NEGATION_RE = _re.compile(r"\b(?:không|chưa|chẳng)\b", _re.IGNORECASE)
+
+
+def ta_subject(sentence: str, ta: dict, cards: dict | None) -> dict | None:
+    """Thẻ của ĐÚNG MỘT chủ thể câu nói tới — mã có thẻ, không nêu ai thì VN-Index. None khi
+    không phán được: câu nêu ≥2 chủ thể (mã/VN-Index), hoặc nêu mã/chỉ số KHÔNG có thẻ (HPG
+    ngoài ``ta_cards``, HNX-Index, UPCoM) — so chữ với thẻ VN-Index lúc đó là so nhầm người."""
+    s = sentence or ""
+    if _TA_OTHER_INDEX_RE.search(s):
+        return None
+    tickers = {t for t in _TA_TICKER_RE.findall(s) if t not in _TA_NOT_TICKERS}
+    if any(not isinstance((cards or {}).get(t), dict) for t in tickers):
+        return None
+    if len(tickers) + bool(_TA_VNINDEX_RE.search(s)) > 1:
+        return None
+    return cards[next(iter(tickers))] if tickers else ta
+
+
+_TA_CLAUSE_SEP_RE = _re.compile(r"\s*;\s*|,\s+|\s+nhưng\s+", _re.IGNORECASE)
+
+
+def ta_drop_clauses(sentence: str, bad) -> str | None:
+    """Bỏ MỆNH ĐỀ mà ``bad(mệnh đề)`` đúng — tách ở ";", ", " (dấu phẩy KÈM khoảng trắng: số
+    1,748.80 không bị cắt), " nhưng ", không tách trong ngoặc. Không mệnh đề nào tự sai (cụm vắt
+    qua ranh giới) hoặc bỏ hết ⇒ None (bỏ câu). Giữ dấu kết câu; câu gốc viết hoa đầu thì mệnh
+    đề đầu còn lại cũng viết hoa."""
+    body = sentence.rstrip(".!?… ")
+    end = sentence[len(body):].strip() or "."
+    clauses, seps, prev = [], [], 0
+    for m in _TA_CLAUSE_SEP_RE.finditer(body):
+        if body[:m.start()].count("(") > body[:m.start()].count(")"):
+            continue
+        clauses.append(body[prev:m.start()])
+        seps.append(m.group(0))
+        prev = m.end()
+    clauses.append(body[prev:])
+    real = [i for i, c in enumerate(clauses) if c.strip()]
+    keep = [i for i in real if not bad(clauses[i])]
+    if not keep or len(keep) == len(real):
+        return None
+    out = (clauses[keep[0]] + "".join(seps[i - 1] + clauses[i] for i in keep[1:])).strip()
+    if sentence[:1].isupper():
+        out = out[:1].upper() + out[1:]
+    return out + end
+
+
+def ta_rewrite_insight(text: str, ctx: dict, fn) -> str:
+    """Áp ``fn(câu, thẻ của câu) -> câu | None`` lên từng câu của dòng "**Nhận định:**" trong mục
+    📈 (None ⇒ bỏ câu; hết câu ⇒ bỏ dòng). No-op khi không có thẻ / mục / dòng nhận định."""
+    ta = ta_ctx(ctx)
+    if not text or not ta:
+        return text
+    lines = text.split("\n")
+    start = next((i for i, l in enumerate(lines) if is_ta_heading(l)), None)
+    if start is None:
+        return text
+    end = next((j for j in range(start + 1, len(lines)) if _is_section_start(lines[j])), len(lines))
+    idx = next((i for i in range(start + 1, end) if _TA_INSIGHT_RE.match(lines[i])), None)
+    if idx is None:
+        return text
+    m = _TA_INSIGHT_RE.match(lines[idx])
+    sents = ta_split_sentences(lines[idx][m.end():])
+    cards = ctx.get("ta_cards") or {}
+    new = [s2 for s in sents if (s2 := fn(s, ta_card_for(s, ta, cards)))]
+    if new == sents:
+        return text
+    if new:
+        lines[idx] = f"{lines[idx][:m.end()].rstrip()} {' '.join(new)}"
+    else:
+        del lines[idx]
+    return "\n".join(lines)
+
+
 _PIVOT_LABEL_RE = _re.compile(r"\b(S1|S2|R1|R2)\s*=\s*([0-9][0-9.,]*[0-9]|[0-9])")
+
+
+# ── Khung thời gian của một số NN ngành (dùng chung guard số NN + guard nhãn thiếu phiên) ─────────
+_NN_MONTH_NAMES = r"mười|một|giêng|chạp|hai|ba|tư|năm|sáu|bảy|tám|chín"
+# Khoảng thời gian KHÔNG có trong dữ liệu (NN 1T/1M): "tháng rưỡi", N≥2 tháng, quý ⇒ guard KHÔNG
+# ghim số và không gắn nhãn khung tuần (ghim về số tuần hay tháng đều sai khung). Chỉ nhìn NGAY SAU số.
+_NN_NUM_WORD = r"(?:\d+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)"
+_NN_SPAN_HEAD = (r"(?:hơn\s+)?(?:(?:" + _NN_NUM_WORD + r"\s+)?tháng\s+rưỡi\b"
+                 r"|(?:[2-9]|1\d|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)\s+tháng\b")
+# Sau dấu phẩy / không tiền tố: "quý III", "quý một" là mệnh đề khác (BCTC) — loại.
+_NN_SPAN = _NN_SPAN_HEAD + r"|(?:(?:1|một)\s+)?quý\b(?!\s*(?:[IVX]+\b|một\b|hai\b|ba\b|bốn\b)))"
+# Sau "trong" / "(": "trong quý III", "(9 tháng đầu năm)" là khoảng của CHÍNH số — giữ.
+_NN_SPAN_TRONG = (_NN_SPAN_HEAD + r"|(?:(?:1|một)\s+)?quý\b"
+                  r"(?:\s+(?:[IVX]+|một|hai|ba|bốn|\d)\b)?)")
+# Theo sau là trước/sau/tới/cuối/đầu/số/tên tháng ⇒ MỆNH ĐỀ KHÁC ("2 tháng trước còn mua ròng", "quý tới").
+_NN_SPAN_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|tới|cuối|đầu|thứ|qua\s+nữa|"
+                + _NN_MONTH_NAMES + r")\b)")
+# Sau "trong"/"(": xét cụm tới RANH GIỚI MỆNH ĐỀ GẦN NHẤT (dấu câu, "(", gạch ngang, liên từ và/nhưng/dù/
+# khi/do/so với/còn/song/tuy; trong ngoặc: dấu phẩy đầu tiên hoặc ")"). Gặp DẤU HIỆU mệnh đề khác TRƯỚC
+# ranh giới ⇒ không phải khoảng của số: ":", một SỐ kèm "tỷ" (không phải "tỷ giá"), mua/bán/ròng, dự
+# kiến/dự báo, "tới" (trừ "tới nay"), "trước đó"/"sau đó"/"trước."… Tới ranh giới mà sạch ⇒ khoảng của
+# chính số ("… trong 3 tháng qua và tiếp tục bán ròng tuần này"). Vòng lặp lười + không được đi QUA dấu
+# hiệu ⇒ regex lùi lại cũng không lách được.
+_NN_CLAUSE_STOP = (r"(?!:|[-+]?\d[\d.,]*\s*tỷ\b|ròng\b|mua\b|bán\b|dự\s+(?:kiến|báo)\b|tới\b(?!\s+nay)"
+                   r"|(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
+# `[^\S\n]*+` (khoảng trắng TRỪ xuống dòng, sở hữu, Python ≥3.11 — `\s*+` từng nuốt cả "\n" làm hỏng
+# ranh giới cuối dòng). Vòng lười nuốt CẢ dải khoảng trắng mỗi bước (`[^\S\n]++`) — nếu dừng ở từng
+# dấu cách thì lookahead quét lại phần còn lại ⇒ bình phương. Trước đó: lookahead chạy ở MỖI bước — `\s*` thường thử lại cả
+# dải khoảng trắng mỗi lần ⇒ bình phương (review 12/11: 20.000 dấu cách = 24s). " - " có dấu cách là
+# gạch ngang ranh giới như "–" ("III-2025" không có dấu cách thì không).
+_NN_CLAUSE_END = (r"(?=[^\S\n]*+(?:[.,;)(\n–—]|-\s|$|(?:và|nhưng|dù|khi|do|so\s+với|còn|song|tuy"
+                  r"|trong\s+khi)\b))")
+_NN_OTHER_SPAN_RE = _re.compile(
+    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN_TRONG + r"(?:" + _NN_CLAUSE_STOP
+    + r"(?:[^\S\n]++|[^(),\s]))*?(?=[^\S\n]*+[),])"
+    + r"|trong\s+" + _NN_SPAN_TRONG + r"(?!\s*(?:thứ|qua\s+nữa)\b)(?:" + _NN_CLAUSE_STOP
+    + r"(?:[^\S\n]++|\S))*?" + _NN_CLAUSE_END
+    + r"|,\s*" + _NN_SPAN + r"(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
+    + r"|" + _NN_SPAN + _NN_SPAN_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
+
+
+def _nn_other_span(s: str, pos: int) -> bool:
+    return bool(_NN_OTHER_SPAN_RE.match(s, pos))

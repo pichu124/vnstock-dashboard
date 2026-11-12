@@ -81,18 +81,33 @@ def breadth_lines(breadth_data) -> list:
         return []
 
     pct200 = breadth_data["above_ma200_pct"]
+    # tập mã của số % (VNSTOCK_BREADTH_UNIVERSE=investable ⇒ " (N mã thanh khoản)"; all ⇒ "")
+    from vnstock_breadth_universe import display_split, label_suffix
+    _u = label_suffix(breadth_data)
     ad = breadth_data["ad_ratio"]
     ov = breadth_data["rsi_oversold"]
     ob = breadth_data["rsi_overbought"]
     nnh = breadth_data["net_new_highs"]
 
     lines = ["", "**🌡️ Sức khỏe thị trường**"]
-    if pct200 > _MA200_BROAD_UPTREND:
-        lines.append(f"- 🟢 {pct200:.0f}% mã trên MA200 — thị trường trong xu hướng tăng rộng")
+    # VNSTOCK_BREADTH_DISPLAY=investable (PTKT §18): số chính = tập thanh khoản, tông 🟢/🟡/🔴
+    # + chữ mô tả vẫn theo pct200 (toàn thị trường) và nói rõ là toàn thị trường.
+    disp = display_split(breadth_data)
+    if disp:
+        head = f"{disp['pct']:.0f}% mã trên MA200{disp['label']} · toàn thị trường"
+        if pct200 > _MA200_BROAD_UPTREND:
+            lines.append(f"- 🟢 {head} {pct200:.0f}% — toàn thị trường trong xu hướng tăng rộng")
+        elif pct200 > _MA200_MIXED:
+            lines.append(f"- 🟡 {head} {pct200:.0f}% — toàn thị trường phân hóa, chọn lọc")
+        else:
+            lines.append(f"- 🔴 {head} chỉ {pct200:.0f}% — đa số cổ phiếu toàn thị trường "
+                         f"trong xu hướng giảm")
+    elif pct200 > _MA200_BROAD_UPTREND:
+        lines.append(f"- 🟢 {pct200:.0f}% mã trên MA200{_u} — thị trường trong xu hướng tăng rộng")
     elif pct200 > _MA200_MIXED:
-        lines.append(f"- 🟡 {pct200:.0f}% mã trên MA200 — thị trường phân hóa, chọn lọc")
+        lines.append(f"- 🟡 {pct200:.0f}% mã trên MA200{_u} — thị trường phân hóa, chọn lọc")
     else:
-        lines.append(f"- 🔴 Chỉ {pct200:.0f}% mã trên MA200 — đa số cổ phiếu trong xu hướng giảm")
+        lines.append(f"- 🔴 Chỉ {pct200:.0f}% mã trên MA200{_u} — đa số cổ phiếu trong xu hướng giảm")
 
     if ad > _AD_DEMAND:
         lines.append(f"- A/D ratio {ad:.2f} — lực cầu chiếm ưu thế")

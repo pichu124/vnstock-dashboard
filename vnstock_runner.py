@@ -15,6 +15,7 @@ Task Scheduler: chạy lúc 15:35 (sau updater 15:30)
 
 import argparse
 import json
+import os
 import warnings
 from datetime import datetime, time as dt_time
 from pathlib import Path
@@ -26,7 +27,10 @@ warnings.filterwarnings("ignore")
 # Import từ screener (cùng thư mục)
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
+from vnstock_auth import keep_schema_warnings
+keep_schema_warnings()      # bảng thế hệ 6 khác thế hệ 5 vẫn phải hiện cảnh báo
 from vnstock_screener import MarketScreener, PRESETS, stale_limit
+from vnstock_indicators import rsi_default, trend_ma
 
 from rich.console import Console
 from rich.progress import (
@@ -171,10 +175,11 @@ def _normalize_prices(df):
 
 
 # ── Nhịp gọi API dùng chung cho pool worker ──────────────────────────────
-# Hạn mức Sponsor: 600 req/phút = 10 req/s (xem `vnstock_updater` khi in
-# "600 req/min"). Đặt dưới mức đó để chừa biên — và vì các bước khác của phát
-# có thể còn gọi mạng.
+# Hạn mức gói Sponsor dòng cũ: 600 req/phút = 10 req/s. Thế hệ 6 tính hạn mức theo
+# nguồn/tài khoản (chạm trần ⇒ `RateLimitError`); giữ nhịp dưới mức cũ để chừa biên —
+# và vì các bước khác của phát có thể còn gọi mạng.
 _NB_RATE_PER_SEC = 8.0
+_NB_HISTORY_DAYS = 200     # ngày lịch kéo `trade_history` cho Net BS 6M (= 120 phiên)
 _NB_WORKERS_DEFAULT = 8
 _NB_WORKERS_ENV = "VNSTOCK_NETBS_WORKERS"
 
@@ -261,10 +266,12 @@ def excl_missing_totals(totals: dict, gtgd_by_ticker: dict, missing: list) -> di
             for d, t in totals.items()}
 
 
-# 3M = 60 phiên (như Net BS "3m" = tail(60)). Feed TopStock chỉ kéo ~20 phiên nên
+# 3M = 60 phiên (như Net BS "3m" = tail(60)). Feed NN chỉ kéo ~20 phiên nên
 # cửa sổ 90 ngày phủ ĐÚNG dữ liệu của 30 ngày: "NN 3M" từng bằng hệt "NN 1M" và
 # analyzer đọc thành xu hướng (cờ "NN ACCUMULATING: pace 1M nhanh hơn avg 3M").
 _NN_3M_MIN_SESSIONS = 60
+# Mỗi phiên lấy top N mã mua ròng + top N mã bán ròng — đúng tập TopStock (limit=100) cũ.
+_NN_TOP_N = 100
 
 
 def _nn_windows(nn_df: pd.DataFrame) -> tuple:
@@ -288,6 +295,32 @@ def _nn_windows(nn_df: pd.DataFrame) -> tuple:
         for sym, val in filtered.groupby("symbol")["net_value"].sum().items():
             result_map[sym] = round(val / 1e9, 1)  # → tỷ VND
     return nn_w, nn_m, nn_3m, sessions.iloc[0].date().isoformat()
+
+
+def nn_window_gaps(nn_df: "pd.DataFrame | None", cov: "dict | None") -> "dict | None":
+    """Độ phủ NN theo TỪNG khung (hàm thuần): thêm `missing_1t` / `missing_1m` = số phiên lỗi
+    nằm trong 5 / 20 phiên gần nhất đã hỏi.
+
+    NN 1T/1M = 5/20 phiên MỚI NHẤT CÓ dữ liệu (`_nn_windows`) ⇒ phiên lỗi CŨ (thường gặp: hết
+    ngân sách chờ hạn mức ở cuối vòng lùi ngày) không làm 1T thiếu. Gộp ngày có dữ liệu + ngày
+    lỗi, xếp mới→cũ, đếm ngày lỗi trong top-N. `truncated` (dashboard dừng giữa chừng — ngày cũ
+    hơn chưa hỏi) ⇒ còn thiếu tối thiểu N − số phiên có. Ngày lễ (nguồn trả rỗng) không tính lỗi.
+    """
+    if not isinstance(cov, dict):
+        return None
+    have = set()
+    if nn_df is not None and not nn_df.empty and "date" in nn_df.columns:
+        have = set(pd.to_datetime(nn_df["date"]).dt.normalize().dt.date)
+    failed = {d for d in (pd.to_datetime(pd.Series(cov.get("failed_dates") or [], dtype=object),
+                                         errors="coerce").dt.date) if pd.notna(d)} - have
+    merged = sorted(have | failed, reverse=True)
+    out = dict(cov)
+    for key, n in (("missing_1t", 5), ("missing_1m", 20)):
+        miss = sum(1 for d in merged[:n] if d in failed)
+        if cov.get("truncated"):
+            miss = max(miss, n - len(have))
+        out[key] = max(0, miss)
+    return out
 
 
 def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
@@ -343,8 +376,20 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
     from datetime import date, timedelta
     cutoff = pd.Timestamp(date.today() - timedelta(days=400))
 
+    # Tập mã đầu tư được (PTKT §16): lịch phiên VNINDEX như screener; chưa có ⇒ không tính được.
+    from vnstock_breadth_universe import breadth_fields, investable_mask
+    from vnstock_screener import market_sessions
+    try:
+        sessions = market_sessions(prices_dir)
+    except Exception as e:
+        console.log(f"  [yellow]⚠ Lịch phiên VNINDEX lỗi ({e}) — không tính độ rộng tập thanh khoản[/yellow]")
+        sessions = pd.DatetimeIndex([])
+    sessions = sessions.normalize().unique().sort_values()
+    as_of = sessions[-1:]
+
     rows = []
     b_total = b_ma200 = b_rsi_ov = b_rsi_ob = 0
+    b_inv = b_inv_ma200 = 0
     b_adv = b_dec = b_unch = b_hi = b_lo = 0
     _gtgd_day_rows: list[tuple] = []  # (bar_date, giá×KLGD tỷ) → tổng GTGD phiên mới nhất
     _gtgd_by_ticker: dict = {}        # ticker → {date: giá×KLGD tỷ} 22 bar cuối (#18)
@@ -372,6 +417,7 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
             df["time"] = pd.to_datetime(df["time"])
             df = df.drop_duplicates("time", keep="last").sort_values("time")
             df = _normalize_prices(df)      # cả 3 năm đã đọc: mốc đơn vị không phụ thuộc cửa sổ
+            df_full = df
             df = df[df["time"] >= cutoff]
             if len(df) < 5:
                 continue
@@ -399,18 +445,16 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
             if _tv:
                 _gtgd_by_ticker[ticker] = _tv
 
-            # Breadth
+            # Breadth — SMA200 + RSI Wilder (§10b); VNSTOCK_INDICATOR_LEGACY=1 ⇒ EMA200 + Cutler
             b_total += 1
-            if len(c) >= 200:
-                ema200 = c.ewm(span=200, adjust=False).mean().iloc[-1]
-                if last > ema200:
-                    b_ma200 += 1
+            above = bool(len(c) >= 200 and last > trend_ma(c, 200).iloc[-1])
+            b_ma200 += above
+            if len(as_of) and investable_mask(df_full["time"], df_full["close"],
+                                              df_full["volume"], sessions, as_of)[0]:
+                b_inv += 1
+                b_inv_ma200 += above
 
-            delta = c.diff()
-            gain = delta.clip(lower=0).rolling(14).mean()
-            loss = (-delta.clip(upper=0)).rolling(14).mean()
-            rs = gain / loss.replace(0, np.nan)
-            rsi_val = (100 - (100 / (1 + rs))).iloc[-1]
+            rsi_val = rsi_default(c).iloc[-1]
             if not np.isnan(rsi_val):
                 if rsi_val < 30: b_rsi_ov += 1
                 elif rsi_val > 70: b_rsi_ob += 1
@@ -500,8 +544,7 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
     if b_total > 0:
         breadth = {
             "total": b_total,
-            "above_ma200": b_ma200,
-            "above_ma200_pct": round(b_ma200 / b_total * 100, 1),
+            **breadth_fields(b_total, b_ma200, b_inv, b_inv_ma200),
             "rsi_oversold": b_rsi_ov,
             "rsi_oversold_pct": round(b_rsi_ov / b_total * 100, 1),
             "rsi_overbought": b_rsi_ob,
@@ -521,9 +564,11 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
 
     # NN ròng + Net BS là nguồn NGOÀI kho: bên gọi đưa vào, thiếu ⇒ cột None.
     nn_w, nn_m, nn_3m, nn_data_date = {}, {}, {}, None
+    nn_coverage = None    # {"sessions", "asked", "failed_days"} khi lượt tải NN có ngày lỗi
     if fetch_nn is not None:
         try:
             nn_df = fetch_nn()
+            nn_coverage = nn_window_gaps(nn_df, (getattr(nn_df, "attrs", None) or {}).get("nn_coverage"))
             nn_w, nn_m, nn_3m, nn_data_date = _nn_windows(nn_df)
             if nn_data_date:
                 console.log(f"  NN data: {len(nn_df)} records, đến ngày {nn_data_date}")
@@ -691,6 +736,9 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
         "gtgd_missing_est": _missing_est,
         "gtgd_heavy_min": _HEAVY_GTGD_TY,
         "nn_data_date": nn_data_date,   # latest date the foreign-flow feed covers
+        # Lượt tải NN có ngày lỗi (nguồn/hạn mức/mạng) ⇒ cột NN 1T/1M của ngành tính THIẾU
+        # phiên; tab Tổng quan báo rõ. None = đủ.
+        "nn_coverage": nn_coverage,
         "sectors": result.to_dict(orient="records"),
         "breadth": breadth,
         "tickers": tick_display.to_dict(orient="records"),
@@ -698,20 +746,32 @@ def build_market_overview(warehouse: str = "data_warehouse", *, fetch_nn=None,
 
 
 def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
-    """Bản của bước screener: `build_market_overview` + NN ròng (TopStock) + Net
-    Buy-Sell (order_stats, cache `_meta/net_bs_cache.json`). Trả dict, chưa ghi
-    market_overview.json — việc đó của `save_market_overview`."""
+    """Bản của bước screener: `build_market_overview` + NN ròng (bảng NN cả thị trường
+    theo ngày) + Net Buy-Sell (`trade_history`, cache `_meta/net_bs_cache.json`). Trả
+    dict, chưa ghi market_overview.json — việc đó của `save_market_overview`."""
 
     def _fetch_nn() -> pd.DataFrame:
-        """NN ròng ~20 phiên gần nhất: TopStock foreign_buy + foreign_sell."""
-        try:
-            from vnstock_data import TopStock
-        except ImportError:
-            console.log("  [dim]vnstock_data not installed — NN data skipped[/dim]")
-            return pd.DataFrame()
+        """NN ròng ~20 phiên gần nhất: mỗi phiên top `_NN_TOP_N` mã mua ròng + top
+        `_NN_TOP_N` mã bán ròng (đúng tập TopStock foreign_buy/foreign_sell cũ trả về),
+        cắt từ bảng cả thị trường `vnstock_foreign_flow.foreign_net_for_date`."""
         from datetime import date, timedelta as _td
-        ts = TopStock()
+        from vnstock.errors import VnstockError
+        from vnstock_foreign_flow import foreign_net_for_date
+        from vnstock_ratelimit import call_with_rate_limit_retry
         all_nn_rows = []
+        failed_days = 0
+        failed_dates: list = []
+        # Ngân sách CHỜ hạn mức cho cả 20 phiên (task Daily có trần 240′): còn ngân sách ⇒ mỗi
+        # phiên được chờ MỘT lượt (≤300s) theo retry_after; hết ⇒ không chờ nữa, phiên chạm
+        # hạn mức tính là lỗi. Ca xấu nhất ≈ ngân sách + 300s. `0` = không bao giờ chờ.
+        try:
+            wait_budget = float(os.getenv("VNSTOCK_NN_RATE_WAIT_BUDGET_S", "300") or 0)
+        except ValueError:          # giá trị rác trong .env ⇒ mặc định, không làm mất cả NN
+            wait_budget = 300.0
+        waited = [0.0]
+
+        def _on_wait(seconds, _attempt):
+            waited[0] += seconds
         today_d = date.today()
         days_fetched = 0
         calendar_day = 0
@@ -720,30 +780,44 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
             calendar_day += 1
             if dt.weekday() >= 5:
                 continue
-            dt_str = dt.strftime("%Y-%m-%d")
-            for fetch_fn in (ts.foreign_buy, ts.foreign_sell):
-                try:
-                    nn_df_day = fetch_fn(date=dt_str, limit=100)
-                    if nn_df_day is not None and not nn_df_day.empty:
-                        for _, r in nn_df_day.iterrows():
-                            all_nn_rows.append({
-                                "symbol": str(r.get("symbol", "")),
-                                "date": dt,
-                                "net_value": float(r.get("net_value", 0)),
-                            })
-                except Exception:
-                    continue
             days_fetched += 1
-        return pd.DataFrame(all_nn_rows)
+            try:
+                board = call_with_rate_limit_retry(
+                    foreign_net_for_date, dt.strftime("%Y-%m-%d"),
+                    retries=1 if waited[0] < wait_budget else 0, on_wait=_on_wait)
+            except (VnstockError, RuntimeError) as e:   # RuntimeError = hạn mức không hạ
+                failed_days += 1
+                failed_dates.append(dt.isoformat())
+                console.log(f"  [yellow]⚠ NN {dt}: {getattr(e, 'code', '')} {e}[/yellow]")
+                continue
+            net = board.dropna(subset=["foreign_net_value"])
+            for side in (net[net["foreign_net_value"] > 0].nlargest(_NN_TOP_N, "foreign_net_value"),
+                         net[net["foreign_net_value"] < 0].nsmallest(_NN_TOP_N, "foreign_net_value")):
+                for sym, val in zip(side["symbol"], side["foreign_net_value"]):
+                    all_nn_rows.append({"symbol": sym, "date": dt, "net_value": float(val)})
+        out = pd.DataFrame(all_nn_rows)
+        if failed_days:
+            out.attrs["nn_coverage"] = {
+                "sessions": int(out["date"].nunique()) if not out.empty else 0,
+                "asked": 20, "failed_days": failed_days, "failed_dates": failed_dates,
+                "source": "pipeline"}
+        return out
 
     def _fetch_net_bs(_top_tickers: list) -> dict:
-        """Net Buy-Sell theo mã qua order_stats(): song song có nhịp, cache 12h."""
+        """Net Buy-Sell theo mã qua `Market().equity(t).trade_history()`: song song có
+        nhịp, cache 12h."""
         nb_data: dict = {}
         _NB_CACHE_PATH = Path(warehouse) / "_meta" / "net_bs_cache.json"
         _NB_CACHE_TTL_H = 12  # reuse cache if younger than 12 hours
         try:
-            from vnstock_data import Trading
+            from datetime import date, timedelta as _td
+            from vnstock import Market
+            from vnstock.errors import VnstockError
+            from vnstock_auth import ensure_api_key
             import time as _nb_time
+            ensure_api_key()
+            # 6M = 120 phiên ≈ 170 ngày lịch; 200 ngày chừa nghỉ lễ.
+            _nb_start = (date.today() - _td(days=_NB_HISTORY_DAYS)).isoformat()
 
             # Check cache first
             _nb_cache_hit = False
@@ -792,8 +866,9 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                     _nb_pacer.wait()
                     try:
                         os_df = call_with_rate_limit_retry(
-                            lambda: Trading(symbol=tk).order_stats(), retries=2)
-                    except Exception:
+                            lambda: Market().equity(tk).trade_history(start=_nb_start),
+                            retries=2)
+                    except VnstockError:
                         # Nuốt im lặng như bản cũ là MẤT DATA không dấu vết: mã bị
                         # hạn mức chặn biến mất khỏi nb_data mà không ai biết.
                         return tk, None, True
@@ -861,8 +936,6 @@ def compute_market_overview(warehouse: str = "data_warehouse") -> dict:
                     f"({_nb_secs:.0f}s · {_nb_rate:.1f} req/s · {_nb_workers} luồng"
                     + (f" · {_nb_fail} LỖI" if _nb_fail else "") + ") → cached"
                 )
-        except ImportError:
-            console.log("  [dim]vnstock_data not installed — Net BS data skipped[/dim]")
         except Exception as e:
             console.log(f"  [yellow]⚠ Net BS fetch error: {e}[/yellow]")
         return nb_data

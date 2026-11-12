@@ -85,6 +85,14 @@ _WATCHLIST_GTGD_MIN_TY: float = 30.0
 # actionable trong 1-2 phiên (user chốt 17/07, siết nguồn 20/07). Dùng ở cả
 # _select_sr_levels (nguồn) lẫn enforce_sr_direction tầng 3 (kéo/cắt mục tiêu).
 _SR_MAX_MOVE_PCT: float = 0.07
+# Ngưỡng RSI(14) HAI TẦNG (PTKT P1, §4 mục 4): nhãn prompt đọc tầng quá mua/quá bán,
+# phiếu RSI của `vnstock_regime` đọc tầng mạnh/yếu. So sánh CHẶT (> / <) ở cả hai chỗ.
+RSI_OVERBOUGHT: float = 70
+RSI_STRONG: float = 60
+RSI_WEAK: float = 40
+RSI_OVERSOLD: float = 30
+# Regime điểm ≥ 2 mà RSI VN-Index trên mức này ⇒ ép "sideways" (quá nóng, thận trọng).
+RSI_OVERHEAT_SIDEWAYS: float = 72
 
 # ── Bước giá HOSE ─────────────────────────────────────────────────────────────
 def _vn_tick(price_vnd: float) -> int:
@@ -501,7 +509,15 @@ def _horizon_medium_line(view: dict, ctx: dict) -> str:
             f"từ {_hz_ddmm(snap.get('medium_since'))} ({_hz_weeks(view)})")
     b, b4 = view.get("breadth_pct"), view.get("breadth_pct_4w")
     if isinstance(b, (int, float)):
-        line += f"; {b:.0f}% mã trên MA200"
+        from vnstock_breadth_universe import display_split, label_suffix
+        # VNSTOCK_BREADTH_DISPLAY (PTKT §18): state 🔭 chỉ lưu số quyết định (toàn thị trường) ⇒
+        # số tập thanh khoản lấy từ ctx["breadth"], CHỈ khi cùng phép đo (số toàn thị trường
+        # khớp — state và market_overview cùng phiên); "4 tuần trước" là số toàn thị trường.
+        disp = display_split(ctx.get("breadth")) if not label_suffix(view) else None
+        if disp and abs(disp["all_pct"] - b) < 0.05:
+            line += f"; {disp['pct']:.0f}% mã trên MA200{disp['label']} · toàn thị trường {b:.0f}%"
+        else:
+            line += f"; {b:.0f}% mã trên MA200{label_suffix(view)}"
         if isinstance(b4, (int, float)):
             line += f" (4 tuần trước {b4:.0f}%)"
     return line + "." + _horizon_macro_snippet(ctx)
@@ -809,3 +825,29 @@ def _fmt_footer_price(p: float) -> str:
 def _fmt_adj_price(p: float) -> str:
     """Giá quy đổi quyền: tối đa 2 số lẻ, bỏ số 0 thừa — 52.0 → '52', 23.5 → '23.5'."""
     return f"{p:,.2f}".rstrip("0").rstrip(".")
+
+
+# ── Thẻ kỹ thuật trong brief (PTKT P2c/P3, `docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §10d, §17–§18) ──
+# Mục "📈 Mức kỹ thuật" = dòng thẻ do CODE in + TỐI ĐA 3 câu "Nhận định" của model. Prompt
+# (`vnstock_brief._swap_ta_template`) và guard (`enforce_ta_*`) đọc cùng các hằng dưới đây.
+TA_SECTION_TITLES = {"morning": "## 📈 Mức kỹ thuật quan trọng (VNINDEX)",
+                     "afternoon": "## 📈 Mức kỹ thuật chốt phiên (VNINDEX)"}
+TA_INSIGHT_LABEL = "**Nhận định:**"
+TA_INSIGHT_MAX_SENTENCES = 3
+# S/R là MỐC THAM CHIẾU (§17: không cách tìm S/R nào hơn mốc ngây thơ giá ± ATR) ⇒ mệnh đề coi mức
+# là LỢI THẾ bị BỎ (không thay từ: thay từ trong câu model biến câu đúng thành sai). Mẫu regex,
+# không phân biệt hoa thường; tên mức/số được chen giữa ("hỗ trợ S1 1,705.50 sẽ giữ"). Kịch bản
+# nếu–thì ("vượt R1 thì lên R2") và cách nói rào ("có thể sẽ về S2", "chưa chắc chắn",
+# "đảm bảo an toàn") KHÔNG phải hứa hẹn.
+TA_LEVEL_PROMISE_EXAMPLES = ("hỗ trợ sẽ giữ", "chắc chắn bật", "thủng là về S2")
+_TA_LEVEL_FILLER = r"(?:\s+(?:gần|quanh|tại|ở|S[12]|R[12]|\d[\d.,]*))"
+TA_LEVEL_PROMISE_PHRASES: tuple = (
+    rf"\b(?:hỗ trợ|S[12])\b{_TA_LEVEL_FILLER}{{0,4}}\s+(?:chắc chắn\s+)?sẽ\s+"
+    r"(?:giữ|đỡ|trụ|chặn|bật)",
+    rf"\b(?:kháng cự|R[12])\b{_TA_LEVEL_FILLER}{{0,4}}\s+(?:chắc chắn\s+)?sẽ\s+(?:cản|chặn)",
+    r"(?<!có thể )\b(?:sẽ|là)\s+(?:rơi về|rơi xuống|lùi về|về|xuống|lên|tới|test|hướng tới|"
+    r"mở đường lên)\s+(?:(?:vùng|mức|mốc)\s+)?[SR]2\b",
+    r"(?<!chưa )(?<!không )(?<!chẳng )\bchắc chắn\b",
+    r"(?<!không )\bđảm bảo(?:\s+\S+){0,2}?\s+(?:giữ|bật|tăng|hồi|đỡ|chặn|cản|vượt|thủng|lên|"
+    r"xuống|về)\b",
+)

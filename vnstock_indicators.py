@@ -27,14 +27,113 @@ Input nhận list/np.ndarray/pandas.Series; trả float/None khi thiếu data /
 suy biến (không nổ, không độn 0). Mọi hàm nhìn chuỗi giá dài đều có guard
 unit-break ×200 (bẫy per-bar normalization mã penny — mirror
 `_stitch_units`/vnstock_candle_patterns).
+
+Chỉ báo nền dùng chung (PTKT P1, `docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §14b):
+``rsi_wilder`` · ``rsi_cutler`` · ``sma`` · ``ema`` · ``atr`` trả pandas.Series
+CÙNG chiều + index với input, NaN ở các bar khởi động (chart cần whitespace,
+không được bỏ bar). Đợt 2: screener/độ rộng/chart gọi ``rsi_default`` + ``trend_ma``
+(Wilder + SMA; ``VNSTOCK_INDICATOR_LEGACY=1`` ⇒ Cutler + EMA như cũ).
 """
 
 from __future__ import annotations
 
 import math
+import os
 from typing import Optional
 
 import numpy as np
+import pandas as pd
+
+
+# ── Chỉ báo nền dùng chung (PTKT P1) ─────────────────────────────────────────
+
+def _series(x) -> pd.Series:
+    return x.astype(float) if isinstance(x, pd.Series) else pd.Series(np.asarray(x, dtype=float))
+
+
+def _rsi_from_avgs(avg_up: pd.Series, avg_dn: pd.Series, n: int) -> pd.Series:
+    """RSI từ trung bình tăng/giảm. Không có phiên giảm ⇒ 100; đứng giá hẳn ⇒ NaN."""
+    rsi = 100.0 - 100.0 / (1.0 + avg_up / avg_dn.where(avg_dn != 0))
+    rsi = rsi.mask((avg_dn == 0) & (avg_up > 0), 100.0)
+    rsi.iloc[:n] = np.nan
+    return rsi
+
+
+def rsi_wilder(close, n: int = 14) -> pd.Series:
+    """RSI Wilder: trung bình mũ ``ewm(alpha=1/n, adjust=False)``, gieo ở delta đầu tiên.
+
+    Định nghĩa gốc của RSI, số TradingView/bảng giá môi giới hiển thị (§10b). Khớp từng
+    giá trị công thức RSI VN-Index của brief từ trước P1. ``n`` bar đầu = NaN."""
+    delta = _series(close).diff()
+    up = delta.clip(lower=0).ewm(alpha=1.0 / n, adjust=False).mean()
+    dn = (-delta).clip(lower=0).ewm(alpha=1.0 / n, adjust=False).mean()
+    return _rsi_from_avgs(up, dn, n)
+
+
+def rsi_cutler(close, n: int = 14) -> pd.Series:
+    """RSI Cutler: trung bình ĐƠN ``rolling(n)`` — công thức screener/độ rộng/chart đang dùng
+    (giữ để so ở `scripts/compare_indicator_formulas.py`). Khác code cũ đúng một chỗ: cửa sổ
+    không phiên giảm ra 100 (code cũ ra NaN ⇒ None)."""
+    delta = _series(close).diff()
+    up = delta.clip(lower=0).rolling(n).mean()
+    dn = (-delta.clip(upper=0)).rolling(n).mean()
+    return _rsi_from_avgs(up, dn, n)
+
+
+def sma(x, n: int) -> pd.Series:
+    """Trung bình đơn ``n`` bar; ``n − 1`` bar đầu = NaN."""
+    return _series(x).rolling(n).mean()
+
+
+def ema(x, n: int) -> pd.Series:
+    """EMA ``span=n, adjust=False`` (đúng EMA của screener/runner); ``n − 1`` bar đầu = NaN.
+    Gieo ở bar đầu của chuỗi đưa vào ⇒ cửa sổ khác nhau cho số khác nhau."""
+    return _series(x).ewm(span=n, adjust=False, min_periods=n).mean()
+
+
+LEGACY_ENV = "VNSTOCK_INDICATOR_LEGACY"
+
+
+def indicator_legacy() -> bool:
+    """``VNSTOCK_INDICATOR_LEGACY=1`` (1/true/yes/on) ⇒ RSI Cutler + EMA200 như trước PTKT P1
+    đợt 2 ở screener/độ rộng/chart. Đọc lúc gọi, mặc định TẮT."""
+    return os.environ.get(LEGACY_ENV, "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def rsi_wilder_unfrozen(close, n: int = 14) -> pd.Series:
+    """`rsi_wilder` nhưng NaN khi ``n`` phiên giá đứng hẳn (xem `rsi_default`). Không đọc env —
+    `scripts/compare_indicator_formulas.py` đo đúng bản production bằng hàm này."""
+    c = _series(close)
+    flat = c.diff().abs().rolling(n).sum() == 0
+    return rsi_wilder(c, n).mask(flat)
+
+
+def rsi_default(close, n: int = 14) -> pd.Series:
+    """RSI dùng thống nhất: Wilder (§10b). Công tắc legacy ⇒ Cutler ĐÚNG như code cũ —
+    cửa sổ không phiên giảm ra NaN (không phải 100).
+
+    Cửa sổ ``n`` phiên giá ĐỨNG HẲN (mọi delta = 0) ⇒ NaN: Wilder là trung bình mũ, giá đứng
+    thì trung bình tăng/giảm cùng co theo một tỉ lệ ⇒ RSI ĐÓNG BĂNG ở số cũ mãi mãi ⇒ mã kém
+    thanh khoản kẹt trong quá mua/quá bán và lọt vào đếm độ rộng (review P1 đợt 2, 04/11).
+    Cutler cũ ra NaN ở đúng cửa sổ đó ⇒ giữ nguyên nghĩa "đứng giá = không tín hiệu"."""
+    if not indicator_legacy():
+        return rsi_wilder_unfrozen(close, n)
+    r = rsi_cutler(close, n)
+    return r.where(r < 100)
+
+
+def trend_ma(x, n: int) -> pd.Series:
+    """Chữ "MA<n>" của độ rộng và preset xu hướng: SMA (§10b). Công tắc legacy ⇒ EMA như cũ."""
+    return ema(x, n) if indicator_legacy() else sma(x, n)
+
+
+def atr(high, low, close, n: int = 14) -> pd.Series:
+    """ATR Wilder: ``ewm(alpha=1/n, adjust=False)`` của True Range (cùng họ gieo với
+    ``rsi_wilder``); bar đầu TR = H − L. ``n − 1`` bar đầu = NaN."""
+    h, lo, c = _series(high), _series(low), _series(close)
+    prev = c.shift(1)
+    tr = pd.concat([h - lo, (h - prev).abs(), (lo - prev).abs()], axis=1).max(axis=1)
+    return tr.ewm(alpha=1.0 / n, adjust=False, min_periods=n).mean()
 
 _CHOP_LEN_DEFAULT = 14
 CHOP_CHOPPY = 61.8    # trên ngưỡng → đi ngang/choppy (mốc Fibonacci chuẩn)

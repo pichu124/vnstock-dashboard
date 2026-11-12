@@ -130,3 +130,106 @@ def test_skip_stale_days_skips_dead_ticker_without_fetching(tmp_path, monkeypatc
     monkeypatch.setattr(vu, "_fetch_prices", lambda *a, **k: pd.DataFrame())
     assert vu.update_ticker("DEADX", prices, today,
                             skip_stale_days=0)["status"] != "stale_skip"
+
+
+# ── vnstock thế hệ 6: lệnh gọi đi qua Market (mặt tiền), lỗi có kiểu ────────
+
+class _FakeNode:
+    def __init__(self, frame=None, exc=None, calls=None):
+        self._frame, self._exc, self._calls = frame, exc, calls
+
+    def ohlcv(self, **kwargs):
+        if self._calls is not None:
+            self._calls.append(kwargs)
+        if self._exc is not None:
+            raise self._exc
+        return self._frame
+
+
+def _fake_market(monkeypatch, frame=None, exc=None, calls=None):
+    import vnstock
+
+    node = _FakeNode(frame, exc, calls)
+
+    class _Market:
+        def equity(self, symbol):
+            return node
+
+        def index(self, symbol):
+            raise AssertionError("cổ phiếu không được đi nhánh chỉ số")
+
+    monkeypatch.setattr(vnstock, "Market", _Market)
+
+
+def test_gen6_fetch_maps_tz_aware_bars_to_warehouse_dates(monkeypatch):
+    # Thế hệ 6 trả `time` CÓ múi giờ (bar ngày lúc 07:00 giờ VN = 00:00 UTC).
+    # Kho lưu ngày lịch VN: phải ra đúng ngày, giá giữ nguyên đơn vị nguồn.
+    calls = []
+    frame = pd.DataFrame({
+        "time": pd.to_datetime(["2026-07-16T00:00:00Z", "2026-07-17T00:00:00Z"]),
+        "open": [119.5, 121.0], "high": [121.0, 122.5], "low": [119.0, 120.5],
+        "close": [120.0, 121.5], "volume": [1_000_000, 1_200_000],
+    })
+    _fake_market(monkeypatch, frame=frame, calls=calls)
+
+    out = vu._fetch_prices("FPT", "2026-07-16", "2026-07-17")
+
+    assert list(out.columns) == ["time", "open", "high", "low", "close", "volume"]
+    assert list(out["time"]) == [date(2026, 7, 16), date(2026, 7, 17)]
+    assert list(out["close"]) == [120.0, 121.5]
+    # nguồn chọn ở luật VNSTOCK_SOURCE — lệnh gọi không mang tên nguồn
+    assert calls == [{"start": "2026-07-16", "end": "2026-07-17", "interval": "1D"}]
+
+
+def test_gen6_typed_network_error_is_raised_not_swallowed(monkeypatch):
+    # Bài 17/07: nuốt lỗi → df rỗng → "no_new_data" giả. Lỗi thế hệ 6 phải bay ra.
+    from vnstock.errors import NetworkError
+
+    _fake_market(monkeypatch, exc=NetworkError("Hết thời gian chờ",
+                                               code="VNSTOCK_SOURCE_NETWORK"))
+    with pytest.raises(NetworkError):
+        vu._fetch_prices("FPT", "2026-07-10", "2026-07-17")
+
+    # Nguồn trả rỗng THẬT (mã hủy niêm yết) → df rỗng, không raise
+    _fake_market(monkeypatch, frame=pd.DataFrame())
+    assert vu._fetch_prices("XXX", "2026-07-10", "2026-07-17").empty
+
+
+def test_gen6_source_error_marks_one_ticker_and_leaves_warehouse(tmp_path, monkeypatch):
+    from vnstock.errors import SourceError
+
+    prices = tmp_path / "prices"
+    tdir = _seed(prices, "FPT", [_bar("2026-07-15", 119.5, 1e6),
+                                 _bar("2026-07-16", 120.0, 1e6)])
+    before = (tdir / "year=2026" / "prices.parquet").read_bytes()
+    _fake_market(monkeypatch, exc=SourceError("Nguồn lỗi",
+                                              code="VNSTOCK_SOURCE_UNAVAILABLE"))
+
+    res = vu.update_ticker("FPT", prices, date(2026, 7, 17))
+
+    assert res["status"] == "error" and "Nguồn lỗi" in res["error"]
+    assert (tdir / "year=2026" / "prices.parquet").read_bytes() == before
+
+
+def test_gen6_source_in_raw_dong_is_quarantined_by_basis_guard(tmp_path, monkeypatch):
+    # Kho lưu giá NGHÌN đồng. Nguồn trả ĐỒNG (×1000) — chưa đối chiếu được khi
+    # không có khoá nguồn — thì cửa V1 phải chặn, không nối chuỗi lệch đơn vị.
+    import vnstock_basis_guard as bg
+
+    prices = tmp_path / "prices"
+    days = list(pd.bdate_range(end="2026-07-16", periods=12).date)
+    tdir = _seed(prices, "VTP", [_bar(str(d), 100.0 + i, 1e6)
+                                 for i, d in enumerate(days)])
+    before = (tdir / "year=2026" / "prices.parquet").read_bytes()
+    src_days = days + [date(2026, 7, 17)]
+    px = [(100.0 + i) * 1000 for i in range(len(src_days))]
+    _fake_market(monkeypatch, frame=pd.DataFrame({
+        "time": pd.to_datetime(src_days), "open": px, "high": px, "low": px,
+        "close": px, "volume": [1_000_000] * len(src_days)}))
+
+    res = vu.update_ticker("VTP", prices, date(2026, 7, 17))
+
+    assert res["status"] == "basis_drift"
+    assert res["ratio"] == pytest.approx(0.001)            # kho / nguồn
+    assert (tdir / "year=2026" / "prices.parquet").read_bytes() == before
+    assert "VTP" in bg.load_pending(tmp_path)

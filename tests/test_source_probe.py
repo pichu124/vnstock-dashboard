@@ -9,6 +9,7 @@ disputed (ghi chú, không loại)."""
 from __future__ import annotations
 
 import vnstock_source_probe as sp
+from tests.conftest import needs_vnstock
 
 _D_FRESH, _D_STALE = "2026-07-17", "2026-07-15"
 
@@ -113,3 +114,109 @@ def test_render_report_and_cumulative():
 def test_score_empty_run_safe():
     assert sp.score_results({}) == []
     assert sp.fallback_order([]) == []
+
+
+# ── vnstock thế hệ 6: danh sách nguồn + lệnh gọi (mock, không mạng) ─────────
+
+def _fake_market(monkeypatch, per_source):
+    """per_source: {nguồn: DataFrame | Exception} — Market(nguồn).equity/index(...).ohlcv."""
+    import vnstock
+
+    calls = []
+
+    class _Node:
+        def __init__(self, source, kind, symbol):
+            self.source, self.kind, self.symbol = source, kind, symbol
+
+        def ohlcv(self, **kwargs):
+            calls.append((self.source, self.kind, self.symbol, kwargs))
+            out = per_source[self.source]
+            if isinstance(out, Exception):
+                raise out
+            return out.copy()
+
+    class _Market:
+        def __init__(self, source=None):
+            self.source = source
+
+        def equity(self, symbol):
+            return _Node(self.source, "equity", symbol)
+
+        def index(self, symbol):
+            return _Node(self.source, "index", symbol)
+
+    monkeypatch.setattr(vnstock, "Market", _Market)
+    return calls
+
+
+def _bars():
+    import pandas as pd
+    return pd.DataFrame({"time": pd.to_datetime(["2026-07-16T00:00:00Z",
+                                                 "2026-07-17T00:00:00Z"]),
+                         "open": [120.0, 121.0], "high": [121.0, 122.0],
+                         "low": [119.0, 120.0], "close": [120.5, 121.5],
+                         "volume": [1_000_000, 1_100_000]})
+
+
+@needs_vnstock
+def test_candidates_come_from_gen6_readers(monkeypatch):
+    import vnstock
+
+    asked = []
+    monkeypatch.setattr(vnstock.sources, "readers",
+                        lambda route: asked.append(route) or ["a", "b"])
+    monkeypatch.setenv("VNSTOCK_SOURCE", "a,b")              # nguồn user khai ở .env
+    monkeypatch.delenv("VNSTOCK_SOURCE_ROUTES", raising=False)
+    _fake_market(monkeypatch, {"a": _bars(), "b": _bars()})
+
+    run = sp.run_probe(basket=("FPT",), days=3, verbose=False)
+
+    assert asked == ["market.equity.ohlcv"]
+    assert sorted(run["results"]) == ["a", "b"]
+
+
+@needs_vnstock
+def test_one_call_names_the_source_and_reads_local_date(monkeypatch):
+    calls = _fake_market(monkeypatch, {"a": _bars()})
+
+    r = sp._one_call("a", "FPT", "2026-07-16", "2026-07-17")
+    ri = sp._one_call("a", "VNINDEX", "2026-07-16", "2026-07-17")
+
+    assert r["ok"] and r["rows"] == 2 and r["last_close"] == 121.5
+    assert r["last_time"] == "2026-07-17"                 # ngày lịch VN, không lệch múi giờ
+    assert [(c[0], c[1], c[2]) for c in calls] == [("a", "equity", "FPT"),
+                                                   ("a", "index", "VNINDEX")]
+    assert calls[0][3] == {"start": "2026-07-16", "end": "2026-07-17", "interval": "1D"}
+    assert ri["ok"]
+
+
+@needs_vnstock
+def test_source_without_key_is_unavailable_not_dead(monkeypatch):
+    from vnstock.errors import CredentialError
+
+    _fake_market(monkeypatch, {
+        "a": _bars(),
+        "b": CredentialError("Chưa có khoá", code="VNSTOCK_CREDENTIAL_MISSING"),
+    })
+    run = sp.run_probe(basket=("FPT", "BSR"), days=3, sources=("a", "b"), verbose=False)
+
+    assert run["results"]["b"]["unavailable"] is True
+    assert len(run["results"]["b"]["stocks"]) == 1        # dừng ngay mã đầu
+    assert [e["source"] for e in sp.score_results(run)] == ["a"]
+
+
+@needs_vnstock
+def test_candidate_sources_only_measures_declared_sources(monkeypatch):
+    """Thế hệ 6: probe chỉ đo nguồn user khai ở .env, theo thứ tự khai — không tự duyệt nguồn khác."""
+    import vnstock
+    import vnstock_source_probe as sp
+    monkeypatch.setattr(vnstock.sources, "readers", lambda route: ["a", "b", "c", "d"])
+    monkeypatch.delenv("VNSTOCK_SOURCE", raising=False)
+    monkeypatch.delenv("VNSTOCK_SOURCE_ROUTES", raising=False)
+    assert sp.candidate_sources() == ()
+    monkeypatch.setenv("VNSTOCK_SOURCE", "c,zz,a")
+    monkeypatch.setenv("VNSTOCK_SOURCE_ROUTES", "market.equity.*=b;fundamental.equity.*=d")
+    assert sp.candidate_sources() == ("c", "a", "b")
+    monkeypatch.setenv("VNSTOCK_SOURCE", "C, A")              # .env viết hoa vẫn là nguồn đã khai
+    monkeypatch.delenv("VNSTOCK_SOURCE_ROUTES")
+    assert sp.candidate_sources() == ("c", "a")

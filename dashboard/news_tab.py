@@ -237,7 +237,7 @@ def _render_ticker_news() -> None:
     except ImportError:
         _sentiment_available = False
 
-    page_header("Tin theo mã", "Tin doanh nghiệp từ vnstock (VCI/KBS) · VN30 + top screener")
+    page_header("Tin theo mã", "Tin doanh nghiệp theo mã · vnstock thế hệ 6 đã ngừng nguồn này — chỉ còn tin đã lưu")
 
     # ── Cache status & controls ────────────────────────────────────────────
     _p = _nn.NEWS_CACHE_PATH
@@ -332,7 +332,7 @@ def _render_ticker_news() -> None:
         else:
             _status.error(
                 f"❌ Không tải được tin nào cho **{len(universe)}** mã — nguồn tin "
-                "(VCI/KBS) lỗi, mạng hỏng, hoặc nguồn chưa có tin. Thử lại sau.")
+                "theo mã không còn ở vnstock thế hệ 6 (company.news đã ngừng). Vẫn hiện tin đã lưu.")
         # Lượt hỏng không ghi đè cache (refresh_news) ⇒ vẫn hiện tin cũ.
         st.session_state["_news_data"] = news_all or _nn.load_news_cache()
         # Reset recency filter after refresh — "Hôm nay" from today_clicked

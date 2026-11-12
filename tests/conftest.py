@@ -74,6 +74,35 @@ def _reset_price_fallback_breaker():
 
 
 @pytest.fixture(autouse=True)
+def _no_vnstock_sources_anywhere(monkeypatch):
+    """Luật nguồn vnstock thế hệ 6 là trạng thái TOÀN TIẾN TRÌNH (`vnstock.sources._rules`) và `.env`
+    máy thật lọt vào pytest (`vnstock_auth` gọi `load_dotenv`): một test áp `VNSTOCK_SOURCE=dnse,fhsc`
+    là mọi test sau gọi được NGUỒN THẬT qua mạng (🖥️ 12/11: test "chưa khai nguồn ⇒ InputError" lấy
+    được giá FPT thật nên DID NOT RAISE). Mỗi test bắt đầu KHÔNG luật, KHÔNG biến nguồn; test cần
+    nguồn tự setenv/patch."""
+    import os
+
+    import vnstock_auth as _va
+    for k in list(os.environ):
+        if k.startswith("VNSTOCK_SOURCE"):               # VNSTOCK_SOURCE / _ROUTES / VNSTOCK_SOURCES
+            monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(_va, "_SOURCES_DONE", False)
+    try:
+        import vnstock.sources as _src
+    except Exception:                                   # CI không cài vnstock
+        return
+    monkeypatch.setattr(_src, "_rules", {})
+
+
+@pytest.fixture(autouse=True)
+def _no_nn_screener_day_cache_anywhere(monkeypatch):
+    """Đệm NN ròng theo ngày (`vnstock_foreign_flow`, 12/11) ghi vào data_warehouse/_meta/nn_screener
+    THẬT và test sau đọc được đệm test trước ghi (rò trạng thái). Tắt cứng; test của đệm tự bật
+    lại + trỏ thư mục tạm."""
+    monkeypatch.setenv("VNSTOCK_NN_SCREENER_CACHE", "0")
+
+
+@pytest.fixture(autouse=True)
 def _no_llm_alert_anywhere(monkeypatch):
     """Alert "LLM ladder DOWN" (22/07) gửi Telegram THẬT nếu máy có token —
     test đi qua đường cạn-toàn-bộ-nấc (digest (None,''), chat_complete None)
@@ -207,6 +236,19 @@ def _futures_foreign_hermetic(tmp_path, monkeypatch):
     monkeypatch.delenv("VNSTOCK_FUTURES_FOREIGN", raising=False)
     monkeypatch.delenv("VNSTOCK_BRIEF_FUTURES_FOREIGN", raising=False)
 
+
+
+@pytest.fixture(autouse=True)
+def _no_indicator_legacy_from_dotenv(monkeypatch):
+    """`VNSTOCK_INDICATOR_LEGACY=1` / `VNSTOCK_BREADTH_UNIVERSE|_DISPLAY=investable` / `VNSTOCK_TA_CARD=1`
+    trong `.env` (công tắc PTKT) lọt vào pytest như mọi biến `.env` ⇒ test ghim công thức/prompt mặc
+    định đỏ ⇒ `run.py all` dừng ở bước test, MẤT brief (lớp U65; review PTKT P1 đợt 2, 04/11). Xoá
+    theo TIỀN TỐ; test cần chế độ bật tự setenv."""
+    import os
+    for k in list(os.environ):
+        if k.startswith(("VNSTOCK_INDICATOR_LEGACY", "VNSTOCK_BREADTH_UNIVERSE",
+                          "VNSTOCK_BREADTH_DISPLAY", "VNSTOCK_TA_CARD")):
+            monkeypatch.delenv(k, raising=False)
 
 @pytest.fixture(autouse=True)
 def _no_horizons_switch_from_dotenv(monkeypatch):

@@ -156,6 +156,7 @@ def test_annual_ocf_period_labels():
 
 
 def test_fetch_ratios_records_period_of_chosen_row(monkeypatch):
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
     import vnstock_auth
 
     ratios = pd.DataFrame([

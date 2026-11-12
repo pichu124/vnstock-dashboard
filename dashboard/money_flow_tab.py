@@ -3,8 +3,9 @@ Dòng Tiền tab — 💰 sector-level money-flow dashboard.
 
 Shows foreign net buying, buy/sell ratio, and large-order activity per
 sector with a composite score. Feeds from three cached data sources:
-* ``_fetch_foreign_net_flow`` — foreign net flow per ticker (TopStock API)
-* ``_fetch_order_stats_batch`` — large-order stats (order_stats endpoint)
+* ``_fetch_foreign_net_flow`` — NN ròng từng mã theo ngày (vnstock thế hệ 6:
+  screener ``foreign_net_value`` qua ``vnstock_foreign_flow.foreign_net_for_date``)
+* ``_fetch_order_stats_batch`` — large-order stats (``Market().equity(t).trade_history``)
 * ``_batch_load_live_quotes``  — realtime quote snapshot (WSS)
 
 Extraction notes
@@ -167,9 +168,9 @@ def render_money_flow_tab() -> None:
         st.caption(
             "**NN ròng**: khối ngoại mua - bán ròng (tỷ VND)\n\n"
             "**Buy/Sell**: tỷ lệ mua/bán chủ động "
-            "(top 50 mã từ `order_stats`, còn lại từ bid/ask depth)\n\n"
+            "(top 50 mã từ thống kê lệnh `trade_history`, còn lại từ bid/ask depth)\n\n"
             "**Lệnh lớn**: avg order size hôm nay vs 20 ngày "
-            "(top 50 mã từ `order_stats`)\n\n"
+            "(top 50 mã từ thống kê lệnh `trade_history`)\n\n"
             "**Score** = 40% × NN + 35% × Buy/Sell + 25% × Lệnh lớn"
         )
 
@@ -202,7 +203,7 @@ def render_money_flow_tab() -> None:
         sector = _mf_sector(tk, ind)
         _sector_tickers.setdefault(sector, []).append(tk)
 
-    # ── Fetch foreign net flow (TopStock API) ────────────────────────────
+    # ── Fetch foreign net flow (screener NN ròng, thế hệ 6) ──────────────
     _all_tickers = [tk for tks in _sector_tickers.values() for tk in tks]
     _warehouse_tickers_all = [
         tk for tk in _all_tickers
@@ -218,44 +219,44 @@ def render_money_flow_tab() -> None:
             _fetch_foreign_net_flow.clear()
             _fetch_order_stats_batch.clear()
             _NN_DIAG.clear()
+            # Bảng ngành tab Tổng quan (Tầng 2) dựng trên CHÍNH NN này, cache riêng 1h ⇒ xoá theo,
+            # không thì cảnh báo "thiếu phiên" và số cụt còn tới 1 giờ sau khi đã tải lại đủ.
+            import vnstock_dashboard as _vd
+            _clear_mkt = getattr(getattr(_vd, "_load_all_market_data", None), "clear", None)
+            if callable(_clear_mkt):
+                _clear_mkt()
             for _cp in (_NN_CACHE_PATH, _ORDER_CACHE_PATH):
                 if _cp.exists():
                     _cp.unlink()
             st.rerun()
 
-    with st.spinner("Đang tải dữ liệu NN ròng (TopStock API)..."):
-        _nn_raw = _fetch_foreign_net_flow(trading_days=20, limit=100)
+    with st.spinner("Đang tải dữ liệu NN ròng (bộ lọc cổ phiếu — NN ròng theo mã)..."):
+        _nn_raw = _fetch_foreign_net_flow(trading_days=20)
+
+    # Lượt tải dừng giữa chừng (hạn mức / mạng / nguồn) ⇒ cửa sổ dài tính trên ÍT phiên hơn nhãn.
+    _nn_cov = getattr(_nn_raw, "attrs", {}).get("nn_coverage")   # đi theo bảng, kể cả từ cache
+    if _nn_cov and not _nn_raw.empty:
+        _got, _want = _nn_cov["sessions"], _nn_cov["asked"]
+        st.warning(
+            f"⚠️ NN ròng chỉ tải được **{_got}/{_want} phiên** (nguồn báo lỗi hoặc chạm hạn mức giữa "
+            f"chừng) — cửa sổ dài hơn {_got} phiên đang tính THIẾU. Đợi vài phút rồi bấm "
+            "**🗑 Xoá cache** trong sidebar để tải lại.")
 
     # Diagnostic
     _nn_record_count = len(_nn_raw) if not _nn_raw.empty else 0
     if _nn_record_count == 0:
         st.warning(
-            "⚠️ Không tải được dữ liệu NN ròng từ TopStock API. "
+            "⚠️ Không tải được dữ liệu NN ròng từ bộ lọc cổ phiếu (vnstock thế hệ 6). "
             "Thử bấm **🗑 Xoá cache** trong sidebar, hoặc kiểm tra "
-            "kết nối internet + vnstock_data sponsor."
+            "kết nối internet + nguồn dữ liệu (`VNSTOCK_SOURCE` trong `.env`)."
         )
+        if diag_on() and _NN_DIAG.get("state"):
+            st.caption(f"Trạng thái lượt tải: {_NN_DIAG['state']}")
 
-    # Aggregate NN ròng + Mua/Bán theo window đã chọn (1D/5D/20D)
+    # Aggregate NN ròng + Mua/Bán theo window đã chọn (1D/5D/20D). Thế hệ 6 chỉ có RÒNG theo
+    # mã ⇒ Mua/Bán rỗng ({}), ô hiện "—" — không bịa 0.
     _nn_by_ticker = _aggregate_nn_by_window(_nn_raw, _mf_days)  # {symbol: tỷ VND}
     _nn_bs_by_ticker = _aggregate_nn_buy_sell_by_window(_nn_raw, _mf_days)
-
-    # Diagnostic: warn if foreign_buy() data is missing (NN Mua = 0 for all)
-    _total_buy = sum(v.get("buy", 0) for v in _nn_bs_by_ticker.values())
-    _total_sell = sum(v.get("sell", 0) for v in _nn_bs_by_ticker.values())
-    if _total_buy == 0 and _total_sell > 0:
-        if diag_on():  # trạng thái fetch foreign_buy — chế độ chẩn đoán
-            with st.expander("⚠️ NN Mua = 0 — debug info (foreign_buy)"):
-                _buy_state = _NN_DIAG.get("buy_state", "unknown (fetch loop may not have run — cache hit)")
-                _sell_state = _NN_DIAG.get("sell_state", "unknown")
-                st.caption(f"**foreign_buy state:** {_buy_state}")
-                st.caption(f"**foreign_sell state:** {_sell_state}")
-                if "buy_cols" in _NN_DIAG:
-                    st.caption(f"**Buy rows:** {_NN_DIAG['buy_rows']}")
-                    st.caption(f"**Buy columns:** {_NN_DIAG['buy_cols']}")
-                    st.caption(f"**Buy sample row:** {_NN_DIAG['buy_sample']}")
-                if "sell_cols" in _NN_DIAG:
-                    st.caption(f"**Sell columns:** {_NN_DIAG['sell_cols']}")
-                    st.caption(f"**Sell sample row:** {_NN_DIAG['sell_sample']}")
 
     # GTGD aggregated across the same window (1D=latest session, 5D=5 trading
     # days, 20D=20 trading days). Always use warehouse for consistency.
@@ -304,8 +305,8 @@ def render_money_flow_tab() -> None:
             "volume": lq.get("volume", 0),
             "gtgd": _pick_gtgd(tk),
             "nn_net": nn_net,
-            "nn_buy": nn_bs.get("buy", 0),
-            "nn_sell": nn_bs.get("sell", 0),
+            "nn_buy": nn_bs.get("buy"),
+            "nn_sell": nn_bs.get("sell"),
             "buy_ratio": buy_ratio,
             "big_order_score": od.get("big_order_score", 0),
             "has_order": bool(od),   # False = ngoài top-50 / fetch lỗi → hiện "—"
@@ -512,8 +513,9 @@ def render_money_flow_tab() -> None:
             else:
                 role = f'<span style="color:{_T["text_faint"]}">—</span>'
 
-            _nn_buy = stk.get("nn_buy", 0)
-            _nn_sell = stk.get("nn_sell", 0)
+            _nn_buy, _nn_sell = (
+                "—" if v is None else f"{v:,.0f}"
+                for v in (stk.get("nn_buy"), stk.get("nn_sell")))
             # Lệnh lớn: only top-50 GTGD tickers have order_stats → others show "—"
             # (a literal 0 there is "no data", not "order size == average").
             _bo = stk.get("big_order_score", 0)
@@ -534,9 +536,9 @@ def render_money_flow_tab() -> None:
                 f'<td style="padding:5px 6px;text-align:right;color:{_T["text"]}">'
                 f'{stk["gtgd"]:,.0f}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:{_T["up"]}">'
-                f'{_nn_buy:,.0f}</td>'
+                f'{_nn_buy}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:{_T["down"]}">'
-                f'{_nn_sell:,.0f}</td>'
+                f'{_nn_sell}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:{nn_color};'
                 f'font-weight:500">{nn_sign}{stk["nn_net"]:,.0f}</td>'
                 f'<td style="padding:5px 6px;text-align:right;color:{buy_color}">'
@@ -574,15 +576,18 @@ def render_money_flow_tab() -> None:
             _deep_rows.append({
                 "Mã": sym,
                 "Ngành": sec,
-                "Mua (tỷ)": bs.get("buy", 0),
-                "Bán (tỷ)": bs.get("sell", 0),
+                "Mua (tỷ)": bs.get("buy"),
+                "Bán (tỷ)": bs.get("sell"),
                 "Ròng (tỷ)": net,
             })
 
         if _deep_rows:
             import pandas as _pd2
             _df_deep = _pd2.DataFrame(_deep_rows)
-            _df_deep = _df_deep[_df_deep["Mua (tỷ)"] + _df_deep["Bán (tỷ)"] > 0]
+            _df_deep = _df_deep[_df_deep["Ròng (tỷ)"] != 0]
+            # Không có mua/bán tách riêng (thế hệ 6: chỉ ròng) ⇒ bỏ hai cột thay vì in ô trống
+            _deep_cols = (["Mã", "Ngành", "Mua (tỷ)", "Bán (tỷ)", "Ròng (tỷ)"] if _nn_bs
+                          else ["Mã", "Ngành", "Ròng (tỷ)"])
 
             # ── Top mua ròng / bán ròng ──────────────────────────────────
             _top_col, _bot_col = st.columns(2)
@@ -594,7 +599,7 @@ def render_money_flow_tab() -> None:
                 st.markdown("**🟢 Top 10 mã mua ròng**")
                 if not _top10_buy.empty and _top10_buy["Ròng (tỷ)"].max() > 0:
                     st.dataframe(
-                        _top10_buy[["Mã", "Ngành", "Mua (tỷ)", "Bán (tỷ)", "Ròng (tỷ)"]].reset_index(drop=True),
+                        _top10_buy[_deep_cols].reset_index(drop=True),
                         hide_index=True,
                         use_container_width=True,
                         column_config={
@@ -610,7 +615,7 @@ def render_money_flow_tab() -> None:
                 st.markdown("**🔴 Top 10 mã bán ròng**")
                 if not _top10_sell.empty and _top10_sell["Ròng (tỷ)"].min() < 0:
                     st.dataframe(
-                        _top10_sell[["Mã", "Ngành", "Mua (tỷ)", "Bán (tỷ)", "Ròng (tỷ)"]].reset_index(drop=True),
+                        _top10_sell[_deep_cols].reset_index(drop=True),
                         hide_index=True,
                         use_container_width=True,
                         column_config={

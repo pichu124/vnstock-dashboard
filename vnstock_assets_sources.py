@@ -11,8 +11,9 @@ giả (conftest đặt nó ném lỗi cho MỌI test — không test nào đư�
 Nguồn: FRED (Brent/WTI giao ngay EIA, chỉ số USD rộng) · Yahoo chart (HĐTL tháng gần, mã
 tháng `.NYM` cho đường cong, DXY, VND=X — KHÔNG chính thức) · gold-api.com (vàng giao
 ngay) · er-api + currency-api (USD/VND tham chiếu; currency-api bản theo NGÀY cho chỉ số
-USD rộng tự tính) · vietcombank.com.vn api · sjc.com.vn · trang trọng số H.10 của Fed ·
-`vnstock_data` mbk (tỷ giá trung tâm, gói Golden — có thì dùng).
+USD rộng tự tính) · vietcombank.com.vn api · sjc.com.vn · trang trọng số H.10 của Fed.
+Tỷ giá trung tâm mbk (`vnstock_data`, dòng cũ) DỪNG: vnstock thế hệ 6 không có nguồn tương
+đương — `fetch_mbk_central` ném lỗi rõ, số mbk cũ trong kho giữ nguyên.
 """
 from __future__ import annotations
 
@@ -428,24 +429,8 @@ def nowcast(official: "dict[str, float]", driver: "dict[str, float]",
     return None
 
 
-# ── vnstock_data (gói Golden) — tỷ giá trung tâm lịch sử ─────────────────────
-def parse_mbk_central(df) -> "list[tuple[str, float]]":
-    """DataFrame Macro(mbk).exchange_rate dạng dài: dòng tên chứa 'trung tâm' → (ngày, giá)."""
-    try:
-        cols = {str(c).lower(): c for c in df.columns}
-        cn, cv = cols.get("name"), cols.get("value")
-        cd = next((cols[k] for k in ("last_updated", "date", "time", "report_date") if k in cols), None)
-        if cn is None or cv is None or cd is None:
-            return []
-        out = {}
-        for _, r in df.iterrows():
-            if "trung tâm" in str(r[cn]).lower():
-                d, v = iso(r[cd]), num(r[cv])
-                if d and v and v > 1000:
-                    out[d] = v
-        return sorted(out.items())
-    except Exception:                                            # noqa: BLE001
-        return []
+# ── Tỷ giá trung tâm mbk (dòng cũ `vnstock_data`) — thế hệ 6 không có ──────────
+MBK_GEN6_UNAVAILABLE = "thế hệ 6 không có nguồn tỷ giá trung tâm"
 
 
 def _next_weekday(d: str) -> str:
@@ -478,19 +463,11 @@ def shift_mbk_dates(rows: "list[tuple[str, float]]") -> "list[tuple[str, float]]
 
 
 def fetch_mbk_central(start: str, end: str, *, shift: bool = True) -> "list[tuple[str, float]]":
-    """Rỗng khi máy không có vnstock_data (laptop/CI) — nguồn phụ, không bắt buộc. Ngày đã
-    dời về đúng phiên (`shift_mbk_dates`); `shift=False` trả bản thô (backfill in để soi)."""
-    import contextlib
-    import io
-    try:
-        with contextlib.redirect_stdout(io.StringIO()):
-            import vnstock_auth  # noqa: F401  (nạp .env + nhận gói sponsor như cả repo)
-            from vnstock_data.explorer.mbk.macro import Macro
-            df = Macro().exchange_rate(start=start, end=end, period="day")
-    except Exception:                                            # noqa: BLE001
-        return []
-    rows = parse_mbk_central(df)
-    return shift_mbk_dates(rows) if shift else rows
+    """Tỷ giá trung tâm lịch sử từ mbk — nguồn của dòng cũ `vnstock_data`. vnstock thế hệ 6
+    không có chuỗi này (Macro không có tỷ giá trung tâm hằng ngày) ⇒ LUÔN ném lỗi rõ; bước
+    `mbk` của kho tài sản báo lỗi, các chuỗi khác chạy như thường; số mbk cũ trong kho
+    giữ nguyên (doctor `central_dating` vẫn đọc)."""
+    raise RuntimeError(MBK_GEN6_UNAVAILABLE)
 
 
 def fred_key() -> str:

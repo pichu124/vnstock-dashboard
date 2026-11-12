@@ -11,11 +11,20 @@ Chạy trên máy có mạng + `VNSTOCK_API_KEY` trong `.env`:
     python scripts/export_bank_balance_sheets.py --tickers VCB CTG BID
 
 ════════════════════════════════════════════════════════════════════════════
-🛑 TẦM PHỦ ĐÃ TRA HẾT NGÀY 26/08 TRÊN MÁY THẬT — ĐỪNG DÒ LẠI
+NGUỒN (vnstock thế hệ 6, từ 11/2026)
 
-| nguồn    | kỳ SỚM NHẤT          | khung          | kết luận               |
+`--source vnstock` = `Fundamental().equity(mã).balance_sheet(period="quarter",
+drop_empty=False, lang=…)`. NGUỒN DỮ LIỆU do user chọn MỘT chỗ ở `.env`
+(`VNSTOCK_SOURCE` / `VNSTOCK_SOURCE_ROUTES`, áp ở `vnstock_auth`) — script
+không ghi tên nguồn. **Độ sâu lịch sử và KHUNG bảng (ngân hàng hay doanh
+nghiệp) tuỳ nguồn user chọn — CHƯA đo trên thế hệ 6**: chạy `--probe-all`
+rồi `--items` trước khi tin file. `tcbs` / `cafef` là HTTP thẳng, ngoài vnstock.
+
+Bảng đo 26/08 trên DÒNG CŨ (vnstock 4.x) — chỉ còn là mốc để đối chiếu:
+
+| nguồn    | kỳ SỚM NHẤT          | khung          | kết luận lúc đó        |
 |----------|----------------------|----------------|------------------------|
-| `vci`    | **2018-Q1** → nay    | ✅ ngân hàng   | **DÙNG CÁI NÀY**       |
+| `vci`    | **2018-Q1** → nay    | ✅ ngân hàng   | dùng cái này           |
 | `cafef`  | 2015-Q1              | ❌ doanh nghiệp| có data, SAI KHUNG     |
 | `kbs`    | —                    | —              | trả RỖNG               |
 | `tcbs`   | —                    | —              | 404, endpoint đã chết  |
@@ -24,9 +33,9 @@ Chạy trên máy có mạng + `VNSTOCK_API_KEY` trong `.env`:
 kỳ** cứng trong schema — và script này chạy độc lập trên máy user nên KHÔNG
 gọi được MCP. **Đừng thêm vào `SOURCES`.**
 
-**Xin 2018 trở đi ⇒ chạy luôn, `--source vci`.** Xin sớm hơn ⇒ không nguồn
-API nào có; đường duy nhất là user xuất Excel từ Wichart/FiinPro rồi viết bộ
-đọc. Chi tiết 8 lượt dò + lý do bác từng nguồn: U34 `docs/CLAUDE-NOTES.md`.
+Xin sớm hơn kỳ đầu nguồn có ⇒ không nguồn API nào có; đường duy nhất là user
+xuất Excel từ Wichart/FiinPro rồi viết bộ đọc. Chi tiết 8 lượt dò + lý do
+bác từng nguồn: U34 `docs/CLAUDE-NOTES.md`.
 ════════════════════════════════════════════════════════════════════════════
 
 Script từ chối ghi file trong HAI ca, vì cả hai đều "trông đúng":
@@ -35,22 +44,15 @@ Script từ chối ghi file trong HAI ca, vì cả hai đều "trông đúng":
   đây đúng là ca CafeF. Ép ghi: `--allow-any-template`.
 
 ════════════════════════════════════════════════════════════════════════════
-HAI CÁI BẪY ĐÃ ĐỌC RA TỪ MÃ NGUỒN `vnstock` — nếu không né thì file ra SAI
-mà KHÔNG báo lỗi:
+HAI CÁI BẪY của dòng cũ — nếu không né thì file ra SAI mà KHÔNG báo lỗi:
 
-1. **`limit` mặc định = 4 kỳ.**
-   `vnstock.explorer.vci.financial.Finance._get_financial_report` có
-   `effective_limit = limit if limit is not None else 4`, mà phương thức công
-   khai `balance_sheet(period, lang, dropna, show_log)` **không hề nhận
-   `limit`**. Gọi đường thông thường ⇒ chỉ có 4 quý gần nhất ⇒ 2015-2016 rỗng
-   trơn, file vẫn ghi ra bình thường. Script này gọi thẳng
-   `_get_financial_report(..., limit=N)` và kiểm lại tầm phủ.
+1. **Trần 4 kỳ.** Dòng cũ `_get_financial_report` mặc định `limit=4`, phương
+   thức công khai không nhận `limit`. Thế hệ 6 không còn cắt kỳ — nhưng tầm
+   phủ thật vẫn phải kiểm (`--probe`), vì nguồn có thể chỉ giữ vài năm.
 
-2. **`dropna=True` (mặc định) BỎ các dòng toàn số 0.**
-   Cùng chỗ đó: `df.loc[:, (df != 0).any(axis=0)]`. Frame là kỳ×chỉ-tiêu, nên
-   nó bỏ CHỈ TIÊU — và mỗi ngân hàng bỏ một bộ khác nhau. Đó đúng là thứ phá
-   yêu cầu "format đồng nhất giữa các sheet". Luôn dùng `dropna=False`, rồi
-   tự hợp nhất danh mục chỉ tiêu.
+2. **Bỏ chỉ tiêu toàn 0.** Dòng cũ `dropna=True` bỏ CHỈ TIÊU toàn số 0 —
+   mỗi ngân hàng bỏ một bộ khác nhau, phá yêu cầu "format đồng nhất giữa các
+   sheet". Thế hệ 6: luôn `drop_empty=False`, rồi tự hợp nhất danh mục.
 ════════════════════════════════════════════════════════════════════════════
 
 Ô TRỐNG ≠ SỐ 0. Trong bảng cân đối, "không có số" và "bằng không" là hai
@@ -65,19 +67,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-# Số kỳ xin về. 2015-Q1 cách hiện tại ~46 quý; xin dư cho chắc.
+# Số kỳ xin về (nguồn ngoài vnstock). 2015-Q1 cách hiện tại ~46 quý; xin dư.
 DEFAULT_LIMIT = 200
 
-# ── DẠNG THẬT của frame VCI (đo bằng --probe VCB, 26/08) ────────────────
-#   86 hàng × 37 cột
+# ── DẠNG mà mọi hàm thuần dưới đây đọc (dạng VCI dòng cũ, đo --probe 26/08) ──
 #   item | item_en | item_id | 2018-Q1 | 2018-Q2 | … | 2026-Q2
-# Tức **HÀNG là chỉ tiêu, CỘT là kỳ** — ngược hẳn giả định ban đầu của tôi
-# (tôi đã đoán hàng=kỳ, cột=chỉ tiêu theo kiểu `yearReport`/`lengthReport`).
-# Đây chính là lý do `--probe` phải chạy trước: đoán sai dạng thì script ghi
-# ra một file trông như thật.
-#
-# ⚠️ VÀ: kỳ SỚM NHẤT nguồn có là **2018-Q1**. 2015-2016 KHÔNG tồn tại ở
-# nguồn này, không phải script bỏ sót.
+# Tức **HÀNG là chỉ tiêu, CỘT là kỳ**. Thế hệ 6 trả dạng DÀI (`period, id,
+# name, order, …, value`) ⇒ `gen6_item_rows` đổi về dạng này ngay chỗ lấy.
+# `--probe` vẫn phải chạy trước: nhãn kỳ khác `YYYY-Qn` thì script DỪNG,
+# không đoán.
 
 # ─────────────────────────────────────────────────────────────────────────
 # Hàm THUẦN đã tách sang `bank_bs_shape` (trần 800 dòng/file). Nhập lại
@@ -101,42 +99,51 @@ def bank_tickers() -> list:
     return re.findall(r'"([A-Z]{3,4})"', blk)
 
 
-SOURCES = ("vci", "kbs", "tcbs", "cafef")
+SOURCES = ("vnstock", "tcbs", "cafef")
 
 # Năm mặc định cho nguồn CafeF khi chỗ gọi không nói rõ (mỗi trang = 1 năm).
 CAFEF_DEFAULT_YEARS = (2015, 2016)
 
-# Năm dùng để ĐỐI CHIẾU hai nguồn. Phải là năm CẢ HAI cùng có — VCI chỉ có từ
-# 2018-Q1, nên đối chiếu ở 2015-2016 là đối chiếu với một bên rỗng.
+# Năm dùng để ĐỐI CHIẾU hai nguồn. Phải là năm CẢ HAI cùng có — VCI dòng cũ chỉ
+# có từ 2018-Q1, nên đối chiếu ở 2015-2016 là đối chiếu với một bên rỗng.
 CROSSCHECK_YEARS = (2018, 2019)
 
 
-def _call_with_supported_kwargs(func, **kwargs):
-    """Gọi `func` với ĐÚNG những kwarg chữ ký nó nhận.
-
-    Vết 26/08: `vnstock` 4.0.4 trên máy user KHÔNG có `display_mode` trong
-    `kbs…balance_sheet`, bản trong container thì CÓ. Truyền cứng ⇒ `TypeError`
-    trên đúng máy duy nhất chạy được mạng. Đọc chữ ký rồi hãy gọi.
-    """
-    import inspect
-    try:
-        params = inspect.signature(func).parameters
-    except (TypeError, ValueError):
-        return func()
-    ok = {k: v for k, v in kwargs.items() if k in params}
-    return func(**ok)
+def gen6_item_rows(df, lang: str = "vi"):
+    """BCTC thế hệ 6 dạng DÀI → HÀNG là chỉ tiêu (`item_id` + `item`/`item_en` theo
+    `lang`), CỘT là kỳ; thứ tự hàng theo `order` của taxonomy. Ô nguồn không có ⇒ None
+    (TRỐNG, không 0). `attrs["unit_note"]` ghi đơn vị nguồn khai. Bảng không phải dạng
+    dài trả nguyên."""
+    import pandas as pd
+    if df is None or not {"period", "name", "value"} <= set(df.columns):
+        return df
+    src = df.sort_values("order", kind="stable") if "order" in df.columns else df
+    key = "id" if "id" in src.columns else "name"
+    items = list(dict.fromkeys(zip(src[key], src["name"])))
+    periods = list(dict.fromkeys(str(p) for p in src["period"]))
+    cell: dict = {}
+    for k, n, p, v in zip(src[key], src["name"], src["period"], src["value"]):
+        cell.setdefault((k, n, str(p)), v)
+    label = "item_en" if lang == "en" else "item"
+    out = pd.DataFrame(
+        [{"item_id": k, label: n, **{p: cell.get((k, n, p)) for p in periods}}
+         for k, n in items],
+        columns=["item_id", label, *periods])
+    if "unit" in src.columns:
+        units = sorted({str(u) for u in src["unit"].dropna() if str(u).strip()})
+        if units:
+            out.attrs["unit_note"] = "Đơn vị (nguồn): " + ", ".join(units)
+    return out
 
 
 def fetch_balance_sheet(ticker: str, limit: int = DEFAULT_LIMIT,
-                        lang: str = "vi", source: str = "vci",
+                        lang: str = "vi", source: str = "vnstock",
                         years=None):
-    """Bảng cân đối theo quý, ĐỦ SÂU. Ném lỗi rõ ràng thay vì trả rỗng.
+    """Bảng cân đối theo quý. Ném lỗi rõ ràng thay vì trả rỗng.
 
-    Bốn nguồn, đo 26/08 trên máy user bằng `--probe-all VCB`:
-    * `vci`   — ✅ sớm nhất **2018-Q1**, 83 chỉ tiêu. Trong `vnstock`.
-    * `kbs`   — ❌ `TypeError` vì chữ ký khác giữa các bản `vnstock`; gọi
-      theo chữ ký thật rồi vẫn **trả về RỖNG**.
-    * `tcbs`  — ❌ **404**, endpoint `apipubaws` đã chết. Giữ lại để
+    * `vnstock` — thế hệ 6, nguồn user chọn ở `.env`; tầm phủ tuỳ nguồn (đo bằng
+      `--probe-all`). Thế hệ 6 không cắt kỳ nên `limit` không dùng ở đây.
+    * `tcbs`  — đo 26/08: ❌ **404**, endpoint `apipubaws` đã chết. Giữ lại để
       `--probe-all` còn nói ra điều đó thay vì im lặng bỏ qua.
     * `cafef` — ✅ **có 2015-2016**. Mỗi trang = 4 quý của MỘT năm, nên
       `years` quyết định tải mấy trang.
@@ -150,23 +157,15 @@ def fetch_balance_sheet(ticker: str, limit: int = DEFAULT_LIMIT,
         payload, _ = fetch_tcbs(ticker)
         return tcbs_to_frame(payload, lang)
 
+    from vnstock import Fundamental
     from vnstock_auth import ensure_api_key
     ensure_api_key()
-
-    if source == "kbs":
-        from vnstock.explorer.kbs.financial import Finance as KFinance
-        fin = KFinance(ticker, period="quarter", show_log=False)
-        return _call_with_supported_kwargs(
-            fin.balance_sheet, period="quarter", lang=lang, show_log=False)
-
-    from vnstock.explorer.vci.financial import Finance
-    # `_get_financial_report` là chỗ DUY NHẤT nhận `limit` — xem bẫy ① đầu file
-    return Finance(ticker, period="quarter", show_log=False)._get_financial_report(
-        "balance_sheet", period="quarter", lang=lang,
-        dropna=False, limit=limit, show_log=False)
+    # `drop_empty=False` — xem bẫy ② đầu file
+    return gen6_item_rows(Fundamental().equity(ticker).balance_sheet(
+        period="quarter", drop_empty=False, lang=lang), lang)
 
 
-def probe(ticker: str, limit: int, lang: str, source: str = "vci") -> int:
+def probe(ticker: str, limit: int, lang: str, source: str = "vnstock") -> int:
     """Soi MỘT mã: hình dạng, cột kỳ, TẦM PHỦ THẬT. Chạy cái này TRƯỚC."""
     df = fetch_balance_sheet(ticker, limit=limit, lang=lang, source=source)
     print(f"[probe] nguồn={source}")
@@ -249,10 +248,10 @@ def probe_all(ticker: str, limit: int, lang: str, want_year: int = 2015) -> int:
         print(f"👉 Nguồn với tới {want_year}-Q1: {', '.join(winners)}")
         print(f"   Chạy: python scripts/export_bank_balance_sheets.py "
               f"--from {want_year} --to {want_year + 1} --source {winners[0]}")
-        if set(winners) - {"vci"}:
+        if set(winners) - {"vnstock"}:
             print(f"   TRƯỚC ĐÓ: --crosscheck {ticker} --with {winners[0]} — "
-                  f"đối chiếu ĐƠN VỊ với VCI ở quý trùng nhau. Chưa đo tỉ số "
-                  f"thì đừng tin số.")
+                  f"đối chiếu ĐƠN VỊ với nguồn vnstock ở quý trùng nhau. Chưa đo "
+                  f"tỉ số thì đừng tin số.")
         return 0
     ok = [r for r in rows if r["ok"]]
     if ok:
@@ -555,14 +554,14 @@ def magnitude_ratios(data_a: dict, data_b: dict) -> list:
 
 
 def crosscheck(ticker: str, limit: int, lang: str,
-               src_a: str = "vci", src_b: str = "cafef") -> int:
+               src_a: str = "vnstock", src_b: str = "cafef") -> int:
     """Đối chiếu HAI nguồn ở các quý trùng nhau — trước khi tin nguồn mới.
 
     Nguồn mới chưa đo mà đem ghi thẳng vào file là cách chắc chắn nhất để đẻ
     ra một bảng cân đối trông chuẩn mà sai đơn vị.
 
-    Năm đối chiếu là `CROSSCHECK_YEARS`, **không phải** 2015-2016: VCI chỉ có
-    từ 2018-Q1, mà so hai nguồn KHÔNG có quý nào chung thì không so được gì.
+    Năm đối chiếu là `CROSSCHECK_YEARS`, **không phải** 2015-2016: VCI dòng cũ
+    chỉ có từ 2018-Q1, mà so hai nguồn KHÔNG có quý nào chung thì không so được gì.
     """
     print(f"[crosscheck] {ticker}: {src_a} ⇄ {src_b} "
           f"(năm {'-'.join(str(y) for y in CROSSCHECK_YEARS)})")
@@ -617,18 +616,18 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Xuất bảng cân đối kế toán theo quý của các ngân hàng")
     ap.add_argument("--from", dest="y_from", type=int, default=2018,
-                    help="VCI chỉ có từ 2018-Q1; muốn 2015-2016 thì "
-                         "--source cafef")
+                    help="Kỳ sớm nhất tuỳ nguồn (đo bằng --probe-all); "
+                         "2015-2016 dòng cũ chỉ có --source cafef")
     ap.add_argument("--to", dest="y_to", type=int, default=2019)
     ap.add_argument("--tickers", nargs="*", default=None,
                     help="Mặc định: toàn bộ ngân hàng trong vnstock_brief_canon")
     ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT,
-                    help="Số kỳ xin về từ nguồn (mặc định 200 — API mặc định "
-                         "CHỈ 4, xem ghi chú đầu file)")
+                    help="Số kỳ xin về từ nguồn ngoài vnstock (mặc định 200; "
+                         "thế hệ 6 không cắt kỳ)")
     ap.add_argument("--lang", default="vi", choices=("vi", "en"))
-    ap.add_argument("--source", default="vci", choices=SOURCES,
-                    help="cafef = nguồn DUY NHẤT có 2015-2016 · vci = "
-                         "2018-Q1 trở đi · kbs/tcbs = đo 26/08 đều hỏng")
+    ap.add_argument("--source", default="vnstock", choices=SOURCES,
+                    help="vnstock = thế hệ 6, nguồn chọn ở .env · cafef = HTTP, "
+                         "có 2015-2016 (sai khung) · tcbs = đo 26/08 hỏng")
     ap.add_argument("--out", default=None)
     ap.add_argument("--probe", metavar="MÃ", default=None,
                     help="Soi một mã ở MỘT nguồn rồi thoát")
@@ -637,9 +636,9 @@ def main(argv=None) -> int:
     ap.add_argument("--want-year", type=int, default=2015,
                     help="Năm cần với tới, dùng cho --probe-all")
     ap.add_argument("--crosscheck", metavar="MÃ", default=None,
-                    help="Đối chiếu ĐƠN VỊ vci ⇄ nguồn khác ở quý trùng nhau")
+                    help="Đối chiếu ĐƠN VỊ vnstock ⇄ nguồn khác ở quý trùng nhau")
     ap.add_argument("--with", dest="with_source", default="cafef",
-                    choices=SOURCES, help="Nguồn đem đối chiếu với vci")
+                    choices=SOURCES, help="Nguồn đem đối chiếu với vnstock")
     ap.add_argument("--dump-cafef", dest="dump_cafef", metavar="MÃ",
                     default=None,
                     help="In CẤU TRÚC trang CafeF + lưu HTML thô, khi bộ bóc trật")

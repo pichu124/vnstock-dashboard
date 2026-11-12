@@ -59,6 +59,48 @@ def _symmetric_xrange(*series, floor: float = 30.0) -> list:
     return [-r, r]
 
 
+def nn_coverage_warning(cov) -> str | None:
+    """Câu cảnh báo khi NN ròng của bảng ngành THIẾU phiên (hàm thuần).
+
+    `cov` = `market_overview["nn_coverage"]`: số phiên thiếu THEO KHUNG `missing_1t` (trong 5
+    phiên gần nhất) / `missing_1m` (trong 20) — phiên lỗi cũ không làm NN 1T thiếu. None = đủ.
+    """
+    if not isinstance(cov, dict):
+        return None
+    try:
+        m1t, m1m = int(cov.get("missing_1t") or 0), int(cov.get("missing_1m") or 0)
+    except (TypeError, ValueError):
+        return None
+    parts = [f"NN 1T thiếu **{m1t}/5 phiên** gần nhất" if m1t else "",
+             f"NN 1M thiếu **{m1m}/20 phiên**" if m1m else ""]
+    parts = [p for p in parts if p]
+    if not parts:
+        return None
+    if cov.get("source") == "dashboard":      # bảng do dashboard tự tính (chưa có file của pipeline)
+        fix = "Đợi vài phút rồi bấm **🗑 Xoá cache** ở tab Dòng tiền (xoá cả bảng ngành) để tải lại."
+    else:                                     # file market_overview.json của pipeline tối
+        fix = "Lượt pipeline tối sau sẽ tính lại."
+    return (f"⚠️ NN ròng của bảng ngành: {'; '.join(parts)} (nguồn báo lỗi/chạm hạn mức) — số của "
+            f"khung đó đang tính THIẾU. {fix}")
+
+
+def ma200_card(breadth: dict) -> dict:
+    """Chữ thẻ "Trên MA200" + thanh tiến độ. ``tone_pct`` (đặt MÀU) luôn là
+    ``above_ma200_pct``; ``VNSTOCK_BREADTH_DISPLAY=investable`` chỉ đổi số IN (tập thanh
+    khoản làm số chính + toàn thị trường cạnh đó — PTKT §18, ``display_split``)."""
+    from vnstock_breadth_universe import display_split
+    pct = breadth["above_ma200_pct"]
+    disp = display_split(breadth)
+    if disp:
+        return {"value": f"{disp['pct']:.1f}%", "tone_pct": pct, "bar": disp["pct"],
+                "sub": f"{disp['above']}/{disp['n']} mã thanh khoản · toàn thị trường {pct:.1f}%",
+                "caption": f"% Trên MA200{disp['label']}"}
+    # mẫu số = tập mã ĐANG dùng cho % (VNSTOCK_BREADTH_UNIVERSE), không phải tổng mã
+    return {"value": f"{pct:.1f}%", "tone_pct": pct, "bar": pct,
+            "sub": f'{breadth["above_ma200"]}/{breadth.get("breadth_n") or breadth["total"]} mã',
+            "caption": "% Trên MA200"}
+
+
 def render_market_tab() -> None:
     """Render the Thị trường tab. Lazy imports Streamlit + dashboard helpers."""
     try:
@@ -454,14 +496,15 @@ def render_market_tab() -> None:
         _ui.section("Độ rộng thị trường")
         b1, b2, b3, b4, b5 = st.columns(5)
 
-        pct_ma200 = breadth["above_ma200_pct"]
+        card = ma200_card(breadth)
+        pct_ma200 = card["tone_pct"]
         ma200_color = _T["up"] if pct_ma200 > 50 else (_T["warn"] if pct_ma200 > 30 else _T["down"])
         with b1:
             st.markdown(
                 f'<div class="metric-card">'
                 f'<div class="label">Trên MA200</div>'
-                f'<div class="value" style="color:{ma200_color}">{pct_ma200:.1f}%</div>'
-                f'<div class="sub">{breadth["above_ma200"]}/{breadth["total"]} mã</div>'
+                f'<div class="value" style="color:{ma200_color}">{card["value"]}</div>'
+                f'<div class="sub">{card["sub"]}</div>'
                 f'</div>', unsafe_allow_html=True)
 
         with b2:
@@ -503,8 +546,8 @@ def render_market_tab() -> None:
         # ── Progress bars ─────────────────────────────────────────────────────
         pb1, pb2, pb3 = st.columns(3)
         with pb1:
-            st.caption("% Trên MA200")
-            st.progress(min(pct_ma200 / 100, 1.0))
+            st.caption(card["caption"])
+            st.progress(min(card["bar"] / 100, 1.0))
         with pb2:
             adv_pct = breadth["advances"] / max(breadth["total"], 1)
             st.caption(f"Advance/Decline ({breadth['advances']}/{breadth['declines']})")
@@ -809,9 +852,11 @@ def render_market_tab() -> None:
                                mime="text/csv", key="mkt_export_csv")
 
             if not has_foreign:
-                _nn_src = " — cần vnstock API `Trading.foreign_trade()`" if _ui.diag_on() else ""
+                _nn_src = " — cần `Market().equity.screener` (NN ròng theo mã, vnstock thế hệ 6)" if _ui.diag_on() else ""
                 st.caption(f"⚠️ Dữ liệu dòng ngoại (NN) chưa có{_nn_src}. "
-                           "Vốn hoá là ước tính từ giá × cổ phiếu lưu hành. Freefloat từ dữ liệu cổ đông lớn (KBS).")
+                           "Vốn hoá là ước tính từ giá × cổ phiếu lưu hành. Freefloat từ dữ liệu niêm yết/cổ đông lớn (vnstock).")
+            elif _nn_cov_msg := nn_coverage_warning(st.session_state.get("_mkt_nn_coverage")):
+                st.warning(_nn_cov_msg)
 
         # ── Drill-down: chi tiết công ty theo ngành ───────────────────────────
         if _selected_nganh != "Tổng quan theo ngành":

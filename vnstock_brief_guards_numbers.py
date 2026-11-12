@@ -16,11 +16,24 @@ from __future__ import annotations
 
 import re as _re
 
-from vnstock_brief_canon import _FINANCIAL_TICKERS, _FUND_KW, _SR_MAX_MOVE_PCT, _gtgd_close_frame
+from vnstock_brief_canon import (
+    RSI_OVERBOUGHT,
+    RSI_OVERSOLD,
+    RSI_STRONG,
+    RSI_WEAK,
+    _FINANCIAL_TICKERS,
+    _FUND_KW,
+    _SR_MAX_MOVE_PCT,
+    _gtgd_close_frame,
+)
 from vnstock_brief_guards_common import (
+    _nn_other_span,
     _PIVOT_LABEL_RE,
+    _TA_NEGATION_RE,
     _is_section_start,
     _parse_vn_number,
+    ta_rewrite_insight,
+    ta_subject,
 )
 
 
@@ -228,10 +241,13 @@ def _known_index_levels(vt: dict, *, with_close: bool = False,
     cố định; `with_close` thêm giá đóng cửa ở đầu. Cuối cùng là `horizon_levels`
     (MA10w/MA40w, neo 🚨, mức kích hoạt — P1b-3, chỉ có khi VNSTOCK_HORIZONS bật)
     phòng khi agent tự chép các mức này vào câu của mình. ``with_horizon=False``
-    cho guard dùng danh sách làm ĐÍCH ghim (S/R): ngưỡng 🚨 không phải hỗ trợ."""
+    cho guard dùng danh sách làm ĐÍCH ghim (S/R): ngưỡng 🚨 không phải hỗ trợ.
+    ``ta_levels`` (biên 1 ATR của thẻ kỹ thuật, chỉ có khi VNSTOCK_TA_CARD bật) đi cùng nhóm
+    này: là số đã biết, nhưng không phải hỗ trợ/kháng cự."""
     keys = (("close",) if with_close else ()) + _KNOWN_INDEX_LEVEL_KEYS
-    vals = [vt.get(k) for k in keys] + (list(vt.get("horizon_levels") or [])
-                                        if with_horizon else [])
+    vals = [vt.get(k) for k in keys] + (
+        list(vt.get("horizon_levels") or []) + list(vt.get("ta_levels") or [])
+        if with_horizon else [])
     return [v for v in vals if isinstance(v, (int, float)) and 800 <= v <= 2500]
 
 
@@ -837,23 +853,98 @@ def enforce_breadth_label(text: str, ctx: dict) -> str:
     advancing). When a "<N>% mã [cổ phiếu] tăng giá/điểm" matches above_ma200_pct,
     relabel it "trên MA200". Gated on the value match so a genuine figure isn't
     touched; idempotent; no-op without breadth data.
+
+    ``VNSTOCK_BREADTH_DISPLAY=investable`` (PTKT §18, `display_split`): brief in HAI số —
+    tập thanh khoản (gắn "(N mã thanh khoản)") và toàn thị trường (để trơn). Số khớp tập
+    thanh khoản thì gắn nhãn; khớp cả hai (cách ≤1 điểm) thì không gắn — không biết số nào.
     """
     b = ctx.get("breadth") or {}
     pct = b.get("above_ma200_pct")
     if not text or not isinstance(pct, (int, float)):
         return text
+    from vnstock_breadth_universe import display_split, label_suffix
+    disp = display_split(b)
+    # tập thanh khoản (PTKT §16) ⇒ " (N mã thanh khoản)", không thì ""
+    suffix = disp["label"] if disp else label_suffix(b)
+    tag_pct = disp["pct"] if disp else pct
+
+    def _near(raw: str, v: float) -> bool:
+        n = _parse_vn_number(raw)
+        return n is not None and abs(n - v) <= 1
+
+    def _same(raw: str) -> bool:                     # only the above-MA200 figure(s)
+        return _near(raw, pct) or (disp is not None and _near(raw, tag_pct))
+
+    def _tag(raw: str) -> bool:                      # the figure that carries the set label
+        return _near(raw, tag_pct) and not (disp is not None and _near(raw, pct))
 
     def _fix(m: "_re.Match") -> str:
-        n = _parse_vn_number(m.group(1))
-        if n is None or abs(n - pct) > 1:        # only the above-MA200 mislabel
+        if not _same(m.group(1)):
             return m.group(0)
-        return f"{m.group(1)}% {m.group(2)} trên MA200"
+        return f"{m.group(1)}% {m.group(2)} trên MA200{suffix if _tag(m.group(1)) else ''}"
 
     # "số mã cổ phiếu" (cả hai tiền tố ghép lại) — thấy thật close 14/07:
     # "chỉ 13% số mã cổ phiếu tăng giá" lọt qua vì regex cũ chỉ có từng nhánh lẻ.
-    return _re.sub(
+    out = _re.sub(
         r"(\d[\d.,]*)\s*%\s*((?:số\s+mã(?:\s+cổ phiếu)?|mã\s+cổ phiếu|cổ phiếu|mã))\s+(?:đang\s+)?tăng\s+(?:giá|điểm)",
         _fix, text)
+    if not suffix:
+        return out
+    # Tập thanh khoản: số trên MA200 nêu trơn sẽ bị đọc theo thang cũ (mọi mã, ~11%) ⇒ gắn
+    # tập vào ngay sau "MA200" — cả "30% mã trên MA200" lẫn "Trên MA200: 30%". Đã có ⇒ thôi.
+    _tagged = r"(?!\s*\(\s*[\d.,]+\s+mã thanh khoản)"
+    out = _re.sub(
+        r"(\d[\d.,]*)(\s*%\s*(?:số\s+)?(?:mã\s+)?(?:cổ phiếu\s+)?(?:đang\s+)?(?:nằm\s+)?"
+        r"trên\s+(?:đường\s+)?MA\s?200)" + _tagged,
+        lambda m: m.group(0) + suffix if _tag(m.group(1)) else m.group(0), out)
+    # "Trên MA200: 48.6% (317 mã thanh khoản)" — nhãn đứng SAU số cũng là đã gắn.
+    out = _re.sub(
+        r"([Tt]rên\s+MA\s?200)" + _tagged + r"(\s*:\s*)(\d[\d.,]*)(?=\s*%)"
+        r"(?!\s*%\s*\(\s*[\d.,]+\s+mã thanh khoản)",
+        lambda m: m.group(1) + suffix + m.group(2) + m.group(3) if _tag(m.group(3)) else m.group(0),
+        out)
+    return _breadth_fix_swapped(out, disp, _near) if disp else out
+
+
+_BREADTH_SET_TAG = r"\s*\(\s*[\d.,]+\s+mã thanh khoản\s*\)"
+_BREADTH_ALL = " toàn thị trường"
+
+
+def _breadth_fix_swapped(text: str, disp: dict, near) -> str:
+    """`display_split`: model tráo hai số. Số TOÀN THỊ TRƯỜNG mang nhãn "(N mã thanh khoản)" ⇒
+    nhãn đổi thành " toàn thị trường"; "toàn thị trường X%" mà X là số tập thanh khoản ⇒ X về
+    số toàn thị trường (giữ số lẻ model viết). Hai số cách ≤1 điểm ⇒ không biết số nào, không
+    đụng. Chỉ dòng có MA200 (GTGD "toàn thị trường" không phải độ rộng)."""
+    liq, alln = disp["pct"], disp["all_pct"]
+
+    def _wrong(raw: str) -> bool:                    # số toàn thị trường, không phải số tập
+        return near(raw, alln) and not near(raw, liq)
+
+    def _line(ln: str) -> str:
+        if not _re.search(r"MA\s?200", ln):
+            return ln
+        ln = _re.sub(
+            r"(\d[\d.,]*)(\s*%\s*(?:số\s+)?(?:mã\s+)?(?:cổ phiếu\s+)?(?:đang\s+)?(?:nằm\s+)?"
+            r"trên\s+(?:đường\s+)?MA\s?200)" + _BREADTH_SET_TAG,
+            lambda m: m.group(1) + m.group(2) + _BREADTH_ALL if _wrong(m.group(1)) else m.group(0),
+            ln)
+        ln = _re.sub(
+            r"([Tt]rên\s+MA\s?200)" + _BREADTH_SET_TAG + r"(\s*:\s*)(\d[\d.,]*)(?=\s*%)",
+            lambda m: m.group(1) + _BREADTH_ALL + m.group(2) + m.group(3)
+            if _wrong(m.group(3)) else m.group(0), ln)
+        ln = _re.sub(
+            r"(\d[\d.,]*)(\s*%)" + _BREADTH_SET_TAG,
+            lambda m: m.group(1) + m.group(2) + _BREADTH_ALL if _wrong(m.group(1)) else m.group(0),
+            ln)
+
+        def _all_fig(m: "_re.Match") -> str:
+            raw = m.group(2)
+            if not (near(raw, liq) and not near(raw, alln)):
+                return m.group(0)
+            dec = len(_re.split(r"[.,]", raw)[-1]) if _re.search(r"[.,]\d{1,2}$", raw) else 0
+            return f"{m.group(1)}{alln:.{dec}f}"
+        return _re.sub(r"(toàn thị trường\s*:?\s*)(\d[\d.,]*)(?=\s*%)", _all_fig, ln)
+    return "\n".join(_line(ln) for ln in text.split("\n"))
 
 
 # Composite-mood pieces (vnstock_market_sentiment._MOODS). Matched separately as
@@ -1129,3 +1220,263 @@ def enforce_gtgd_missing_note(text: str, ctx: dict) -> str:
         return text
     note = f" (chưa gồm {len(mh)} mã lớn thiếu data)"
     return text[:m.end()] + note + text[m.end():]
+
+
+# ─── NN ròng NGÀNH tính thiếu phiên (vnstock thế hệ 6, 11/11) ───────────────────
+# Lượt tải NN có ngày lỗi (nguồn/hạn mức) ⇒ market_overview `nn_coverage` mang số phiên thiếu
+# THEO KHUNG: `missing_1t` (trong 5 phiên gần nhất) / `missing_1m` (trong 20). Phiên lỗi CŨ
+# không làm NN 1T thiếu ⇒ chỉ khung thật sự thiếu mới có nhãn. Prompt dặn; guard gắn nhãn
+# MỘT lần mỗi khung, ngay sau số NN ngành đầu tiên của khung đó (số khớp |NN 1T| hoặc |NN 1M|
+# của ngành có tên ĐỨNG SÁT số). Đủ phiên ⇒ no-op.
+_NN_COVERAGE_MARK = "thiếu"
+_NN_WINDOWS = (("1T", "NN 1T (tỷ)", "missing_1t", 5), ("1M", "NN 1M (tỷ)", "missing_1m", 20))
+# Nhãn viết CHỮ ĐẦY ĐỦ: `enforce_no_composite_jargon` (chạy sau) đổi "1M" → "1 tháng" trên dòng
+# "dòng tiền" — viết tắt trong nhãn bị đổi ⇒ lượt chạy lại (`--from-file`) không nhận ra, gắn lần 2.
+_NN_WINDOW_WORD = {"1T": "1 tuần", "1M": "1 tháng"}
+
+
+def _nn_label(window: str, miss: int, n: int) -> str:
+    return (f"NN {_NN_WINDOW_WORD[window]} {_NN_COVERAGE_MARK} {miss}/{n} phiên"
+            + (" gần nhất" if window == "1T" else ""))
+
+
+def nn_coverage_labels(ctx: dict) -> dict:
+    """{"1T": "NN 1T thiếu 2/5 phiên" | None, "1M": …} theo `ctx["nn_coverage"]`."""
+    cov = (ctx or {}).get("nn_coverage")
+    out = {w: None for w, *_ in _NN_WINDOWS}
+    if not isinstance(cov, dict):
+        return out
+    for w, _col, key, n in _NN_WINDOWS:
+        try:
+            miss = int(cov.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if miss > 0:
+            # "gần nhất": 1T vẫn cộng 5 phiên (phiên cũ thế chỗ) — đừng để đọc thành "chỉ có 4 phiên"
+            out[w] = _nn_label(w, min(miss, n), n)
+    return out
+
+
+def nn_coverage_label(ctx: dict) -> "str | None":
+    """Gộp nhãn các khung thiếu ('NN 1M thiếu 8/20 phiên'); None khi đủ / không rõ."""
+    got = [lb for lb in nn_coverage_labels(ctx).values() if lb]
+    return "; ".join(got) or None
+
+
+def enforce_nn_coverage_note(text: str, ctx: dict) -> str:
+    """Tên ngành phải ĐỨNG SÁT số: trong ~40 ký tự TRƯỚC số (cắt tại số "… tỷ" gần nhất phía
+    trước), hoặc ngay SAU qua từ nối ("… 120 tỷ trong ngành Thép", "… ở ngành Thép") — "bán ròng
+    1,040 tỷ ở Ngân hàng hôm nay" / "…, tập trung ở ngân hàng" là NN toàn thị trường, không gắn.
+    Số đứng NGAY sau một số NN của cùng ngành, giữa chỉ có nhãn khung + từ nối ("1,032 tỷ (1T)
+    và 2,536 tỷ (1M)"), thuộc cùng ngành đó. Dấu "đã gắn" là CHÍNH nhãn của khung."""
+    labels = nn_coverage_labels(ctx)
+    if not text or not any(labels.values()):
+        return text
+    sectors = []
+    for s in (ctx or {}).get("sectors") or []:
+        nm = s.get("Ngành")
+        vals = {w: abs(v) for w, col, *_ in _NN_WINDOWS
+                if isinstance(v := s.get(col), (int, float)) and abs(v) >= 1}
+        if isinstance(nm, str) and nm and vals:
+            sectors.append((
+                _re.compile(r"(?<!\w)" + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE),
+                _re.compile(r"\s*tỷ(?:\s*đồng)?(?:\s*\((?:1 tuần|1T|1 tháng|1M)\))?\s*"
+                            r"(?:(?:trong|của)\s+(?:(?:ngành|nhóm)\s+)?|(?:ở|vào)\s+(?:ngành|nhóm)\s+)"
+                            + _re.escape(nm) + r"(?!\w)", _re.IGNORECASE),
+                vals))
+    if not sectors:
+        return text
+    out = text
+    for w, *_ in _NN_WINDOWS:
+        label = labels[w]
+        if label and not _re.search(_re.escape(f"NN {_NN_WINDOW_WORD[w]} {_NN_COVERAGE_MARK} ")
+                                    + r"\d+/\d+ phiên", out):
+            out = _label_first_sector_figure(out, sectors, w, label)
+    return out
+
+
+_NN_FIG_RE = r"[-+]?\d[\d.,]*(?=\s*tỷ)"
+_NN_FRAME = r"\s*\((?:1 tuần|1T|1 tháng|1M)\)|, 1 (?:tuần|tháng)(?! qua)"
+# Giữa hai số NN CÙNG ngành chỉ được có nhãn khung (kể cả nhãn thiếu phiên guard này vừa gắn)
+# + từ nối (", ", " và ", "; ", " / ", " còn ")
+_NN_OWN_LABEL = r"NN 1 (?:tuần|tháng) thiếu \d+/\d+ phiên(?: gần nhất)?"
+_NN_SAME_SECTOR_GAP = (r"(?:\s*\((?:(?:1 tuần|1T|1 tháng|1M)(?:; " + _NN_OWN_LABEL + r")?|"
+                       + _NN_OWN_LABEL + r")\)|, 1 (?:tuần|tháng)(?! qua)(?:; " + _NN_OWN_LABEL
+                       + r")?){0,2}\s*(?:,|;|/|và|còn|,\s*và)?\s*")
+# Số NỐI TIẾP phải tự đóng mệnh đề: nhãn khung riêng, hoặc dấu câu / hết dòng / "và" ngay sau "tỷ"
+# — "…, 2,536 tỷ toàn thị trường" là số khác, không phải NN của ngành trước.
+_NN_CARRY_TAIL = r"\s*\((?:1 tuần|1T|1 tháng|1M)\)|, 1 (?:tuần|tháng)\b|\s*(?:[.,;)\n]|$|và\b)"
+
+
+def _label_first_sector_figure(text: str, sectors: list, window: str, label: str) -> str:
+    """Gắn `label` sau số NN đầu tiên khớp |NN `window`| của một ngành đứng sát số."""
+    def _close(val, v):
+        return abs(abs(val) - v) <= max(1.0, 0.02 * v)
+
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        if "ròng" in line.lower():
+            prev = None                        # (sector, vị trí hết "… tỷ") của số NN trước
+            for m in _re.finditer(_NN_FIG_RE, line):
+                val = _parse_vn_number(m.group(0))
+                ty_end = m.end() + _re.match(r"\s*tỷ(?:\s*đồng)?", line[m.end():]).end()
+                if val is None:
+                    prev = None
+                    continue
+                before = line[max(0, m.start() - 40):m.start()]
+                before = before[max((b.end() for b in _re.finditer(r"\d[\d.,]*\s*tỷ", before)),
+                                    default=0):]
+                sector = next((sc for sc in sectors
+                               if any(_close(val, v) for v in sc[2].values())
+                               and (sc[0].search(before) or sc[1].match(line, m.end()))), None)
+                if sector is None and prev and _re.fullmatch(_NN_SAME_SECTOR_GAP, line[prev[1]:m.start()]) \
+                        and _re.match(_NN_CARRY_TAIL, line[ty_end:]) \
+                        and any(_close(val, v) for w2, v in prev[0][2].items() if w2 not in prev[2]):
+                    sector = prev[0]          # cùng ngành, KHUNG KHÁC với số trước
+                prev = (sector, ty_end, {w2 for w2, v in sector[2].items() if _close(val, v)}) \
+                    if sector else None
+                # Số có khoảng thời gian KHÁC ngay sau ("(3 tháng)", "… trong ngành X trong quý") không
+                # thuộc khung tuần/tháng nào ⇒ không gắn nhãn thiếu phiên (review 12/11: lượt chạy lại đổi chữ).
+                am = sector[1].match(line, m.end()) if sector else None
+                if sector and (_nn_other_span(line, ty_end) or (am and _nn_other_span(line, am.end()))):
+                    continue
+                if sector is None or window not in sector[2] or not _close(val, sector[2][window]):
+                    continue
+                end = ty_end
+                frame = _re.match(_NN_FRAME, line[end:])
+                if frame:      # gộp vào ngoặc nhãn khung: "(1 tuần; NN 1T thiếu 1/5 phiên gần nhất)"
+                    end += frame.end() - (1 if frame.group(0).endswith(")") else 0)
+                note = f"; {label}" if line[end:end + 1] == ")" else f" ({label})"
+                at = pos + end
+                return text[:at] + note + text[at:]
+        pos += len(line)
+    return text
+
+
+# ── Nhận định kỹ thuật phải khớp thẻ (PTKT P3, §6/§10d) ────────────────────────
+# Chỉ đụng dòng "**Nhận định:**" của mục 📈; ctx không có thẻ ⇒ no-op (`ta_rewrite_insight`).
+_TA_DATE_RE = _re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b")
+_TA_GLUED_RE = _re.compile(r"[^\W\d_]+[+(]?\d+\)?")          # MA20, TB20, S1, T+5, RSI(14)
+_TA_NUM_RE = _re.compile(r"\d[\d.,]*\d|\d")
+
+
+_TA_SESSIONS_RE = _re.compile(r"(?<![\d.,])(?:[1-9]|10)\s+phiên\b", _re.IGNORECASE)  # "2 phiên"
+
+
+def _ta_numbers(text: str) -> list[float]:
+    t = _TA_SESSIONS_RE.sub(" ", _TA_GLUED_RE.sub(" ", _TA_DATE_RE.sub(" ", text or "")))
+    return [v for m in _TA_NUM_RE.finditer(t) if (v := _parse_vn_number(m.group(0))) is not None]
+
+
+def _ta_allowed(card: dict, ta: dict) -> list[float]:
+    """Số có trong thẻ VN-Index (+ MA20, đóng cửa, % đổi phiên của nhãn thẻ) (+ thẻ mã câu nhắc
+    tới — cả bản nghìn đồng) + ngưỡng canon mà nhận định được phép nêu (RSI 30/40/60/70, KL xác
+    nhận ×TB20, "1 ATR"). Số phiên ≤10 ("2 phiên liên tiếp") không tính là số (`_ta_numbers`)."""
+    nums = _ta_numbers(" ".join(str(l) for l in ta.get("lines") or []))
+    nums += [float(v) for k in ("ma20", "close", "day_change_pct")
+             if isinstance(v := ta.get(k), (int, float))]
+    if card is not ta:
+        own = _ta_numbers(str(card.get("line") or ""))
+        nums += own + [v / 1000 for v in own if v >= 1000]
+    nums += [RSI_OVERBOUGHT, RSI_STRONG, RSI_WEAK, RSI_OVERSOLD, 1.0]
+    return nums + ([float(ta["vol_mult"])] if ta.get("vol_mult") else [])
+
+
+def _ta_known(x: float, allowed: list[float]) -> bool:
+    """Dung sai LÀM TRÒN của số model viết: số nguyên ±0,5 ("1,733" cho 1,733.20), số lẻ ±0,05
+    ("1.2" cho 1.23). Không dung sai tương đối: ở thang chỉ số 0,1% đã là 1,7 điểm — đủ để một
+    mức khác (MA50 1,690.10 cạnh S2 1,690.25) lọt."""
+    tol = 0.5 if float(x).is_integer() else 0.051
+    return any(abs(x - v) <= tol for v in allowed)
+
+
+def enforce_ta_numbers(text: str, ctx: dict) -> str:
+    """Câu nhận định kỹ thuật có số giá/chỉ số KHÔNG có trong thẻ ⇒ bỏ CẢ câu (§10d: "câu nhận
+    định có số không nằm trong thẻ ⇒ bỏ câu đó"). So theo giá trị tuyệt đối, dung sai làm tròn
+    (0,5 cho số nguyên, 0,05 cho số lẻ); bỏ qua ngày, số dính chữ (MA20, TB20, S1), số phiên."""
+    def _keep(sent: str, card: dict) -> "str | None":
+        ta = ctx["ta_card"]
+        allowed = _ta_allowed(card, ta)
+        return sent if all(_ta_known(abs(x), allowed) for x in _ta_numbers(sent)) else None
+    return ta_rewrite_insight(text, ctx, _keep)
+
+
+# Câu nói khung khác (trung/dài hạn, tuần) — nhãn "Xu hướng MA20" của thẻ không phán được nó.
+_TA_OTHER_FRAME_RE = _re.compile(r"trung hạn|dài hạn|\btuần\b|\bkhung\b", _re.IGNORECASE)
+_TA_TREND_RE = _re.compile(r"xu hướng(?:\s+(?:MA20|ngắn hạn))?\s+(tăng|giảm|đi ngang)",
+                           _re.IGNORECASE)
+
+
+def enforce_ta_trend_words(text: str, ctx: dict) -> str:
+    """"xu hướng tăng/giảm/đi ngang" trong nhận định ngược nhãn "Xu hướng MA20" của thẻ ⇒ BỎ câu
+    (không thay từ: thay từ trong câu model viết biến câu đúng thành sai — "trung hạn xu hướng
+    giảm" thành "tăng"). Không phán — để nguyên — khi câu nói khung khác (trung/dài hạn, tuần,
+    khung), có phủ định (không/chưa/chẳng), hoặc chủ thể không rõ (`ta_subject`: ≥2 mã, mã hay
+    chỉ số không có thẻ). Thẻ không có nhãn ⇒ để nguyên."""
+    cards = (ctx or {}).get("ta_cards") or {}
+
+    def _fix(sent: str, _card: dict) -> "str | None":
+        hits = [m.group(1).lower() for m in _TA_TREND_RE.finditer(sent)]
+        if not hits or _TA_OTHER_FRAME_RE.search(sent) or _TA_NEGATION_RE.search(sent):
+            return sent
+        card = ta_subject(sent, ctx["ta_card"], cards)
+        label = (card or {}).get("short")
+        if not label:
+            return sent
+        return sent if all(w == label.lower() for w in hits) else None
+    return ta_rewrite_insight(text, ctx, _fix)
+
+
+_TA_RSI_ZONE_RE = _re.compile(r"quá mua|quá bán", _re.IGNORECASE)
+_TA_RSI_ALARM_RE = _re.compile(r"điều chỉnh|đảo chiều|cảnh báo", _re.IGNORECASE)
+_TA_NEGATED_TAIL_RE = _re.compile(r"\b(?:không|chưa|chẳng)\b(?:\s+\S+){0,3}\s*$", _re.IGNORECASE)
+_TA_RSI_MOMENTUM = "đà mạnh"         # nhãn thẻ RSI > 70 (`vnstock_ta_card.RSI_MOMENTUM`)
+
+
+def enforce_ta_rsi_words(text: str, ctx: dict) -> str:
+    """Vùng RSI ("quá mua/quá bán") trong câu nhận định ngược nhãn RSI của thẻ ⇒ BỎ câu. Vùng bị
+    phủ định ngay trước nó ("không phải quá mua", "không có tín hiệu quá mua") là KHẲNG ĐỊNH
+    ngược: chỉ sai khi vùng đó chính là nhãn thẻ. Chỉ phán câu nói RSI — trừ khi thẻ "đà mạnh"
+    mà câu gọi "quá mua" kèm điều chỉnh/đảo chiều/cảnh báo (§16: mã RSI Wilder > 70 VƯỢT
+    VN-Index +1,75% T+20 giai đoạn 05–10/2026 — không phải tín hiệu cảnh báo)."""
+    cards = (ctx or {}).get("ta_cards") or {}
+
+    def _fix(sent: str, _card: dict) -> "str | None":
+        zones = list(_TA_RSI_ZONE_RE.finditer(sent))
+        card = ta_subject(sent, ctx["ta_card"], cards) if zones else None
+        label = (card or {}).get("rsi_label")
+        if not label:
+            return sent
+        if "rsi" not in sent.lower() and not (label == _TA_RSI_MOMENTUM
+                                               and _TA_RSI_ALARM_RE.search(sent)):
+            return sent
+        for m in zones:
+            negated = bool(_TA_NEGATED_TAIL_RE.search(sent[:m.start()]))
+            if negated == (m.group(0).lower() == label):
+                return None
+        return sent
+    return ta_rewrite_insight(text, ctx, _fix)
+
+
+_TA_BREAK_RE = _re.compile(
+    r"\b(?:vượt|thủng|phá vỡ|phá)\s+(?:(?:lên|qua|lại|xuống)\s+)?(?:(?:trên|dưới)\s+)?"
+    r"(?:(?:mốc|mức|ngưỡng|hỗ trợ|kháng cự|đỉnh|đáy)\s+)?"
+    r"(?:(?:[SR][12]|MA\d{2,3})(?:\s*=?\s*\d[\d.,]*\d)?|\d[\d.,]*\d)", _re.IGNORECASE)
+_TA_VOLUME_RE = _re.compile(r"\bKL\b|khối lượng|thanh khoản|volume", _re.IGNORECASE)
+_TA_DONE_RE = _re.compile(r"\bđã\b", _re.IGNORECASE)
+
+
+def enforce_ta_breakout_volume(text: str, ctx: dict) -> str:
+    """Kịch bản "vượt/thủng <mức>" trong nhận định mà câu không nói khối lượng ⇒ chèn MỘT lần,
+    ngay sau mức đầu tiên: "(cần KL ≥ 1.2× TB20)" — ngưỡng xác nhận của thẻ. Câu kể việc ĐÃ xảy
+    ra ("đã vượt MA20") không phải kịch bản ⇒ không chèn."""
+    def _fix(sent: str, card: dict) -> str:
+        m = _TA_BREAK_RE.search(sent)
+        if not m or _TA_DONE_RE.search(sent) or _TA_VOLUME_RE.search(sent):
+            return sent
+        vm = card.get("vol_mult") or ctx["ta_card"].get("vol_mult")
+        if not vm:
+            return sent
+        mult = f"{float(vm):,.2f}".rstrip("0").rstrip(".")
+        return f"{sent[:m.end()]} (cần KL ≥ {mult}× TB20){sent[m.end():]}"
+    return ta_rewrite_insight(text, ctx, _fix)

@@ -26,6 +26,54 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
+## 🔁 Chuyển vnstock thế hệ 6 — CODE XONG 11/11 trên nhánh `vnstock-gen6` · CHỜ KHOÁ NGUỒN (đừng merge vào main trước)
+
+Dòng cũ (vnstock 4.x + vnstock_data) ngừng xác thực từ 10/11/2026. Nhánh `vnstock-gen6` chạy được với vnstock 6.0.0
+nhưng **thế hệ 6 không có nguồn mặc định** ⇒ chưa khai nguồn thì MỌI lệnh gọi dữ liệu báo lỗi `VNSTOCK_INPUT_SOURCE`.
+Merge vào main trước khi xong 4 bước dưới = pipeline đêm đó mất brief.
+
+1. ✅ (12/11) Đã đăng ký khoá **fhsc (Finhay)** + **dnse (DNSE)** — đủ mọi dữ liệu TRỪ thống kê lệnh
+   (Lệnh lớn, Net BS, GTGD chỉ số theo phiên) và rổ VN30 sống: hai thứ đó chỉ **ssi** có (rổ VN30 có dự
+   phòng cache + hằng số). Muốn đủ thì đăng ký thêm ssi sau. tcbs không cần (đòi Smart OTP mỗi ≤24h).
+2. 🖥️ DESKTOP — venv mới, KHÔNG đụng venv cũ:
+   `git fetch origin vnstock-gen6` → `git switch vnstock-gen6` → `python -m venv $HOME\.venv_6x` →
+   `& "$HOME\.venv_6x\Scripts\Activate.ps1"` → `pip install -r requirements.txt` →
+   `vnstock status` (chưa thấy gói thì TỰ chạy `vnstock login`).
+3. 🖥️ DESKTOP — cất khoá (TỰ gõ, chữ không hiện; đừng dán vào chat):
+   `vnstock keys set fhsc` → `vnstock keys set dnse` → thử: `vnstock keys check fhsc`, `vnstock keys check dnse`.
+4. 🖥️ DESKTOP — `.env`: thêm dòng `VNSTOCK_SOURCE=fhsc,dnse` (thứ tự = ưu tiên; giá ngày lấy từ fhsc).
+5. 🖥️ DESKTOP — kiểm rồi dán kết quả cho Claude (chỉ đọc, không ghi kho):
+   `python scripts/gen6_check.py` ⇒ dán nội dung `gen6_check_report.txt`;
+   `python scripts/probe_price_basis.py --sweep --limit 50` ⇒ dán phần in ra (lệch cơ sở kho ↔ fhsc).
+   Claude đọc xong mới merge. ⚠️ Lệch cơ sở ⇒ cửa V1 cách ly hàng loạt mã.
+6. Sau khi merge: 🖥️ DESKTOP đăng ký lại task (Run as Administrator, shell đã kích hoạt `.venv_6x`):
+   `.\scripts\setup_scheduled_tasks.ps1 -PythonExe "$HOME\.venv_6x\Scripts\python.exe"`.
+   Task đang đăng ký vẫn trỏ venv cũ ⇒ code thế hệ 6 trên vnstock 4.x = ImportError.
+7. 💻 LAPTOP — KHÔNG cần làm gì: task tin mỗi giờ (`run.py news-alert` + tài sản theo giờ) không dùng
+   vnstock (đo 12/11: import cả chuỗi bằng Python không có vnstock — chạy được), giữ venv cũ, không
+   đăng ký lại task. ĐỪNG `pip install -r requirements.txt` vào venv cũ (sẽ cài vnstock 6 trộn dòng cũ).
+   Chỉ khi muốn mở dashboard / chạy brief tay trên laptop mới làm lại bước 2–4 ở laptop.
+8. ⏰ HẠN (đo 12/11 `vnstock status` 🖥️): **tài khoản vnstock hết hạn 12/04/2027** (gói "Tự động hoá cá
+   nhân") — mốc này đến TRƯỚC; quá hạn mà chưa gia hạn ⇒ pipeline lấy dữ liệu lỗi. Bản 6.0.0 dùng được tới
+   10/11/2027 — trước đó `vnstock update`. ✅ 12/11: desktop đã có `.venv_6x` + đăng nhập (bước 2 xong).
+
+Chưa có tương đương ở thế hệ 6 (đã xử như nguồn lỗi, không bịa số): tin theo mã (`company.news`) · lịch sử vốn
+(`capital_history` ⇒ đọc `events()`) · tỷ giá trung tâm mbk (giữ số đã lưu) · vốn điều lệ · NN mua/bán TÁCH riêng
+(chỉ còn RÒNG). `Debt/Assets` nay là tổng nợ/tổng tài sản.
+
+## 📈 Nâng nhận định phân tích kỹ thuật — P0 + P1 đợt 1 CODE XONG 04/11 · CHỜ USER CHẠY 2 LỆNH (`docs/THIET-KE-PHAN-TICH-KY-THUAT.md` §14)
+
+Nhánh `claude/adoring-bardeen-vpuq5b`. Chưa đổi chữ nào trong brief / số nào trong screener.
+
+- ○ **máy nào cũng được** (kho Dropbox chung) — lấy code: `git fetch origin claude/adoring-bardeen-vpuq5b` rồi
+  `git merge origin/claude/adoring-bardeen-vpuq5b`. **Tránh giờ pipeline** (18:00 → log in `⏱ TỔNG`).
+- ○ Thước đo P0 (chấm lại lịch sử brief + backtest trạng thái): `python run.py ta-score --backfill` rồi
+  `python run.py ta-score --show` ⇒ dán bảng in ra cho Claude. `--backfill` có thể mất vài phút.
+- ○ So công thức P1 (chỉ ĐỌC kho): `python scripts/compare_indicator_formulas.py --days 120 --json so_cong_thuc.json`
+  ⇒ dán phần in ra (+ file JSON nếu Claude hỏi). Có số này mới chuyển screener/độ rộng sang RSI Wilder + SMA200.
+- Ghi chú: lần đầu brief chạy với code mới, `brief_memory.db` được thêm cột `sent` (đánh dấu bản đã gửi Telegram) —
+  tự động, một lần, qua Dropbox như các lần nâng cấp DB trước.
+
 ## 🎨 Thiết kế lại giao diện — P0→P5 CODE XONG 31/10 · CHỜ USER MERGE + SOI MẮT (`docs/THIET-KE-GIAO-DIEN.md`)
 
 Nhánh `claude/adoring-bardeen-vpuq5b`. Không đổi số liệu/logic — chỉ cách trình bày. Một máy đã đo Streamlit 1.56.0.

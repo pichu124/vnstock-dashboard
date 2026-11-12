@@ -6,8 +6,11 @@ numpy>=1.24.0
 pyarrow>=14.0.0
 plotly>=5.18.0
 
-# Data source
-vnstock>=3.5.0
+# Data source — vnstock THẾ HỆ 6 (bản ghim, cài vào $HOME\.venv_6x riêng, KHÔNG đè venv cũ).
+# 6.0.0 là bản chính thức, dùng được 365 ngày (tới 10/11/2027, `vnstock status`); cập nhật: `vnstock update`.
+--extra-index-url https://vnstocks.com/api/packages
+vnstock==6.0.0
+vnstock-oapi==0.1.1
 python-dotenv>=1.0.0
 
 # HTTP & utilities
@@ -19,7 +22,5 @@ pypdf>=4.0.0          # VBMA weekly PDF -> text (LNH + loi suat TPCP 2Y/10Y)
 pytest>=7.0.0
 
 # Optional — enhanced features (install if available)
-# vnstock_data          # Sponsor-tier API (Golden/Silver)
-# vnstock_ta            # Technical analysis indicators
-# vnstock_chart         # CandleChart HTML export
+# (vnstock_data / vnstock_ta / vnai / vnii / vnstock_installer thuộc dòng cũ — KHÔNG cài cùng thế hệ 6)
 # tqdm                  # nicer progress bar in `run.py scan --verbose` (optional)
