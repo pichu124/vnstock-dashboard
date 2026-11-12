@@ -255,11 +255,18 @@ _NN_SPAN_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|tới|cuối|đ�
                 + _NN_MONTH_NAMES + r")\b)")
 # Sau "trong"/"(": "đầu/cuối năm" hợp lệ; "trước/sau" chỉ loại khi theo sau là "đó"/dấu câu/hết
 # ("trong 3 tháng trước kỳ review" là khoảng của số).
-_NN_SPAN_NOT_TRONG = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:tới|thứ|qua\s+nữa|" + _NN_MONTH_NAMES
-                      + r")\b|\s*(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
+# ":" ngay sau khoảng thời gian mở MỆNH ĐỀ KHÁC ("trong quý III: mua ròng 200 tỷ").
+# Số La Mã còn sót ngay sau = regex đã lùi bỏ "quý III" để lách — cũng loại.
+_NN_SPAN_NOT_TRONG = (r"(?!\s*:|\s*[-+]?\s*\d|\s*(?:[IVX]+|tới|thứ|qua\s+nữa|" + _NN_MONTH_NAMES
+                      + r")\b|\s*(?:trước|sau)\s*(?:đó\b|[.,;:)]|$))")
+# Đuôi hợp lệ của khoảng: "đầu/cuối năm", "qua", "gần nhất", "này", "năm 2025", "/2025".
+_NN_SPAN_TAIL = (r"(?:\s+(?:đầu|cuối)\s+năm)?(?:\s+(?:qua|gần\s+nhất|này))?"
+                 r"(?:\s*/\s*\d{4}|\s+năm\s+\d{4})?")
 _NN_OTHER_SPAN_RE = _re.compile(
-    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN_TRONG + _NN_SPAN_NOT_TRONG
-    + r"|trong\s+" + _NN_SPAN_TRONG + _NN_SPAN_NOT_TRONG
+    # Trong ngoặc: cụm khoảng thời gian phải ĐÓNG ngay (")"/","/";") — "(3 tháng trước: mua ròng…)",
+    # "(quý IV dự kiến mua lại)" là mệnh đề khác.
+    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN_TRONG + _NN_SPAN_TAIL + r"\s*(?=[),;])"
+    + r"|trong\s+" + _NN_SPAN_TRONG + _NN_SPAN_TAIL + _NN_SPAN_NOT_TRONG
     + r"|,\s*" + _NN_SPAN + r"(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
     + r"|" + _NN_SPAN + _NN_SPAN_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
 

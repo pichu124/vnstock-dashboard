@@ -235,3 +235,26 @@ def test_coverage_label_skips_figure_with_other_span():
         once = vb.apply_brief_guards(t, ctx)
         assert vb.apply_brief_guards(once, ctx) == once, once
         assert "NN 1 tuần thiếu" not in once.splitlines()[0], once
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 999 tỷ (3 tháng trước: mua ròng 400 tỷ).",
+    "Ngân hàng bán ròng 999 tỷ (quý trước mua ròng 400 tỷ).",
+    "Ngân hàng bán ròng 999 tỷ (quý III: mua ròng 200 tỷ).",
+    "Ngân hàng bán ròng 999 tỷ trong quý III: mua ròng 200 tỷ.",
+    "Ngân hàng bán ròng 999 tỷ (quý IV dự kiến mua lại).",
+    "Ngân hàng bán ròng 999 tỷ (3 tháng cuối năm dự báo mua ròng).",
+])
+def test_other_clause_inside_parentheses_still_pins(text):
+    """Review 12/11: mệnh đề KHÁC trong ngoặc / sau ":" không phải khoảng của số ⇒ số bịa vẫn bị ghim."""
+    assert "-1,032" in _run(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 3,800 tỷ trong 9 tháng năm 2025.",
+    "Ngân hàng bán ròng 3,800 tỷ trong quý 3 năm 2025.",
+    "Ngân hàng bán ròng 3,800 tỷ (quý III/2025).",
+])
+def test_span_with_year_is_left_untouched(text):
+    out = _run(text)
+    assert "3,800 tỷ" in out and "1,032" not in out, out
