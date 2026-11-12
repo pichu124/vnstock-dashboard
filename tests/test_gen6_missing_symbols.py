@@ -5,7 +5,7 @@ from datetime import date
 
 import pandas as pd
 
-from scripts.gen6_missing_symbols import _last_date, classify
+from scripts.gen6_missing_symbols import _last_date, classify, verdict
 
 
 def test_classify_splits_recent_old_and_quarantined():
@@ -27,3 +27,11 @@ def test_last_date_takes_newest_year_and_all_files(tmp_path):
         for name, days in files.items():
             pd.DataFrame({"time": pd.to_datetime(days)}).to_parquet(t / f"year={y}" / f"{name}.parquet")
     assert _last_date(t) == date(2026, 11, 11)
+
+
+def test_verdict_tells_thin_ticker_from_missed_and_dead():
+    s, wh = date(2026, 11, 12), date(2026, 11, 9)
+    assert "bình thường" in verdict(wh, s, {"dnse": date(2026, 11, 9), "fhsc": None})     # ABR 12/11
+    assert "BỎ SÓT" in verdict(wh, s, {"dnse": None, "fhsc": date(2026, 11, 12)})
+    assert "BỎ SÓT" in verdict(wh, s, {"dnse": date(2026, 11, 11)})
+    assert "KHÔNG nguồn nào" in verdict(wh, s, {"dnse": None, "fhsc": None})

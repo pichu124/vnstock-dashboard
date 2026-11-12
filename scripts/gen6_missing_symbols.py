@@ -7,6 +7,10 @@ thử TỪNG nguồn đã khai trong `VNSTOCK_SOURCE` riêng rẽ — mã nào n
 
     python scripts/gen6_missing_symbols.py              # tối đa 40 mã
     python scripts/gen6_missing_symbols.py --limit 0    # không gọi nguồn, chỉ đếm từ kho
+    python scripts/gen6_missing_symbols.py --tickers AGE,AMD,BBC,BCG   # thử đúng các mã này
+
+Đo 🖥️ 12/11: mã "thiếu phiên mới nhất" phần lớn là mã ÍT THANH KHOẢN không khớp lệnh phiên đó —
+nguồn trả bar cuối TRÙNG ngày cuối của kho ⇒ cột kết luận ghi "không khớp phiên mới nhất" (không lỗi).
 
 Kết quả in ra + `gen6_missing_report.txt` (gốc repo, đã gitignore) để dán cho Claude.
 """
@@ -62,7 +66,20 @@ def _last_date(tdir: Path) -> "date | None":
     return None
 
 
-def _try_source(src: str, tk: str, d0: date, d1: date) -> str:
+def verdict(wh_last: "date | None", session: "date | None", src_last: dict) -> str:
+    """Hàm THUẦN. `src_last` {nguồn: ngày bar cuối nguồn trả (None = lỗi/rỗng)}. Kết luận một mã."""
+    got = [d for d in src_last.values() if d is not None]
+    if not got:
+        return "KHÔNG nguồn nào có mã này (ngừng giao dịch / nguồn không hỗ trợ)"
+    best = max(got)
+    if session is not None and best >= session:
+        return "nguồn CÓ phiên mới nhất mà kho thiếu ⇒ BỊ BỎ SÓT"
+    if wh_last is not None and best <= wh_last:
+        return "không khớp phiên mới nhất (nguồn cũng dừng cùng ngày) — bình thường"
+    return f"nguồn có bar mới hơn kho (tới {best}) ⇒ BỊ BỎ SÓT"
+
+
+def _try_source(src: str, tk: str, d0: date, d1: date) -> "tuple[str, date | None]":
     import vnstock
 
     from vnstock_updater import _fetch_prices
@@ -70,11 +87,11 @@ def _try_source(src: str, tk: str, d0: date, d1: date) -> str:
     try:
         df = _fetch_prices(tk, d0.isoformat(), d1.isoformat())
     except Exception as e:  # noqa: BLE001 — công cụ đo: lỗi là kết quả
-        return f"{type(e).__name__} {getattr(e, 'code', '') or ''}".strip()
+        return f"{type(e).__name__} {getattr(e, 'code', '') or ''}".strip(), None
     if df is None or df.empty:
-        return "rỗng"
+        return "rỗng", None
     last = df.sort_values("time").iloc[-1]
-    return f"{len(df)} bar, cuối {last['time']} close {float(last['close']):,.2f}"
+    return f"{len(df)} bar, cuối {last['time']} close {float(last['close']):,.2f}", last["time"]
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -82,6 +99,7 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--warehouse", default=str(REPO / "data_warehouse"))
     ap.add_argument("--limit", type=int, default=40, help="số mã gọi nguồn (0 = chỉ đếm)")
     ap.add_argument("--recent-days", type=int, default=10)
+    ap.add_argument("--tickers", default="", help="thử đúng các mã này (phẩy ngăn cách) thay cho danh sách tự tìm")
     args = ap.parse_args(argv)
     wh = Path(args.warehouse)
     lines: list[str] = []
@@ -95,25 +113,32 @@ def main(argv: "list[str] | None" = None) -> int:
     last = {p.name.split("=", 1)[1]: _last_date(p) for p in sorted((wh / "prices").glob("ticker=*"))}
     c = classify(last, pending, args.recent_days)
     add(f"Kho: {len(last)} mã · phiên mới nhất {c['session']}")
-    add(f"  thiếu phiên mới nhất, bar trong {args.recent_days} ngày (ĐANG giao dịch, bị bỏ sót): {len(c['recent'])}")
+    add(f"  thiếu phiên mới nhất, có bar trong {args.recent_days} ngày (ít thanh khoản hoặc bị bỏ sót): {len(c['recent'])}")
     add(f"  đứng lâu hơn (nhiều khả năng ngừng giao dịch): {len(c['old'])}")
     add(f"  trong sổ cách ly lệch cơ sở: {len(c['quarantined'])}")
-    add("  mã bị bỏ sót: " + ", ".join(f"{t}({last[t]})" for t in c["recent"]))
-    if args.limit and c["recent"]:
+    add("  các mã đó: " + ", ".join(f"{t}({last[t]})" for t in c["recent"]))
+    picks = [t.strip().upper() for t in args.tickers.split(",") if t.strip()] or c["recent"]
+    if args.limit and picks:
         import vnstock_auth as va
         srcs = va.configure_sources(force=True)["default"]
         va.keep_schema_warnings()
         add("")
-        add(f"== Thử từng nguồn đã khai ({', '.join(srcs) or '(trống)'}) cho {min(args.limit, len(c['recent']))} mã ==")
+        add(f"== Thử từng nguồn đã khai ({', '.join(srcs) or '(trống)'}) cho {min(args.limit, len(picks))} mã ==")
         d1 = c["session"]
         d0 = d1 - timedelta(days=14)
         ok = {s: 0 for s in srcs}
-        for tk in c["recent"][: args.limit]:
+        tally: dict = {}
+        for tk in picks[: args.limit]:
             res = {s: _try_source(s, tk, d0, d1) for s in srcs}
-            for s, r in res.items():
-                ok[s] += "bar" in r
-            add(f"  {tk:<6} kho cuối {last[tk]} · " + " · ".join(f"{s}: {r}" for s, r in res.items()))
+            for s, (_, d) in res.items():
+                ok[s] += d is not None
+            v = verdict(last.get(tk), c["session"], {s: d for s, (_, d) in res.items()})
+            tally[v] = tally.get(v, 0) + 1
+            add(f"  {tk:<6} kho cuối {last.get(tk)} · " + " · ".join(f"{s}: {r}" for s, (r, _) in res.items())
+                + f"\n         ⇒ {v}")
         add("  tổng trả được giá: " + ", ".join(f"{s} {n}" for s, n in ok.items()))
+        for v, n in sorted(tally.items(), key=lambda kv: -kv[1]):
+            add(f"  {n:>3} mã: {v}")
     out = REPO / "gen6_missing_report.txt"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"\n→ Đã lưu {out} — dán nội dung này cho Claude.")
