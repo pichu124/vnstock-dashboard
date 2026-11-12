@@ -129,6 +129,8 @@ from vnstock_brief_guards_sections import (  # noqa: F401  (re-export)
     _NN_ONE,
     _NN_NUM_WORD,
     _NN_OTHER_SPAN_RE,
+    _NN_SPAN,
+    _NN_SPAN_NOT,
     _nn_other_span,
     _NN_COMMON_WORD_NAMES,
     _nn_close,

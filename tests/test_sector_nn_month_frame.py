@@ -158,3 +158,41 @@ def test_span_without_data_is_left_untouched(text):
     không phải tuần ⇒ guard không ghim số (ghim về số tuần/tháng đều sai khung)."""
     out = _run(text)
     assert "3,800 tỷ" in out and "1,032" not in out and "2,536" not in out, out
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 3,800 tỷ, 2 tháng trước còn mua ròng 400 tỷ.",
+    "Ngân hàng bán ròng 3,800 tỷ, quý trước còn mua ròng.",
+    "Ngân hàng bán ròng 3,800 tỷ, quý III lợi nhuận tăng.",
+    "Ngân hàng bán ròng 3,800 tỷ, quý IV thường hồi phục.",
+    "Ngân hàng bán ròng 3,800 tỷ trong 3 tháng tới sẽ giảm.",
+    "Ngân hàng bán ròng 3,800 tỷ, ba tháng cuối năm thường yếu.",
+])
+def test_other_clause_after_span_words_still_pins(text):
+    """Review: "2 tháng trước", "quý III", "3 tháng tới"… là MỆNH ĐỀ KHÁC, không phải khoảng thời gian của
+    số ⇒ số bịa vẫn bị ghim như cũ (về NN 1T)."""
+    assert "-1,032" in _run(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 1,032 tỷ (3 tháng).",
+    "Ngân hàng bán ròng 1,032 tỷ trong quý.",
+    "Ngân hàng bán ròng 1,032 tỷ trong một tháng rưỡi.",
+])
+def test_week_value_with_other_span_gets_no_week_label_and_is_idempotent(text):
+    """Review: số TRÙNG số tuần kèm "(3 tháng)" từng bị nhãn khung chèn "(1 tuần)" — tự mâu thuẫn và lượt
+    chạy lại (`--from-file`) đổi chữ."""
+    out = _run(text)
+    assert "(1 tuần)" not in out, out
+
+
+def test_lowercase_name_only_stops_after_group_word():
+    """Tên viết thường chỉ chặn sau "nhóm/ngành/cổ phiếu" — "tín dụng bất động sản" là chữ thường của
+    văn, không phải nhắc ngành khác ⇒ số bịa của Ngân hàng vẫn bị ghim."""
+    assert "-1,032" in _run("Ngân hàng: tín dụng bất động sản siết, NN bán ròng 999 tỷ.")
+    assert "+120" not in _run("Thép & Kim loại tăng mạnh, cổ phiếu ngân hàng bán ròng 999 tỷ.")
+
+
+def test_parenthetical_with_other_span_left_untouched():
+    out = _run("**Dòng tiền ngành:** Ngân hàng (NN -3,800 tỷ, 3 tháng) chịu áp lực.")
+    assert "(NN -3,800 tỷ, 3 tháng)" in out, out

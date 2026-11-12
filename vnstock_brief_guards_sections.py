@@ -1093,11 +1093,17 @@ _NN_MONTH_AFTER_RE = _re.compile(
 # Khoảng thời gian KHÔNG có trong dữ liệu (NN 1T/1M): "tháng rưỡi", N≥2 tháng, quý ⇒ guard KHÔNG
 # ghim số (ghim về số tuần hay tháng đều sai khung) — chỉ nhìn NGAY SAU số như khung tháng.
 _NN_NUM_WORD = r"(?:\d+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)"
+_NN_SPAN = (r"(?:hơn\s+)?(?:(?:" + _NN_NUM_WORD + r"\s+)?tháng\s+rưỡi\b"
+            r"|(?:[2-9]|1\d|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)\s+tháng\b"
+            r"|(?:(?:1|một)\s+)?quý\b(?!\s*(?:[IVX]+\b|một\b|hai\b|ba\b|bốn\b)))")
+# Sau khoảng thời gian mà là trước/sau/tới/cuối/đầu/số/tên tháng ⇒ MỆNH ĐỀ KHÁC ("2 tháng trước còn
+# mua ròng", "quý tới", "3 tháng tới", "ba tháng cuối năm") — không phải khoảng của số.
+_NN_SPAN_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|tới|cuối|đầu|thứ|qua\s+nữa|"
+                + _NN_MONTH_NAMES + r")\b)")
 _NN_OTHER_SPAN_RE = _re.compile(
-    r"(?:\s*đồng)?\s*(?:\(\s*|,\s*)?(?:trong\s+)?(?:hơn\s+)?"
-    r"(?:(?:" + _NN_NUM_WORD + r"\s+)?tháng\s+rưỡi\b"
-    r"|(?:[2-9]|1\d|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)\s+tháng\b"
-    r"|(?:(?:1|một)\s+)?quý\b(?!\s*\d))", _re.IGNORECASE)
+    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN + _NN_SPAN_NOT
+    + r"|,\s*" + _NN_SPAN + r"(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
+    + r"|(?:trong\s+)?" + _NN_SPAN + _NN_SPAN_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
 
 
 def _nn_other_span(s: str, pos: int) -> bool:
@@ -1192,8 +1198,8 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
             # to the real SIGNED value — a wrong magnitude can't survive.
             def _fix_after(m: "_re.Match", _vv=vv, _nm=nm) -> str:
                 cur = _parse_vn_number(m.group(2))
-                if cur is None or _re.match(r"\s*(?:đồng\s*)?(?:GTGD|thanh\s+khoản)", m.string[m.end():],
-                                            _re.IGNORECASE):
+                if cur is None or _nn_other_span(m.string, m.end()) or _re.match(
+                        r"\s*(?:đồng\s*)?(?:GTGD|thanh\s+khoản)", m.string[m.end():], _re.IGNORECASE):
                     return m.group(0)                   # "X (+1,500 tỷ GTGD)": số thanh khoản, không phải NN
                 if _nn_month_framed(m.string, m.end()):      # "X (NN -2,536 tỷ, 1 tháng)"
                     v1m = _nn_month_value(ctx, _nm)
@@ -1332,9 +1338,11 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
         # văn brief ("khác hẳn", "thị trường chứng khoán", "người tiêu dùng") — chặn nhầm chỉ làm
         # guard BỎ QUA số đó (không gán sai), còn vượt sang ngành khác là gán sai.
         others = [o for o in all_names if o != nm and o.lower() not in nm.lower()]
+        # Viết thường chỉ chặn khi đứng sau "nhóm/ngành/cổ phiếu/cp" — đó mới là cách nhắc NGÀNH
+        # KHÁC; "tín dụng bất động sản", "giá năng lượng" là chữ thường của văn (review 12/11).
         stop = "".join(
             f"|{_re.escape(o)}" if o.lower() in _NN_COMMON_WORD_NAMES
-            else f"|(?<!\\w)(?i:{_re.escape(o)})(?!\\w)"
+            else f"|{_re.escape(o)}|(?i:(?:nhóm|ngành|cổ\\s+phiếu|cp)\\s+{_re.escape(o)})(?!\\w)"
             for o in sorted(others, key=len, reverse=True))
         out = _re.sub(
             rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b|trong\s+khi{stop})[^;\n]){{0,40}}?"
@@ -1431,6 +1439,10 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             ls = out.rfind("\n", 0, m.start()) + 1
             window = out[ls:m.end()].lower()
             after = out[m.end():m.end() + 12].lower()
+            # Ngay sau là khoảng thời gian KHÔNG có dữ liệu ("(3 tháng)", "trong quý") ⇒ không gắn "(1 tuần)"
+            # (tự mâu thuẫn; guard ghim cũng để nguyên số này) — 12/11.
+            if _nn_other_span(out, m.end()):
+                return m.group(0)
             # NGAY SAU số đã có khung TUẦN viết tắt "(1T)" / "(1T; …)" (kể cả qua "đồng") ⇒ đừng chèn
             # "(1 tuần)" lần nữa. CHỈ khung trùng: "(1M)" sau một số khớp |NN 1T| là số tuần bị ghim
             # vào chỗ số tháng — giữ "(1 tuần)" làm dấu vết như cũ.
@@ -1454,6 +1466,10 @@ def enforce_nn_frame_labels(text: str, ctx: dict) -> str:
             ls = out.rfind("\n", 0, m.start()) + 1
             window = out[ls:m.end()].lower()
             after = out[m.end():m.end() + 12].lower()
+            # Ngay sau là khoảng thời gian KHÔNG có dữ liệu ("(3 tháng)", "trong quý") ⇒ không gắn "(1 tuần)"
+            # (tự mâu thuẫn; guard ghim cũng để nguyên số này) — 12/11.
+            if _nn_other_span(out, m.end()):
+                return m.group(0)
             # NGAY SAU số đã có khung TUẦN viết tắt "(1T)" / "(1T; …)" (kể cả qua "đồng") ⇒ đừng chèn
             # "(1 tuần)" lần nữa. CHỈ khung trùng: "(1M)" sau một số khớp |NN 1T| là số tuần bị ghim
             # vào chỗ số tháng — giữ "(1 tuần)" làm dấu vết như cũ.
