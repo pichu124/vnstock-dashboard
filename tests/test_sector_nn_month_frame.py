@@ -287,3 +287,30 @@ def test_span_phrasings_of_the_figure_are_left_untouched(text):
 def test_colon_or_future_clause_cannot_be_bypassed(text):
     """Review 12/11: ":" / "tới" sau cụm khoảng thời gian (kể cả có đuôi) ⇒ mệnh đề khác ⇒ vẫn ghim."""
     assert "-1,032" in _run(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 3,800 tỷ trong 3 tháng qua và tiếp tục bán ròng tuần này.",
+    "Ngân hàng bán ròng 3,800 tỷ trong 3 tháng qua do tỷ giá căng.",
+    "Ngân hàng bán ròng 3,800 tỷ trong quý III khi NN bán mạnh.",
+    "Ngân hàng bán ròng 3,800 tỷ trong 10 tháng đầu năm dù tuần này mua ròng.",
+    "Ngân hàng bán ròng 3,800 tỷ trong 3 tháng tính tới nay.",
+    "Ngân hàng bán ròng 3,800 tỷ trong 3 tháng qua (cao nhất 2 năm).",
+    "Ngân hàng bán ròng 3,800 tỷ trong 3 tháng qua – tỷ giá căng.",
+    "Ngân hàng bán ròng 3,800 tỷ (quý III, khối ngoại bán ròng mạnh nhất).",
+    "Ngân hàng bán ròng 3,800 tỷ trong 3 tháng qua so với 1,032 tỷ tuần này.",
+])
+def test_span_followed_by_joined_clause_is_left_untouched(text):
+    """Review 12/11: dấu hiệu mệnh đề khác chỉ tính khi đứng TRƯỚC ranh giới mệnh đề gần nhất (dấu câu,
+    "(", gạch ngang, và/nhưng/dù/khi/do/so với…) — mệnh đề nối phía sau không làm khoảng hợp lệ hỏng."""
+    out = _run(text)
+    assert "3,800 tỷ" in out and "(1 tuần) trong" not in out and "-1,032 tỷ (1 tuần)" not in out, out
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 999 tỷ trong 3 tháng khối ngoại vẫn bán.",
+    "Ngân hàng bán ròng 999 tỷ trong 3 tháng qua 400 tỷ tuần này.",
+    "Ngân hàng bán ròng 999 tỷ trong 3 tháng 2,536 tỷ.",
+])
+def test_marker_before_clause_boundary_still_pins(text):
+    assert "-1,032" in _run(text)

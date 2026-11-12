@@ -253,16 +253,19 @@ _NN_SPAN_TRONG = (_NN_SPAN_HEAD + r"|(?:(?:1|một)\s+)?quý\b"
 # Theo sau là trước/sau/tới/cuối/đầu/số/tên tháng ⇒ MỆNH ĐỀ KHÁC ("2 tháng trước còn mua ròng", "quý tới").
 _NN_SPAN_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|tới|cuối|đầu|thứ|qua\s+nữa|"
                 + _NN_MONTH_NAMES + r")\b)")
-# Sau "trong"/"(": xét CẢ cụm tới hết mệnh đề (dấu câu / đóng ngoặc) thay vì liệt kê đuôi hợp lệ —
-# cụm là khoảng của CHÍNH số khi đi hết mà không gặp dấu hiệu MỆNH ĐỀ KHÁC: ":", một số "… tỷ" khác,
-# mua/bán/ròng, dự kiến/dự báo, tới, "trước đó"/"sau đó". Không cần nhóm nguyên tử: vòng lặp không
-# được đi QUA dấu hiệu, và phải dừng ĐÚNG ở dấu câu ⇒ regex lùi lại cũng không lách được.
-_NN_CLAUSE_STOP = (r"(?!:|tỷ\b|ròng\b|mua\b|bán\b|dự\s+(?:kiến|báo)\b|tới\b"
+# Sau "trong"/"(": xét cụm tới RANH GIỚI MỆNH ĐỀ GẦN NHẤT (dấu câu, "(", gạch ngang, liên từ và/nhưng/dù/
+# khi/do/so với/còn/song/tuy; trong ngoặc: dấu phẩy đầu tiên hoặc ")"). Gặp DẤU HIỆU mệnh đề khác TRƯỚC
+# ranh giới ⇒ không phải khoảng của số: ":", một SỐ kèm "tỷ" (không phải "tỷ giá"), mua/bán/ròng, dự
+# kiến/dự báo, "tới" (trừ "tới nay"), "trước đó"/"sau đó"/"trước."… Tới ranh giới mà sạch ⇒ khoảng của
+# chính số ("… trong 3 tháng qua và tiếp tục bán ròng tuần này"). Vòng lặp lười + không được đi QUA dấu
+# hiệu ⇒ regex lùi lại cũng không lách được.
+_NN_CLAUSE_STOP = (r"(?!:|[-+]?\d[\d.,]*\s*tỷ\b|ròng\b|mua\b|bán\b|dự\s+(?:kiến|báo)\b|tới\b(?!\s+nay)"
                    r"|(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
+_NN_CLAUSE_END = (r"(?=\s*(?:[.,;)(\n–—]|$|(?:và|nhưng|dù|khi|do|so\s+với|còn|song|tuy|trong\s+khi)\b))")
 _NN_OTHER_SPAN_RE = _re.compile(
-    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN_TRONG + r"(?:" + _NN_CLAUSE_STOP + r"[^()\n])*\)"
+    r"(?:\s*đồng)?\s*(?:\(\s*" + _NN_SPAN_TRONG + r"(?:" + _NN_CLAUSE_STOP + r"[^(),\n])*?(?=\s*[),])"
     + r"|trong\s+" + _NN_SPAN_TRONG + r"(?!\s*(?:thứ|qua\s+nữa)\b)(?:" + _NN_CLAUSE_STOP
-    + r"[^.,;:()\n])*(?=[.,;)\n]|$)"
+    + r"[^\n])*?" + _NN_CLAUSE_END
     + r"|,\s*" + _NN_SPAN + r"(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
     + r"|" + _NN_SPAN + _NN_SPAN_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
 

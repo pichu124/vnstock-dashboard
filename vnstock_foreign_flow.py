@@ -89,7 +89,10 @@ def foreign_net_for_date(day: str, use_cache: bool = True) -> pd.DataFrame:
     path = _day_cache_path(day)
     if use_cache and path.exists():
         try:
-            return pd.read_parquet(path).reindex(columns=FOREIGN_NET_COLS).reset_index(drop=True)
+            cached = pd.read_parquet(path).reindex(columns=FOREIGN_NET_COLS).reset_index(drop=True)
+            # file rỗng/cụt (vd bản đệm trước khi có sàn) ⇒ coi như không có, tải lại + ghi đè
+            if int((cached["foreign_net_value"].fillna(0) != 0).sum()) >= _MIN_CACHE_NONZERO:
+                return cached
         except Exception:              # file hỏng/dở (Dropbox) ⇒ tải lại, ghi đè
             pass
 

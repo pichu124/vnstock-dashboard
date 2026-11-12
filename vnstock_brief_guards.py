@@ -38,6 +38,7 @@ from vnstock_brief_guards_common import (  # noqa: F401  (re-export)
     _NN_SPAN_HEAD,
     _NN_SPAN_TRONG,
     _NN_CLAUSE_STOP,
+    _NN_CLAUSE_END,
     _PIVOT_LABEL_RE,
     _SECTION_EMOJIS,
     _bias_floor_dir,

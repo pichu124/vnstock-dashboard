@@ -223,3 +223,15 @@ def _big_board(n: int = 300) -> pd.DataFrame:
     return pd.DataFrame({"symbol": [f"M{i:03d}" for i in range(n)],
                          "foreign_net_value": [1e8 * (1 if i % 2 else -1) for i in range(n)],
                          "foreign_net_volume": [1000] * n})
+
+
+
+def test_thin_cache_file_is_refetched(tmp_path, monkeypatch):
+    pytest.importorskip("vnstock")
+    import vnstock
+    _cache_on(monkeypatch, tmp_path)
+    (tmp_path / "nn_screener").mkdir(parents=True)
+    _BOARD.to_parquet(tmp_path / "nn_screener" / "2026-11-11.parquet", index=False)   # bản cụt cũ
+    calls: list = []
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-11": _big_board()}, calls))
+    assert len(ff.foreign_net_for_date("2026-11-11")) == 300 and len(calls) == 1
