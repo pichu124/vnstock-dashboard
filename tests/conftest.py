@@ -74,6 +74,27 @@ def _reset_price_fallback_breaker():
 
 
 @pytest.fixture(autouse=True)
+def _no_vnstock_sources_anywhere(monkeypatch):
+    """Luật nguồn vnstock thế hệ 6 là trạng thái TOÀN TIẾN TRÌNH (`vnstock.sources._rules`) và `.env`
+    máy thật lọt vào pytest (`vnstock_auth` gọi `load_dotenv`): một test áp `VNSTOCK_SOURCE=dnse,fhsc`
+    là mọi test sau gọi được NGUỒN THẬT qua mạng (🖥️ 12/11: test "chưa khai nguồn ⇒ InputError" lấy
+    được giá FPT thật nên DID NOT RAISE). Mỗi test bắt đầu KHÔNG luật, KHÔNG biến nguồn; test cần
+    nguồn tự setenv/patch."""
+    import os
+
+    import vnstock_auth as _va
+    for k in list(os.environ):
+        if k.startswith("VNSTOCK_SOURCE"):               # VNSTOCK_SOURCE / _ROUTES / VNSTOCK_SOURCES
+            monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(_va, "_SOURCES_DONE", False)
+    try:
+        import vnstock.sources as _src
+    except Exception:                                   # CI không cài vnstock
+        return
+    monkeypatch.setattr(_src, "_rules", {})
+
+
+@pytest.fixture(autouse=True)
 def _no_nn_screener_day_cache_anywhere(monkeypatch):
     """Đệm NN ròng theo ngày (`vnstock_foreign_flow`, 12/11) ghi vào data_warehouse/_meta/nn_screener
     THẬT và test sau đọc được đệm test trước ghi (rò trạng thái). Tắt cứng; test của đệm tự bật
