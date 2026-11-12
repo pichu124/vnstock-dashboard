@@ -53,6 +53,9 @@ FOREIGN_NET_COLS = ["symbol", "foreign_net_value", "foreign_net_volume"]
 _DAY_CACHE_DIR = _REPO / "data_warehouse" / "_meta" / "nn_screener"
 _DAY_CACHE_ENV = "VNSTOCK_NN_SCREENER_CACHE"
 _SESSION_DONE_HHMM = (15, 30)          # sau giờ này phiên hôm nay coi như đã chốt
+# Bảng cả thị trường thật có vài trăm mã NN ròng ≠ 0 (đo 12/11: 1.518 mã). Ít hơn sàn này = bảng
+# RỖNG/CỤT (chưa có bảng hôm nay, lỗi im lặng, trang dở) ⇒ KHÔNG đệm, lượt sau tải lại.
+_MIN_CACHE_NONZERO = 100
 
 
 def _vn_now():
@@ -73,7 +76,7 @@ def _day_cache_path(day: str) -> Path:
     return _DAY_CACHE_DIR / f"{day}.parquet"
 
 
-def foreign_net_for_date(day: str) -> pd.DataFrame:
+def foreign_net_for_date(day: str, use_cache: bool = True) -> pd.DataFrame:
     """NN ròng TỪNG MÃ của phiên ``day`` (ISO) trên cả thị trường.
 
     Cột ``symbol`` (in hoa), ``foreign_net_value`` (đồng), ``foreign_net_volume`` (cp);
@@ -82,7 +85,7 @@ def foreign_net_for_date(day: str) -> pd.DataFrame:
     """
     import os
 
-    use_cache = os.getenv(_DAY_CACHE_ENV, "1").strip() != "0"
+    use_cache = use_cache and os.getenv(_DAY_CACHE_ENV, "1").strip() != "0"
     path = _day_cache_path(day)
     if use_cache and path.exists():
         try:
@@ -103,18 +106,22 @@ def foreign_net_for_date(day: str) -> pd.DataFrame:
         for c in ("foreign_net_value", "foreign_net_volume"):
             out[c] = pd.to_numeric(out[c], errors="coerce")
         out = out[out["symbol"] != ""].reset_index(drop=True)
-    if use_cache and _day_is_final(day):
+    nonzero = int((out["foreign_net_value"].fillna(0) != 0).sum()) if not out.empty else 0
+    if use_cache and _day_is_final(day) and nonzero >= _MIN_CACHE_NONZERO:
+        tmp = path.with_suffix(f".{os.getpid()}.tmp")
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp")
             out.to_parquet(tmp, index=False)
             os.replace(tmp, path)
         except Exception:              # đệm là tiện ích — không làm hỏng lượt lấy dữ liệu
-            pass
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
     return out
 
 
-def fetch_market_net(date_str: str) -> dict | None:
+def fetch_market_net(date_str: str, use_cache: bool = True) -> dict | None:
     """FULL-market foreign net for one trading day.
 
     Returns ``{date, net, buy, sell, n_symbols}`` in tỷ VND, or None when the
@@ -125,7 +132,7 @@ def fetch_market_net(date_str: str) -> dict | None:
     from vnstock.errors import VnstockError
 
     try:
-        df = foreign_net_for_date(date_str)
+        df = foreign_net_for_date(date_str, use_cache=use_cache)
     except VnstockError as e:
         print(f"[foreign-flow] {date_str}: {type(e).__name__} {getattr(e, 'code', '')} — {e}",
               file=sys.stderr)

@@ -150,7 +150,7 @@ def test_closed_session_is_fetched_once_then_read_from_disk(tmp_path, monkeypatc
     pytest.importorskip("vnstock")
     import vnstock
     calls: list = []
-    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-11": _BOARD}, calls))
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-11": _big_board()}, calls))
     _cache_on(monkeypatch, tmp_path)
     first = ff.foreign_net_for_date("2026-11-11")
     second = ff.foreign_net_for_date("2026-11-11")
@@ -163,7 +163,7 @@ def test_today_before_close_is_not_cached(tmp_path, monkeypatch):
     pytest.importorskip("vnstock")
     import vnstock
     calls: list = []
-    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-12": _BOARD}, calls))
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-12": _big_board()}, calls))
     _cache_on(monkeypatch, tmp_path, now_hhmm=(10, 30))
     ff.foreign_net_for_date("2026-11-12")
     ff.foreign_net_for_date("2026-11-12")
@@ -188,3 +188,38 @@ def test_source_error_is_not_cached_and_kill_switch(tmp_path, monkeypatch):
     ff.foreign_net_for_date("2026-11-11")
     ff.foreign_net_for_date("2026-11-11")
     assert len(calls) == 2 and not (tmp_path / "nn_screener").exists()
+
+
+def test_empty_or_thin_board_is_never_cached(tmp_path, monkeypatch):
+    """Review 12/11: nguồn trả RỖNG / CỤT (chưa có bảng hôm nay lúc 15:31, lỗi im lặng) không được thành đệm
+    vĩnh viễn (kho đi qua Dropbox) — lượt sau phải tải lại."""
+    pytest.importorskip("vnstock")
+    import vnstock
+    calls: list = []
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-12": pd.DataFrame()}, calls))
+    _cache_on(monkeypatch, tmp_path, now_hhmm=(15, 31))
+    ff.foreign_net_for_date("2026-11-12")
+    ff.foreign_net_for_date("2026-11-12")
+    assert len(calls) == 2 and not (tmp_path / "nn_screener" / "2026-11-12.parquet").exists()
+    calls2: list = []
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-11": _BOARD}, calls2))
+    ff.foreign_net_for_date("2026-11-11")                  # _BOARD chỉ vài mã ⇒ "cụt" so với sàn
+    assert not (tmp_path / "nn_screener" / "2026-11-11.parquet").exists()
+
+
+def test_use_cache_false_always_hits_source(tmp_path, monkeypatch):
+    """Doctor kiểm API mạng ⇒ không được đọc đệm của phiên trước."""
+    pytest.importorskip("vnstock")
+    import vnstock
+    calls: list = []
+    monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-11-11": _big_board()}, calls))
+    _cache_on(monkeypatch, tmp_path)
+    ff.foreign_net_for_date("2026-11-11")
+    ff.foreign_net_for_date("2026-11-11", use_cache=False)
+    assert len(calls) == 2
+
+
+def _big_board(n: int = 300) -> pd.DataFrame:
+    return pd.DataFrame({"symbol": [f"M{i:03d}" for i in range(n)],
+                         "foreign_net_value": [1e8 * (1 if i % 2 else -1) for i in range(n)],
+                         "foreign_net_volume": [1000] * n})

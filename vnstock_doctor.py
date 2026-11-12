@@ -1405,7 +1405,7 @@ def net_foreign_flow_api() -> dict:
         return _result("net_foreign_flow", name, "error",
                        f"chưa khai nguồn vnstock thế hệ 6 ({SOURCE_ENV}/{ROUTES_ENV} trống)",
                        f"đặt {SOURCE_ENV} trong .env + `vnstock keys set <nguồn>`")
-    rec = fetch_market_net(d)
+    rec = fetch_market_net(d, use_cache=False)   # kiểm API THẬT — không đọc đệm phiên trước
     if not rec:
         return _result("net_foreign_flow", name, "error",
                        f"nguồn không trả dữ liệu cho {d}",

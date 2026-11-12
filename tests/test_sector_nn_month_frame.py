@@ -258,3 +258,32 @@ def test_other_clause_inside_parentheses_still_pins(text):
 def test_span_with_year_is_left_untouched(text):
     out = _run(text)
     assert "3,800 tỷ" in out and "1,032" not in out, out
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 3,800 tỷ (9 tháng đầu năm 2025).",
+    "Ngân hàng bán ròng 3,800 tỷ (10 tháng đầu năm nay).",
+    "Ngân hàng bán ròng 3,800 tỷ (quý III năm nay).",
+    "Ngân hàng bán ròng 3,800 tỷ (quý III vừa qua).",
+    "Ngân hàng bán ròng 3,800 tỷ (3 tháng gần đây).",
+    "Ngân hàng bán ròng 3,800 tỷ (3 tháng trở lại đây).",
+    "Ngân hàng bán ròng 3,800 tỷ (3 tháng liên tiếp).",
+    "Ngân hàng bán ròng 3,800 tỷ (quý III-2025).",
+    "Ngân hàng bán ròng 3,800 tỷ trong quý III năm nay.",
+    "Ngân hàng bán ròng 3,800 tỷ trong quý III 2025.",
+])
+def test_span_phrasings_of_the_figure_are_left_untouched(text):
+    """Review 12/11: cụm khoảng thời gian của CHÍNH số viết nhiều kiểu — xét CẢ cụm tới hết mệnh đề,
+    không liệt kê đuôi."""
+    out = _run(text)
+    assert "3,800 tỷ" in out and "(1 tuần)" not in out, out
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 999 tỷ trong 3 tháng qua: mua ròng 200 tỷ.",
+    "Ngân hàng bán ròng 999 tỷ trong quý III/2025: mua ròng 200 tỷ.",
+    "Ngân hàng bán ròng 999 tỷ trong quý III/2025 tới sẽ đảo chiều.",
+])
+def test_colon_or_future_clause_cannot_be_bypassed(text):
+    """Review 12/11: ":" / "tới" sau cụm khoảng thời gian (kể cả có đuôi) ⇒ mệnh đề khác ⇒ vẫn ghim."""
+    assert "-1,032" in _run(text)

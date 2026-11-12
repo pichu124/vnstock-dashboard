@@ -170,7 +170,8 @@ def main(argv: "list[str] | None" = None) -> int:
         days = [d for d in (today - timedelta(days=i) for i in range(1, 8)) if d.weekday() < 5][:2]
         out = []
         for d in days:
-            df = Market().equity.screener(date=d.isoformat())
+            from vnstock_foreign_flow import foreign_net_for_date
+            df = foreign_net_for_date(d.isoformat())          # có đệm theo ngày (lần 2 nhanh)
             v = pd.to_numeric(df.get("foreign_net_value"), errors="coerce").dropna()
             out.append(f"{d}: {len(df)} mã, NN ròng |max|={v.abs().max():,.0f}, Σ={v.sum():,.0f}"
                        if len(v) else f"{d}: {len(df)} mã, không có foreign_net_value")

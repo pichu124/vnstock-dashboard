@@ -105,7 +105,8 @@ def _index_quote_last_row(df: pd.DataFrame) -> pd.Series:
     luỹ kế cả phiên (`total_volume` hay `accumulated_volume`) ⇒ lấy số LỚN HƠN của hai cột — cột luỹ kế
     luôn lớn nhất; xác nhận bằng `scripts/gen6_check.py` (in đầu/cuối chuỗi). Hàm thuần."""
     if "time" in df.columns:
-        df = df.assign(_t=pd.to_datetime(df["time"], errors="coerce")).sort_values("_t", kind="stable")
+        df = df.assign(_t=pd.to_datetime(df["time"], errors="coerce")).sort_values(
+            "_t", kind="stable", na_position="first")          # time hỏng không thành "mới nhất"
     row = df.iloc[-1]
     vols = [v for v in (pd.to_numeric(row.get(c), errors="coerce")
                         for c in ("total_volume", "accumulated_volume")) if pd.notna(v)]
