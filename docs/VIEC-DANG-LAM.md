@@ -46,8 +46,10 @@ Merge vào main trước khi xong 4 bước dưới = pipeline đêm đó mất 
    `python scripts/gen6_check.py` ⇒ dán nội dung `gen6_check_report.txt`;
    `python scripts/probe_price_basis.py --sweep --limit 50` ⇒ dán phần in ra (lệch cơ sở kho ↔ fhsc).
    Claude đọc xong mới merge. ⚠️ Lệch cơ sở ⇒ cửa V1 cách ly hàng loạt mã.
-6. Sau khi merge: 🖥️ DESKTOP đăng ký lại task (Run as Administrator, shell đã kích hoạt `.venv_6x`):
-   `.\scripts\setup_scheduled_tasks.ps1 -PythonExe "$HOME\.venv_6x\Scripts\python.exe"`.
+6. Sau khi merge: 🖥️ DESKTOP đăng ký lại task (Run as Administrator; không cần kích hoạt venv vì đã có `-PythonExe`):
+   `.\scripts\setup_scheduled_tasks.ps1 -PythonExe "$HOME\.venv_6x\Scripts\python.exe" -NoNewsAlert`.
+   ⚠️ PHẢI có `-NoNewsAlert`: tin mỗi giờ chỉ chạy ở 💻 laptop (từ 08/11) — thiếu cờ là script đăng ký LẠI
+   task News Alert ở desktop ⇒ hai máy cùng gửi tin (12/11 đã dính, chạy lại có cờ thì script gỡ task 3).
    Task đang đăng ký vẫn trỏ venv cũ ⇒ code thế hệ 6 trên vnstock 4.x = ImportError.
 7. 💻 LAPTOP — KHÔNG cần làm gì: task tin mỗi giờ (`run.py news-alert` + tài sản theo giờ) không dùng
    vnstock (đo 12/11: import cả chuỗi bằng Python không có vnstock — chạy được), giữ venv cũ, không
