@@ -109,3 +109,29 @@ def test_week_figure_next_to_signed_month_figure_is_kept():
         once = vb.apply_brief_guards(t, _CTX)
         assert vb.apply_brief_guards(once, _CTX) == once, once
         assert want in once.splitlines()[1], once
+
+
+def test_name_to_verb_gap_does_not_cross_into_another_sector():
+    """Lỗi cũ (trước 11/11): khoảng tên→động từ 40 ký tự vượt sang NGÀNH KHÁC — "Thép & Kim loại tăng
+    mạnh, Ngân hàng bán ròng 2,536 tỷ (1M)" từng thành "Ngân hàng mua ròng +300 tỷ (1M)" (số + chiều
+    của Thép gán cho Ngân hàng)."""
+    out = _run("Thép & Kim loại tăng mạnh, Ngân hàng bán ròng 2,536 tỷ (1M).")
+    assert "Ngân hàng bán ròng 2,536 tỷ (1" in out and "+300" not in out, out
+    out2 = _run("Thép & Kim loại tăng mạnh, Ngân hàng bán ròng 1,032 tỷ.")
+    assert "Ngân hàng bán ròng -1,032 tỷ" in out2 and "+120" not in out2, out2
+    # chính ngành đó vẫn được soát như cũ
+    assert "+120" in _run("Thép & Kim loại tăng mạnh, NN mua ròng 999 tỷ.")
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 2,536 tỷ trong một tháng.",
+    "Ngân hàng bán ròng 2,536 tỷ (một tháng).",
+])
+def test_month_written_out_in_words_is_a_month_frame(text):
+    """Lỗi cũ: "trong một tháng" (chữ) không được nhận là khung tháng ⇒ số NN 1M đúng bị ghim về tuần."""
+    out = _run(text)
+    assert "2,536 tỷ" in out and "1,032" not in out, out
+
+
+def test_month_name_january_is_not_a_frame():
+    assert "-1,032" in _run("Ngân hàng bán ròng 2,536 tỷ tháng một.")

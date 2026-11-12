@@ -1080,12 +1080,14 @@ _NN_MONTH_NOT_TRONG = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:thứ|tới|qua\s+nữa
                        + r")\b|\s*(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
 # Nhánh dấu phẩy (", 1 tháng") chỉ khi nó ĐÓNG cụm: ")"/dấu câu/hết — ", 1 tháng qua ngành giảm
 # 5%" là mệnh đề khác.
+# "1 tháng" hay "một tháng" (viết chữ) đều là khung 1M; "tháng một" (tên tháng) thì không.
+_NN_ONE = r"(?:1|một)\s+"
 _NN_MONTH_AFTER_RE = _re.compile(
-    r"(?:\s*đồng)?\s*(?:\(\s*(?:NN\s+)?(?:1M\b|(?:1\s+tháng|20\s+phiên)\b" + _NN_MONTH_NOT + r")"
-    r"|,\s*(?:1\s+tháng|20\s+phiên)\b(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
-    + r"|trong\s+(?:1\s+)?tháng\b" + _NN_MONTH_NOT_TRONG
+    r"(?:\s*đồng)?\s*(?:\(\s*(?:NN\s+)?(?:1M\b|(?:" + _NN_ONE + r"tháng|20\s+phiên)\b" + _NN_MONTH_NOT + r")"
+    r"|,\s*(?:" + _NN_ONE + r"tháng|20\s+phiên)\b(?:\s+(?:qua|gần\s+nhất))?\s*(?=[).;,]|$)"
+    + r"|trong\s+(?:" + _NN_ONE + r")?tháng\b" + _NN_MONTH_NOT_TRONG
     + r"|trong\s+20\s+phiên\b" + _NN_MONTH_NOT_TRONG
-    + r"|(?:1\s+)?tháng\b" + _NN_MONTH_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
+    + r"|(?:" + _NN_ONE + r")?tháng\b" + _NN_MONTH_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
 
 
 def _nn_month_framed(s: str, pos: int) -> bool:
@@ -1306,8 +1308,13 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
         # "tỷ" (số+đơn vị đã chốt = mệnh đề ngành TRƯỚC đó) VÀ connector "trong
         # khi" (nối 2 vế dòng-tiền — close 15/07: pass Họ VIN vượt "…, trong
         # khi bán ròng…" sang số của Ngân hàng, pin nhầm thành +1,496).
+        # …và không vượt qua TÊN NGÀNH KHÁC (11/11: "Thép & Kim loại tăng mạnh, Ngân hàng bán ròng
+        # 2,536 tỷ" — pass Thép nuốt số của Ngân hàng, ghim thành +300/+120 và đổi cả chiều).
+        # Tên khác chứa trong chính tên này (tiền tố) không tính.
+        others = [o for o in all_names if o != nm and o.lower() not in nm.lower()]
+        stop = "".join(f"|{_re.escape(o)}" for o in sorted(others, key=len, reverse=True))
         out = _re.sub(
-            rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b|trong\s+khi)[^;\n]){{0,40}}?"
+            rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b|trong\s+khi{stop})[^;\n]){{0,40}}?"
             rf"(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"
             rf"([-+]?\d[\d.,]*)(\s*tỷ)",
             _fix, out)
