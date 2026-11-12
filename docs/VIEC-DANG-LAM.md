@@ -53,6 +53,9 @@ Merge vào main trước khi xong 4 bước dưới = pipeline đêm đó mất 
    vnstock (đo 12/11: import cả chuỗi bằng Python không có vnstock — chạy được), giữ venv cũ, không
    đăng ký lại task. ĐỪNG `pip install -r requirements.txt` vào venv cũ (sẽ cài vnstock 6 trộn dòng cũ).
    Chỉ khi muốn mở dashboard / chạy brief tay trên laptop mới làm lại bước 2–4 ở laptop.
+8. ⏰ HẠN (đo 12/11 `vnstock status` 🖥️): **tài khoản vnstock hết hạn 12/04/2027** (gói "Tự động hoá cá
+   nhân") — mốc này đến TRƯỚC; quá hạn mà chưa gia hạn ⇒ pipeline lấy dữ liệu lỗi. Bản 6.0.0 dùng được tới
+   10/11/2027 — trước đó `vnstock update`. ✅ 12/11: desktop đã có `.venv_6x` + đăng nhập (bước 2 xong).
 
 Chưa có tương đương ở thế hệ 6 (đã xử như nguồn lỗi, không bịa số): tin theo mã (`company.news`) · lịch sử vốn
 (`capital_history` ⇒ đọc `events()`) · tỷ giá trung tâm mbk (giữ số đã lưu) · vốn điều lệ · NN mua/bán TÁCH riêng
