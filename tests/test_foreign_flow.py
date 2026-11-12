@@ -46,6 +46,7 @@ _BOARD = pd.DataFrame({
 
 
 def test_foreign_net_for_date_maps_screener_columns(monkeypatch):
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
     import vnstock
     calls = []
     monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-06-12": _BOARD}, calls))
@@ -58,6 +59,7 @@ def test_foreign_net_for_date_maps_screener_columns(monkeypatch):
 
 
 def test_foreign_net_for_date_raises_vnstock_error_untouched(monkeypatch):
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
     import vnstock
     from vnstock.errors import InputError
     err = InputError("Chưa chọn nguồn")
@@ -67,6 +69,7 @@ def test_foreign_net_for_date_raises_vnstock_error_untouched(monkeypatch):
 
 
 def test_fetch_market_net_sums_full_board_in_ty(monkeypatch):
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
     import vnstock
     monkeypatch.setattr(vnstock, "Market", fake_screener_market({"2026-06-12": _BOARD}))
     rec = ff.fetch_market_net("2026-06-12")
@@ -75,6 +78,7 @@ def test_fetch_market_net_sums_full_board_in_ty(monkeypatch):
 
 
 def test_fetch_market_net_none_on_source_error_or_empty(monkeypatch):
+    pytest.importorskip("vnstock")   # CI tối thiểu không cài vnstock thế hệ 6
     import vnstock
     from vnstock.errors import NetworkError
     monkeypatch.setattr(vnstock, "Market", fake_screener_market(
