@@ -1074,9 +1074,9 @@ def enforce_lead_lag(text: str, ctx: dict) -> str:
 # ròng") cũng là mệnh đề khác — NHƯNG "trong (1) tháng trước kỳ review" / "trong tháng sau khi FTSE
 # công bố" vẫn là khung tháng: sau "trong" chỉ loại "trước/sau" khi theo sau là "đó"/dấu câu/hết.
 _NN_MONTH_NAMES = r"mười|một|giêng|chạp|hai|ba|tư|năm|sáu|bảy|tám|chín"
-_NN_MONTH_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|thứ|tới|qua\s+nữa|"
+_NN_MONTH_NOT = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:trước|sau|thứ|tới|rưỡi|qua\s+nữa|"
                  + _NN_MONTH_NAMES + r")\b)")
-_NN_MONTH_NOT_TRONG = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:thứ|tới|qua\s+nữa|" + _NN_MONTH_NAMES
+_NN_MONTH_NOT_TRONG = (r"(?!\s*(?::\s*)?[-+]?\s*\d|\s*(?:thứ|tới|rưỡi|qua\s+nữa|" + _NN_MONTH_NAMES
                        + r")\b|\s*(?:trước|sau)\s*(?:đó\b|[.,;)]|$))")
 # Nhánh dấu phẩy (", 1 tháng") chỉ khi nó ĐÓNG cụm: ")"/dấu câu/hết — ", 1 tháng qua ngành giảm
 # 5%" là mệnh đề khác.
@@ -1088,6 +1088,20 @@ _NN_MONTH_AFTER_RE = _re.compile(
     + r"|trong\s+(?:" + _NN_ONE + r")?tháng\b" + _NN_MONTH_NOT_TRONG
     + r"|trong\s+20\s+phiên\b" + _NN_MONTH_NOT_TRONG
     + r"|(?:" + _NN_ONE + r")?tháng\b" + _NN_MONTH_NOT + r")", _re.IGNORECASE | _re.MULTILINE)
+
+
+# Khoảng thời gian KHÔNG có trong dữ liệu (NN 1T/1M): "tháng rưỡi", N≥2 tháng, quý ⇒ guard KHÔNG
+# ghim số (ghim về số tuần hay tháng đều sai khung) — chỉ nhìn NGAY SAU số như khung tháng.
+_NN_NUM_WORD = r"(?:\d+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)"
+_NN_OTHER_SPAN_RE = _re.compile(
+    r"(?:\s*đồng)?\s*(?:\(\s*|,\s*)?(?:trong\s+)?(?:hơn\s+)?"
+    r"(?:(?:" + _NN_NUM_WORD + r"\s+)?tháng\s+rưỡi\b"
+    r"|(?:[2-9]|1\d|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)\s+tháng\b"
+    r"|(?:(?:1|một)\s+)?quý\b(?!\s*\d))", _re.IGNORECASE)
+
+
+def _nn_other_span(s: str, pos: int) -> bool:
+    return bool(_NN_OTHER_SPAN_RE.match(s, pos))
 
 
 def _nn_month_framed(s: str, pos: int) -> bool:
@@ -1154,7 +1168,7 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
 
             def _fix(m: "_re.Match", _av=av, _nm=nm) -> str:
                 cur = _parse_vn_number(m.group(1))
-                if cur is None:
+                if cur is None or _nn_other_span(m.string, m.end()):
                     return m.group(0)
                 if _nn_month_framed(m.string, m.end()):      # "… trong ngành X (1M)" ⇒ khung tháng
                     v1m = _nn_month_value(ctx, _nm)
@@ -1242,6 +1256,9 @@ def enforce_money_flow_two_sides(text: str, ctx: dict) -> str:
     return rebuilt if rebuilt != text else text
 
 
+_NN_COMMON_WORD_NAMES = frozenset({"khác", "chứng khoán", "tiêu dùng"})
+
+
 def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
     """Correct a per-sector foreign-flow figure stated ANYWHERE in the brief, not
     just the money-flow section. Observed morning 14:11: the "Tránh/Bán" line
@@ -1266,7 +1283,7 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
     for nm, vv in rows:
         def _fix(m: "_re.Match", _vv=vv, _nm=nm) -> str:
             cur = _parse_vn_number(m.group(2))
-            if cur is None:
+            if cur is None or _nn_other_span(m.string, m.end()):
                 return m.group(0)
             if _nn_month_framed(m.string, m.end()):
                 # Khung THÁNG ngay sau số ⇒ so với NN 1M thật, cả độ lớn lẫn CHIỀU (dấu viết ra,
@@ -1311,8 +1328,14 @@ def enforce_sector_nn_figures(text: str, ctx: dict) -> str:
         # …và không vượt qua TÊN NGÀNH KHÁC (11/11: "Thép & Kim loại tăng mạnh, Ngân hàng bán ròng
         # 2,536 tỷ" — pass Thép nuốt số của Ngân hàng, ghim thành +300/+120 và đổi cả chiều).
         # Tên khác chứa trong chính tên này (tiền tố) không tính.
+        # Tên viết THƯỜNG cũng chặn ("…, nhóm ngân hàng bán ròng"), trừ tên trùng chữ phổ thông của
+        # văn brief ("khác hẳn", "thị trường chứng khoán", "người tiêu dùng") — chặn nhầm chỉ làm
+        # guard BỎ QUA số đó (không gán sai), còn vượt sang ngành khác là gán sai.
         others = [o for o in all_names if o != nm and o.lower() not in nm.lower()]
-        stop = "".join(f"|{_re.escape(o)}" for o in sorted(others, key=len, reverse=True))
+        stop = "".join(
+            f"|{_re.escape(o)}" if o.lower() in _NN_COMMON_WORD_NAMES
+            else f"|(?<!\\w)(?i:{_re.escape(o)})(?!\\w)"
+            for o in sorted(others, key=len, reverse=True))
         out = _re.sub(
             rf"({_re.escape(nm)}(?:(?!\.\s|tỷ\b|trong\s+khi{stop})[^;\n]){{0,40}}?"
             rf"(?:NN|khối\s+ngoại)?\s*(?:bán|mua)\s+ròng\s*)"

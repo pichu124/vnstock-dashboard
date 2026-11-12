@@ -46,7 +46,6 @@ def test_month_framed_sector_figure(text, want):
     "Ngân hàng bán ròng 2,536 tỷ (1T), đỉnh 1 tháng.",                 # nhãn TUẦN ngay sau số
     "Tuần này Ngân hàng bán ròng 2,536 tỷ, cao nhất trong tháng.",     # chữ tháng ở mệnh đề khác
     "Ngân hàng bán ròng 2,536 tỷ (1 tuần), trong tháng NN bán ròng mạnh.",
-    "Ngân hàng bán ròng 2,536 tỷ trong 11 tháng.",                      # "11 tháng" không phải khung 1M
     "Ngân hàng bán ròng 2,536 tỷ, áp lực lớn.",                         # không nhãn ⇒ khung tuần như cũ
     # review 11/11: chữ "tháng"/"20 phiên" của mệnh đề khác không phải khung 1M
     "Ngân hàng bán ròng 1,032 tỷ, 1 tháng trước còn mua ròng 400 tỷ.",
@@ -135,3 +134,27 @@ def test_month_written_out_in_words_is_a_month_frame(text):
 
 def test_month_name_january_is_not_a_frame():
     assert "-1,032" in _run("Ngân hàng bán ròng 2,536 tỷ tháng một.")
+
+
+def test_lowercase_other_sector_name_also_stops_the_gap():
+    """"Thép & Kim loại tăng mạnh, nhóm ngân hàng bán ròng 999 tỷ" — tên ngành khác viết THƯỜNG cũng
+    chặn khoảng tên→động từ (trước: số của Thép +120 gán cho câu về ngân hàng)."""
+    out = _run("Thép & Kim loại tăng mạnh, nhóm ngân hàng bán ròng 999 tỷ.")
+    assert "+120" not in out, out
+    # tên trùng chữ phổ thông ("khác hẳn") KHÔNG chặn: số bịa của Ngân hàng vẫn bị ghim như cũ
+    assert "-1,032" in _run("Ngân hàng khác hẳn tuần trước, NN bán ròng 999 tỷ.")
+
+
+@pytest.mark.parametrize("text", [
+    "Ngân hàng bán ròng 3,800 tỷ trong một tháng rưỡi.",
+    "Ngân hàng bán ròng 3,800 tỷ trong 1 tháng rưỡi.",
+    "Ngân hàng bán ròng 3,800 tỷ trong 3 tháng.",
+    "Ngân hàng bán ròng 3,800 tỷ (2 tháng).",
+    "Ngân hàng bán ròng 3,800 tỷ trong quý.",
+    "Ngân hàng bán ròng 3,800 tỷ trong 11 tháng.",                     # "11 tháng" không phải khung 1M
+])
+def test_span_without_data_is_left_untouched(text):
+    """Khoảng thời gian KHÔNG có trong dữ liệu (tháng rưỡi, N≥2 tháng, quý): không phải khung 1M, cũng
+    không phải tuần ⇒ guard không ghim số (ghim về số tuần/tháng đều sai khung)."""
+    out = _run(text)
+    assert "3,800 tỷ" in out and "1,032" not in out and "2,536" not in out, out
