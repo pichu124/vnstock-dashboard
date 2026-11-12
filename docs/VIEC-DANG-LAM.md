@@ -35,20 +35,24 @@ Merge vào main trước khi xong 4 bước dưới = pipeline đêm đó mất 
 1. ✅ (12/11) Đã đăng ký khoá **fhsc (Finhay)** + **dnse (DNSE)** — đủ mọi dữ liệu TRỪ thống kê lệnh
    (Lệnh lớn, Net BS, GTGD chỉ số theo phiên) và rổ VN30 sống: hai thứ đó chỉ **ssi** có (rổ VN30 có dự
    phòng cache + hằng số). Muốn đủ thì đăng ký thêm ssi sau. tcbs không cần (đòi Smart OTP mỗi ≤24h).
-2. 🖥️ DESKTOP trước (rồi 💻 LAPTOP) — venv mới, KHÔNG đụng venv cũ:
+2. 🖥️ DESKTOP — venv mới, KHÔNG đụng venv cũ:
    `git fetch origin vnstock-gen6` → `git switch vnstock-gen6` → `python -m venv $HOME\.venv_6x` →
    `& "$HOME\.venv_6x\Scripts\Activate.ps1"` → `pip install -r requirements.txt` →
    `vnstock status` (chưa thấy gói thì TỰ chạy `vnstock login`).
-3. ⇄ CẢ HAI máy — cất khoá (TỰ gõ, chữ không hiện; đừng dán vào chat):
+3. 🖥️ DESKTOP — cất khoá (TỰ gõ, chữ không hiện; đừng dán vào chat):
    `vnstock keys set fhsc` → `vnstock keys set dnse` → thử: `vnstock keys check fhsc`, `vnstock keys check dnse`.
-4. ⇄ CẢ HAI máy — `.env`: thêm dòng `VNSTOCK_SOURCE=fhsc,dnse` (thứ tự = ưu tiên; giá ngày lấy từ fhsc).
+4. 🖥️ DESKTOP — `.env`: thêm dòng `VNSTOCK_SOURCE=fhsc,dnse` (thứ tự = ưu tiên; giá ngày lấy từ fhsc).
 5. 🖥️ DESKTOP — kiểm rồi dán kết quả cho Claude (chỉ đọc, không ghi kho):
    `python scripts/gen6_check.py` ⇒ dán nội dung `gen6_check_report.txt`;
    `python scripts/probe_price_basis.py --sweep --limit 50` ⇒ dán phần in ra (lệch cơ sở kho ↔ fhsc).
    Claude đọc xong mới merge. ⚠️ Lệch cơ sở ⇒ cửa V1 cách ly hàng loạt mã.
 6. Sau khi merge: 🖥️ DESKTOP đăng ký lại task (Run as Administrator, shell đã kích hoạt `.venv_6x`):
-   `.\scripts\setup_scheduled_tasks.ps1 -PythonExe "$HOME\.venv_6x\Scripts\python.exe"`; 💻 LAPTOP thêm `-OnlyNewsAlert`.
+   `.\scripts\setup_scheduled_tasks.ps1 -PythonExe "$HOME\.venv_6x\Scripts\python.exe"`.
    Task đang đăng ký vẫn trỏ venv cũ ⇒ code thế hệ 6 trên vnstock 4.x = ImportError.
+7. 💻 LAPTOP — KHÔNG cần làm gì: task tin mỗi giờ (`run.py news-alert` + tài sản theo giờ) không dùng
+   vnstock (đo 12/11: import cả chuỗi bằng Python không có vnstock — chạy được), giữ venv cũ, không
+   đăng ký lại task. ĐỪNG `pip install -r requirements.txt` vào venv cũ (sẽ cài vnstock 6 trộn dòng cũ).
+   Chỉ khi muốn mở dashboard / chạy brief tay trên laptop mới làm lại bước 2–4 ở laptop.
 
 Chưa có tương đương ở thế hệ 6 (đã xử như nguồn lỗi, không bịa số): tin theo mã (`company.news`) · lịch sử vốn
 (`capital_history` ⇒ đọc `events()`) · tỷ giá trung tâm mbk (giữ số đã lưu) · vốn điều lệ · NN mua/bán TÁCH riêng
