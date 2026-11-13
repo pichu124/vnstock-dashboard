@@ -19,10 +19,17 @@ git pull origin main
 
 Sau bước này repo đã có:
 
-- `.claude/skills/`: python-patterns, python-testing, postgres-patterns,
-  clickhouse-io, jpa-patterns, continuous-learning-v2 (bản mới),
-  iterative-retrieval (bản mới) + các skill có sẵn từ trước.
-- `.claude/rules/`: common (10 file), python (6), typescript (5), golang (5).
+- `.claude/skills/`: python-patterns, python-testing, continuous-learning-v2
+  (bản mới), iterative-retrieval (bản mới) + các skill có sẵn từ trước.
+- `.claude/rules/`: common (10 file), python (5).
+- Đã gỡ 13/11 vì repo không có ngăn xếp tương ứng (0 file .ts/.go/.kt/.rs/.cpp/
+  .dart/.java, không FastAPI/Postgres/ClickHouse/JPA): rules `typescript`,
+  `golang`, `python/fastapi.md`; skill `postgres-patterns`, `clickhouse-io`,
+  `jpa-patterns`, `windows-desktop-e2e`; 24 lệnh `/cpp-*`, `/flutter-*`,
+  `/go-*`, `/gradle-build`, `/kotlin-*`, `/react-*`, `/rust-*`,
+  `/fastapi-review`, `/pm2`, `/setup-pm`, `/jira`, `/marketing-campaign`.
+  Gỡ cùng đợt: skill `continuous-learning` (v1) — chính nó tự ghi DEPRECATED, "Do not invoke v1".
+  Cập nhật ECC từ upstream thì ĐỪNG chép lại các mục này.
 - Fix `datetime.utcnow()` trong 7 module + số liệu test mới trong CLAUDE.md.
 
 ## Bước 2 — Cài bộ skill core user-level
