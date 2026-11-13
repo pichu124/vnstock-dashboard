@@ -628,6 +628,12 @@ def enforce_gtgd_compare_frame(text: str, ctx: dict) -> str:
     return "\n".join(lines) if changed else text
 
 
+# Từ khoá CHỦ NGỮ cho `enforce_gtgd_baseline_pct` (vế "phiên trước" dùng chung cho % đổi chỉ số
+# và % đổi GTGD — chỉ pin khi chủ ngữ gần nhất là GTGD).
+_IDX_SUBJ = ("vnindex", "vn-index", "chỉ số", "đóng cửa")
+_GTGD_SUBJ = ("gtgd", "thanh khoản", "giá trị giao dịch", "khối lượng")
+
+
 def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     """In the CLOSE GTGD comparison, each % must match ITS baseline, in BOTH
     surface forms. Observed 12/06:
@@ -668,6 +674,18 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
             r"\(\s*([\d.,]+)\s*tỷ\s+vs\.?\s+([\d.,]+)\s*tỷ\s*\))",
             _fix3, text)
 
+    def _index_subject(m: "_re.Match") -> bool:
+        """CHỦ NGỮ của mệnh đề là CHỈ SỐ, không phải GTGD (close 12/11/2026 #948: "VNINDEX
+        đóng cửa 1,734.75 (-0.70% so với phiên trước)" / "VNINDEX mất 0.70% so với phiên
+        trước" bị đè thành +34% — % đổi GTGD). Nhìn lùi tới đầu dòng (≤90 ký tự): có từ chỉ
+        số mà SAU nó không có từ GTGD ⇒ đây là % đổi chỉ số, để `enforce_vnindex_change` lo."""
+        src, st = m.string, m.start()
+        lo = max(src.rfind("\n", 0, st) + 1, st - 90)
+        before = src[lo:st].lower()
+        idx = max(before.rfind(k) for k in _IDX_SUBJ)
+        gtgd = max(before.rfind(k) for k in _GTGD_SUBJ)
+        return idx >= 0 and gtgd < idx
+
     def _base_v(base_low: str) -> "float | None":
         # Require an explicit GTGD-baseline phrase ("TB"/"trung bình"/"phiên
         # trước"). Matching bare substrings "20"/"5"/"trước" mis-read a DATE on
@@ -686,7 +704,7 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     # Form 1: "±N% vs/so <baseline>"  (number precedes the baseline)
     def _fix1(m: "_re.Match") -> str:
         bv = _base_v(m.group(3).lower())
-        if not bv:
+        if not bv or (bv == cmp.get("prev") and _index_subject(m)):
             return m.group(0)
         correct = (F / bv - 1) * 100
         cur = _parse_vn_number(m.group(1))
@@ -706,7 +724,7 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     # Form 2: "<baseline> (±N%)"  (baseline precedes the parenthetical %)
     def _fix2(m: "_re.Match") -> str:
         bv = _base_v(m.group(1).lower())
-        if not bv:
+        if not bv or (bv == cmp.get("prev") and _index_subject(m)):
             return m.group(0)
         correct = (F / bv - 1) * 100
         cur = _parse_vn_number(m.group(2))
@@ -725,7 +743,7 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     # sau % nên "±N% vs TB5" (đã qua Form 1) không bị xử lần 2.
     def _fix4(m: "_re.Match") -> str:
         bv = _base_v(m.group(3).lower())
-        if not bv:
+        if not bv or (bv == cmp.get("prev") and _index_subject(m)):
             return m.group(0)
         correct = (F / bv - 1) * 100
         cur = _parse_vn_number(m.group(1))
@@ -742,7 +760,7 @@ def enforce_gtgd_baseline_pct(text: str, ctx: dict) -> str:
     # nhiễu quanh mốc bằng; idempotent (khớp → no-op); bỏ mệnh đề "sáng".
     def _fix5(m: "_re.Match") -> str:
         bv = _base_v(m.group(3).lower())
-        if not bv:
+        if not bv or (bv == cmp.get("prev") and _index_subject(m)):
             return m.group(0)
         p = (F / bv - 1) * 100
         if abs(p) <= 1:
