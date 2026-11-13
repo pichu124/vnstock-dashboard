@@ -416,6 +416,20 @@ def test_mcp_command_lean_flags_and_allowed_tools_last():
     assert cmd[cmd.index("--permission-prompts") + 1] == "none"
 
 
+def test_mcp_setting_sources_env_override(monkeypatch):
+    # 🖥️ 13/11: lean_ts thấy 0 tool MCP ⇒ cho đè --setting-sources của lượt connector qua .env.
+    monkeypatch.setenv("VNSTOCK_CLAUDE_MCP_SETTING_SOURCES", "user")
+    cmd = vcc.mcp_command("claude", "m", system="s", allowed_tools=["t"])
+    assert cmd[cmd.index("--setting-sources") + 1] == "user"
+    monkeypatch.setenv("VNSTOCK_CLAUDE_MCP_SETTING_SOURCES", "none")
+    cmd = vcc.mcp_command("claude", "m", system="s", allowed_tools=["t"])
+    assert "--setting-sources" not in cmd and cmd[cmd.index("--tools") + 1] == "ToolSearch"
+    assert cmd[-2:] == ["--allowedTools", "t"]
+    monkeypatch.delenv("VNSTOCK_CLAUDE_MCP_SETTING_SOURCES")
+    cmd = vcc.mcp_command("claude", "m", system="s", allowed_tools=["t"])
+    assert cmd[cmd.index("--setting-sources") + 1] == ""                 # mặc định như cũ
+
+
 def test_plain_complete_still_blocks_mcp():
     # Bước brief/news vẫn đi complete() — phải giữ --strict-mcp-config (U78 đo 0 tool).
     cmd = vcc.cli_command("claude", "m")

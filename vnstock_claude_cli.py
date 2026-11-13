@@ -398,6 +398,19 @@ def outcome_line(tag: str, info: dict, text: str, err: "str | None") -> str:
 # Số liệu KHÔNG đi qua chữ model: chỗ gọi đọc thẳng `tool_result` trong stream.
 MCP_LEAN_FLAGS = ("--tools", "ToolSearch", "--setting-sources", "",
                   "--disable-slash-commands")
+# 🖥️ 13/11: `probe_mcp` — bộ cờ trên (lean_ts) thấy 0 tool MCP trong khi `full` thấy SSI/Finhay;
+# 08/10 cùng bộ cờ còn thấy ⇒ bản Claude Code mới đổi cách nạp connector claude.ai khi tước
+# settings. `VNSTOCK_CLAUDE_MCP_SETTING_SOURCES` đè giá trị `--setting-sources` của lượt connector:
+# để trống = "" (như cũ) · "user" / "user,project"… = nạp các nguồn đó · "none" = BỎ hẳn cờ.
+# Đo bằng `scripts/probe_mcp.py` (biến thể user_ts / noss_ts) rồi mới đặt.
+MCP_SETTING_SOURCES_ENV = "VNSTOCK_CLAUDE_MCP_SETTING_SOURCES"
+
+
+def mcp_lean_flags() -> tuple:
+    raw = (os.environ.get(MCP_SETTING_SOURCES_ENV) or "").strip()
+    if raw.lower() == "none":
+        return ("--tools", "ToolSearch", "--disable-slash-commands")
+    return ("--tools", "ToolSearch", "--setting-sources", raw, "--disable-slash-commands")
 MCP_HELPER_TOOLS = ("ToolSearch",)
 
 
@@ -415,7 +428,7 @@ def mcp_command(exe: str, model: str, *, system: str, allowed_tools,
     sys_args = ["--system-prompt-file", system_file] if system_file else ["--system-prompt", system]
     return [exe, "-p", TASK_LINE, "--output-format", "stream-json", "--verbose",
             "--model", model, "--no-session-persistence", "--permission-prompts", "none",
-            *MCP_LEAN_FLAGS, *sys_args, "--max-turns", str(max_turns),
+            *mcp_lean_flags(), *sys_args, "--max-turns", str(max_turns),
             "--allowedTools", *list(allowed_tools)]
 
 

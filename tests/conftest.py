@@ -149,7 +149,7 @@ def _no_claude_cli_anywhere(monkeypatch):
     monkeypatch.setattr(_vcc, "_ENV_LOADED", True)
     for k in ("VNSTOCK_LLM_ENGINE", *_vcc.STEP_ENGINE_ENV.values(),
               "VNSTOCK_CLAUDE_CLI_MODEL", "VNSTOCK_BRIEF_CLI_MODEL",
-              "VNSTOCK_CLAUDE_CLI_FALLBACK_MODEL"):
+              "VNSTOCK_CLAUDE_CLI_FALLBACK_MODEL", _vcc.MCP_SETTING_SOURCES_ENV):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("VNSTOCK_CLAUDE_CLI_EXE", "/nonexistent/claude-hermetic")
     monkeypatch.delenv("VNSTOCK_BRIEF_CLI_EXE", raising=False)
