@@ -37,7 +37,17 @@ DNSE đã điều chỉnh lùi theo sự kiện quyền 20/10–10/11, kho chưa
 ngày với kho) — không lỗi; 205 mã lỗi KHÔNG nằm trong nhóm có bar 10 ngày gần ⇒ nghi đã ngừng giao dịch từ
 trước; **Finhay trả `SourceError UNAVAILABLE` cho giá ngày cả 40 mã** ⇒ giá ngày hiện CHỈ có DNSE.
 
-### 🖥️ DESKTOP — TỐI 13/11, làm SAU khi `run_daily.log` in `⏱ TỔNG` (task 18:00 tự chạy; đừng ghi kho lúc nó chạy)
+### ✅ XONG tối 13/11 (🖥️, 22:46–22:56)
+Pipeline 13/11 43,4′ (brief Claude 64s) · 205 mã lỗi = mã ngừng giao dịch (10/10 mẫu, cả dnse lẫn fhsc không có) ⇒
+`87628d1` updater xếp "ngừng giao dịch" (`VNSTOCK_DELISTED_MIN_DAYS`) · Finhay TRẢ giá ngày (FPT/VCB/HPG khớp DNSE —
+`UNAVAILABLE` 12/11 là tạm) · rebase `--whole-series --apply` **33/34** (SCL/VBB nhờ vá `d79e5cb`) + updater nối 33 mã,
+0 lỗi ⇒ sổ cách ly còn **TV6** (tỉ lệ lởm chởm 1,00–1,15× — cửa từ chối đúng, soi riêng bằng `probe_price_basis`).
+Còn mở: (a) brief 13/11 chạy code CŨ ⇒ có thể còn "% VNINDEX = % GTGD" — hết từ T2 16/11; (b) GTGD 12/11 "+34% so
+phiên trước" trong khi KL VNINDEX −5% — nghi KLGD DNSE gồm thoả thuận, Claude soát; (c) connector MCP (SSI/TCBS) lỗi
+từ ~07/11 ⇒ phái sinh NN đứng phiên 06/11, `mcp-enrich` lỗi — CÓ TỪ TRƯỚC gen6; (d) nhánh `vnstock-gen6` (sau
+`0795431`) mới merge vào `main` CỤC BỘ desktop — cần PR lên `origin/main`.
+
+### (đã làm) 🖥️ DESKTOP — TỐI 13/11, làm SAU khi `run_daily.log` in `⏱ TỔNG`
 Shell đã kích hoạt `& "$HOME\.venv_6x\Scripts\Activate.ps1"`, đứng ở `C:\vnstock`. Dán kết quả bước 2–4 cho Claude.
 1. Lấy code mới: `git fetch origin vnstock-gen6` → `git merge origin/vnstock-gen6`
    (`git log --oneline -1` ≥ `ae0732c` — gồm bản vá guard GTGD đè % VNINDEX: brief 12/11 ghi "+34%", thật
