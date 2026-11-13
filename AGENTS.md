@@ -19,6 +19,6 @@ This project uses the Python library `vnstock` generation 6 (with `vnstock-oapi`
 
 - Nguồn chọn ở MỘT chỗ: `.env` → `VNSTOCK_SOURCE` / `VNSTOCK_SOURCE_ROUTES`, áp trong `vnstock_auth.configure_sources()`.
   Code KHÔNG ghi tên nguồn vào lệnh gọi; `<ghi nguồn ở đây>` phía trên do user điền khi đã chọn nguồn.
-- Hướng dẫn chi tiết của dự án ở `CLAUDE.md` (máy, kho Dropbox, test, quy ước). Ghi chú: bản 6.0.0 đo 11/11 VẪN có
+- Luật phải nhớ của dự án ở `CLAUDE.md` (máy, kho Dropbox, test, quy ước); bản đầy đủ ở `docs/VAN-HANH.md` + `docs/KIEN-TRUC.md`. Ghi chú: bản 6.0.0 đo 11/11 VẪN có
   `Fundamental().equity(t).ratio()` (route `fundamental.equity.ratio`); dự án dùng nó cho P/E, ROE… (đã là điểm %).
 - Không tắt `SchemaChangeWarning`: sau mọi `warnings.filterwarnings("ignore")` gọi `vnstock_auth.keep_schema_warnings()`.

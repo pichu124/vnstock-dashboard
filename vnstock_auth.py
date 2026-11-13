@@ -114,11 +114,6 @@ def get_api_key() -> str:
     return _API_KEY
 
 
-def has_sponsor_package() -> bool:
-    """Dòng cũ có gói `vnstock_data` riêng; thế hệ 6 là MỘT gói `vnstock`, gói quyền do tài khoản quyết."""
-    return False
-
-
 def ensure_api_key() -> bool:
     """Chuẩn bị trước khi gọi dữ liệu: áp luật nguồn. Trả True nếu `.env` có khoá tài khoản.
 
@@ -208,7 +203,7 @@ class _Delegate:
 
 class _Listing:
     """`symbols_by_group` → `Reference().index(g).members()` (trả Series mã như dòng cũ);
-    `symbols_by_exchange` / `all_symbols` → `Reference().equity.list()`."""
+    `symbols_by_exchange` → `Reference().equity.list()`."""
 
     def symbols_by_group(self, group: str = "VN30", **_):
         from vnstock import Reference
@@ -225,9 +220,6 @@ class _Listing:
         kwargs.pop("source", None)
         ensure_api_key()
         return Reference().equity.list(**kwargs)
-
-    def all_symbols(self, **kwargs):
-        return self.symbols_by_exchange(**kwargs)
 
 
 def get_vnstock(ticker: str = "VCB", source: str | None = None):

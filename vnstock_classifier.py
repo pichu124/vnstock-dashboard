@@ -229,17 +229,6 @@ class CompanyWarehouse:
             except Exception:
                 return {}
 
-    def load_all_profiles(self) -> pd.DataFrame:
-        """Load tất cả profiles đã lưu."""
-        frames = []
-        for td in self.companies_dir.iterdir():
-            if not td.is_dir() or not td.name.startswith("ticker="):
-                continue
-            pf = td / "overview.parquet"
-            if pf.exists():
-                frames.append(pq.read_table(str(pf)).to_pandas())
-        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-
     def count_profiles(self) -> int:
         return sum(
             1 for td in self.companies_dir.iterdir()

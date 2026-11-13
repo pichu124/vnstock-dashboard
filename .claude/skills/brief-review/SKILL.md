@@ -12,9 +12,13 @@ description: Soi brief chiều ĐÊM QUA mỗi sáng — engine nào viết (Cla
 ## Python: dùng venv, không gõ `python` trần
 
 Claude Code có thể mở từ shell chưa kích hoạt venv (30/09 desktop: `python`
-= `C:\Python314`). Gọi thẳng `%USERPROFILE%\.venv\Scripts\python.exe`:
-Bash `PY=~/.venv/Scripts/python.exe` · PowerShell
-`$PY = "$env:USERPROFILE\.venv\Scripts\python.exe"`.
+= `C:\Python314`). Gọi thẳng venv thế hệ 6 `%USERPROFILE%\.venv_6x\Scripts\python.exe`
+(từ 11/2026; `.venv` là dòng vnstock 4.x cũ, chỉ để đối chiếu — đừng dùng):
+Bash `PY=~/.venv_6x/Scripts/python.exe` · PowerShell
+`$PY = "$env:USERPROFILE\.venv_6x\Scripts\python.exe"`.
+
+Skill này đọc `data_warehouse/_meta` trên MÁY THẬT. Gõ trong phiên cloud thì kho trống
+(`--review` in toàn dấu `—`) ⇒ nói rõ với user là phải chạy trong Claude Code mở trên máy.
 
 ## Quy trình
 

@@ -972,20 +972,6 @@ def _pick_gtgd_session(gtgd_by_date: dict, now=None) -> tuple:
     return pick, e["total"], e["count"]
 
 
-def _json_safe(obj):
-    """Convert numpy/pandas types to Python native for JSON serialization."""
-    import numpy as np
-    if isinstance(obj, (np.integer,)):
-        return int(obj)
-    if isinstance(obj, (np.floating,)):
-        if np.isnan(obj):
-            return None
-        return float(obj)
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    return str(obj)
-
-
 def _clean_nan(obj):
     """Recursively replace NaN floats with None for clean JSON output."""
     import math

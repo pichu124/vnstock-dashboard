@@ -1872,7 +1872,7 @@ def check_autoheal_yield() -> dict:
 
 def check_gtgd_coverage() -> dict:
     """#18: mã LỚN thiếu bar ở phiên screener vừa quét (cách ly cơ sở / sync
-    lỗi / cửa KBS từ chối) ⇒ GTGD cả ngày trong brief ước tính THẤP. Runner ghi
+    lỗi) ⇒ GTGD cả ngày trong brief ước tính THẤP. Runner ghi
     `gtgd_missing_heavy` vào market_overview.json; bản cũ không có key → off."""
     name = "GTGD cả ngày — mã lớn thiếu bar"
     p = _META / "market_overview.json"
@@ -1905,7 +1905,7 @@ def check_gtgd_coverage() -> dict:
         f"phiên {dd} thiếu bar {len(mh)} mã lớn ≈ {est:,.0f} tỷ/phiên: {top}{more} — "
         "GTGD cả ngày trong brief ước tính THẤP (% so baseline đã loại các mã này)",
         "mã trong sổ cách ly → chữa rebase (badge Lệch cơ sở); mã đứng im mà KHÔNG "
-        "trong sổ = cửa KBS từ chối (#15) → python scripts\\rebase_ticker_history.py "
+        "trong sổ (nguồn lỗi / `❌ N lỗi` trong run_daily.log) → python scripts\\rebase_ticker_history.py "
         "--ticker <MÃ> --explain")
 
 
@@ -1958,7 +1958,7 @@ def check_screener_stale() -> dict:
         "screener_stale", name, "warn", msg + " — cao bất thường",
         f"đo 17/10 nền là 15–23%: vượt {SCREENER_STALE_WARN_RATIO:.0%} là có khối mã thôi nhận "
         "bar. Soi badge Lệch cơ "
-        "sở + dòng `⚡ Fallback KBS` / `❌ N lỗi` trong run_daily.log; danh sách mã + độ "
+        "sở + dòng `❌ N lỗi` trong run_daily.log; danh sách mã + độ "
         "trễ ở tab Screener (expander ⏸)")
 
 

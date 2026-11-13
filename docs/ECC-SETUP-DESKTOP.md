@@ -19,10 +19,24 @@ git pull origin main
 
 Sau bước này repo đã có:
 
-- `.claude/skills/`: python-patterns, python-testing, postgres-patterns,
-  clickhouse-io, jpa-patterns, continuous-learning-v2 (bản mới),
-  iterative-retrieval (bản mới) + các skill có sẵn từ trước.
-- `.claude/rules/`: common (10 file), python (6), typescript (5), golang (5).
+- `.claude/skills/`: python-patterns, python-testing, iterative-retrieval (bản mới)
+  + các skill có sẵn từ trước.
+- `.claude/rules/`: python (5) + `agent-team.md`. `rules/common` (10 file luật chung của ECC) đã gỡ
+  13/11 theo quyết định của user: nạp vào MỌI phiên mà nhiều điều không làm được ở repo này (gọi agent
+  `planner`/`tdd-guide` không tồn tại, coverage 80% khi repo không đo, đặt tên camelCase cho dự án
+  Python). Luật thật của dự án ở `CLAUDE.md` + `rules/agent-team.md`.
+- Đã gỡ 13/11 vì repo không có ngăn xếp tương ứng (0 file .ts/.go/.kt/.rs/.cpp/
+  .dart/.java, không FastAPI/Postgres/ClickHouse/JPA): rules `typescript`,
+  `golang`, `python/fastapi.md`; skill `postgres-patterns`, `clickhouse-io`,
+  `jpa-patterns`, `windows-desktop-e2e`; 24 lệnh `/cpp-*`, `/flutter-*`,
+  `/go-*`, `/gradle-build`, `/kotlin-*`, `/react-*`, `/rust-*`,
+  `/fastapi-review`, `/pm2`, `/setup-pm`, `/jira`, `/marketing-campaign`.
+  Gỡ cùng đợt: skill `continuous-learning` (v1) — chính nó tự ghi DEPRECATED, "Do not invoke v1".
+  Gỡ tiếp 13/11: skill `continuous-learning-v2` + 7 lệnh của nó (`/evolve`, `/instinct-status`,
+  `/instinct-import`, `/instinct-export`, `/projects`, `/promote`, `/prune`) — hook quan sát chưa từng
+  được nối trong `.claude/settings.json`, và `instinct-cli.py status` trên 🖥️ desktop trả
+  "No instincts found" (kho `~\.local\share\ecc-homunculus` trống) ⇒ hệ thống chưa từng học được gì.
+  Cập nhật ECC từ upstream thì ĐỪNG chép lại các mục này.
 - Fix `datetime.utcnow()` trong 7 module + số liệu test mới trong CLAUDE.md.
 
 ## Bước 2 — Cài bộ skill core user-level

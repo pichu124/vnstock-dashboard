@@ -1,8 +1,8 @@
 """
 Trang Danh mục (`/danh-muc`) — position tracker with live-price P&L.
 
-Rendered from ``vnstock_dashboard.py`` via the dispatch pattern
-documented in ``docs/REFACTOR_PLAN.md``. All Streamlit imports happen
+Rendered from ``vnstock_dashboard.py`` (page registry ``dashboard/pages.py``).
+All Streamlit imports happen
 inside ``render_portfolio_tab`` so the module stays importable for unit
 tests without requiring the Streamlit runtime.
 

@@ -395,7 +395,7 @@ Không đi theo công tắc, vì đúng ở cả hai chế độ:
 
 Làm ở đâu: đặt trong `.env` của 🖥️ DESKTOP (máy chạy task Daily 18:00). .env KHÔNG đi qua Dropbox, nên chạy brief tay ở 💻 LAPTOP thì phải đặt riêng ở đó. Có hiệu lực từ brief kế tiếp.
 
-Phải thêm tên biến vào danh sách kill-switch trong CLAUDE.md. Test đọc env phải xoá biến theo TIỀN TỐ `VNSTOCK_BRIEF_RISK` trước khi chạy.
+Phải thêm tên biến vào danh sách kill-switch (từ 13/11 nằm ở `docs/VAN-HANH.md` mục "Công tắc env"). Test đọc env phải xoá biến theo TIỀN TỐ `VNSTOCK_BRIEF_RISK` trước khi chạy.
 
 
 ## ❓ Câu hỏi cho user (chặn việc code)

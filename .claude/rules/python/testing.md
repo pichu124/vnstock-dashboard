@@ -5,8 +5,6 @@ paths:
 ---
 # Python Testing
 
-> This file extends [common/testing.md](../common/testing.md) with Python specific content.
-
 ## Framework
 
 Use **pytest** as the testing framework. In this repo, always run it through the orchestrator:

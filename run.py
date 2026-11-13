@@ -776,7 +776,6 @@ def cmd_test(args) -> int:
             "tests/test_hnx_sbv.py",
             "tests/test_market_analyzer.py",
             "tests/test_source_probe.py",
-            "tests/test_price_fallback.py",
             "tests/test_run_pipeline.py",
             "tests/test_networth.py",
             "tests/test_portfolio_prices.py",
@@ -1242,7 +1241,7 @@ def cmd_reflection(args) -> int:
 
 
 def cmd_telegram(args) -> int:
-    """Push Telegram notifications (test / morning / close / screener)."""
+    """Push Telegram notifications (test / morning / close / chats)."""
     try:
         import vnstock_telegram as _tg
     except ImportError as e:
@@ -1298,9 +1297,6 @@ def cmd_telegram(args) -> int:
                                 agent=getattr(args, "brief_agent", None),
                                 note=getattr(args, "claude_error", None))
             _mark_brief_sent(args)
-        elif action == "screener":
-            resp = _tg.push_screener_alerts()
-            print(f"[telegram] screener sent — message_id={resp.get('result',{}).get('message_id')}")
         else:
             print(f"[telegram] unknown action: {action}")
             return 1
@@ -2321,9 +2317,9 @@ def build_parser() -> argparse.ArgumentParser:
     tg = sub.add_parser("telegram", help="Push Telegram notifications")
     tg.add_argument(
         "action",
-        choices=["test", "morning", "close", "screener", "chats"],
+        choices=["test", "morning", "close", "chats"],
         help="test=verify connection, morning=morning brief, close=close brief, "
-             "screener=alerts only, chats=in id các group/chat bot đã vào (24h)",
+             "chats=in id các group/chat bot đã vào (24h)",
     )
     tg.add_argument("--channel", choices=["news"], default=None,
                     help="test/chats: dùng bot của kênh này (news = cảnh báo tin "

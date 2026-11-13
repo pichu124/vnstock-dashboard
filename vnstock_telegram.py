@@ -14,7 +14,6 @@ Usage:
     python run.py telegram test          # verify connection
     python run.py telegram morning       # push morning brief
     python run.py telegram close         # push close brief
-    python run.py telegram screener      # push screener alerts only
     python run.py telegram chats [--channel news]   # in id các group bot đã vào
     python run.py telegram test --channel news      # thử bot/group tin mỗi giờ
 """
@@ -546,34 +545,6 @@ def _closed_today_block() -> str:
         return ""
 
 
-def _screener_block() -> str:
-    """Top screener signals from the warehouse (no API call needed)."""
-    try:
-        import json
-        p = _REPO / "data_warehouse" / "_meta" / "screener_signals.json"
-        if not p.exists():
-            return ""
-        signals = json.loads(p.read_text(encoding="utf-8"))
-        if not signals:
-            return ""
-        # signals is a list of {ticker, preset, score, ...} or similar
-        if not isinstance(signals, list):
-            return ""
-        top = signals[:5]
-        lines = [f"🔍 <b>Screener alerts ({len(signals)} tín hiệu):</b>"]
-        for s in top:
-            ticker = s.get("ticker") or s.get("symbol", "?")
-            preset = s.get("preset", "?")
-            score  = s.get("score")
-            score_str = f" (score {score:.2f})" if score is not None else ""
-            lines.append(f"  • <b>{ticker}</b> — {preset}{score_str}")
-        if len(signals) > 5:
-            lines.append(f"  … và {len(signals)-5} tín hiệu khác")
-        return "\n".join(lines)
-    except Exception:
-        return ""
-
-
 # ── Public push functions ─────────────────────────────────────────────────────
 
 def push_test(channel: "str | None" = None) -> dict:
@@ -767,7 +738,6 @@ def push_morning_brief() -> dict:
     # Load .env before _brief_snippet() checks agent availability (see
     # push_close_brief for the full ordering rationale).
     _load_env()
-    screener   = _screener_block()
 
     # Snippet trước, header sau — cùng lý do race close 30/07 01:21 (xem
     # push_close_brief): generate_brief refresh dữ liệu, header phải đọc SAU.
@@ -782,8 +752,6 @@ def push_morning_brief() -> dict:
         "",
         _open_recs_block(),
     ]
-    if screener:
-        blocks += ["", screener]
     blocks.append("\n<i>Powered by VNStock Dashboard</i>")
 
     text = "\n".join(b for b in blocks if b is not None)
@@ -854,21 +822,4 @@ def push_rates_weekly() -> dict:
     if not data.get("rates") and not data.get("curve"):
         return {"ok": False, "error": "cache vĩ mô/HNX rỗng — chạy run.py macro"}
     text = render_telegram(data) + "\n\n<i>Powered by VNStock Dashboard</i>"
-    return send_message(text)
-
-
-def push_screener_alerts() -> dict:
-    """Push screener alerts only (no brief generation)."""
-    date_str = datetime.now().strftime("%d/%m/%Y %H:%M")
-    screener = _screener_block()
-    if not screener:
-        return send_message(
-            f"🔍 <b>Screener</b> — {date_str}\n"
-            "Không có tín hiệu mới hôm nay."
-        )
-    text = (
-        f"🔍 <b>Screener Alerts</b> — {date_str}\n\n"
-        f"{screener}\n\n"
-        "<i>Powered by VNStock Dashboard</i>"
-    )
     return send_message(text)
