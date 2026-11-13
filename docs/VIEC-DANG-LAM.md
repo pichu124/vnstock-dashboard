@@ -40,7 +40,8 @@ trước; **Finhay trả `SourceError UNAVAILABLE` cho giá ngày cả 40 mã** 
 ### 🖥️ DESKTOP — TỐI 13/11, làm SAU khi `run_daily.log` in `⏱ TỔNG` (task 18:00 tự chạy; đừng ghi kho lúc nó chạy)
 Shell đã kích hoạt `& "$HOME\.venv_6x\Scripts\Activate.ps1"`, đứng ở `C:\vnstock`. Dán kết quả bước 2–4 cho Claude.
 1. Lấy code mới: `git fetch origin vnstock-gen6` → `git merge origin/vnstock-gen6`
-   (`git log --oneline -1` ≥ `5c5bea3`).
+   (`git log --oneline -1` ≥ `ae0732c` — gồm bản vá guard GTGD đè % VNINDEX: brief 12/11 ghi "+34%", thật
+   −0,70%; brief 13/11 chạy lúc 18:00 TRƯỚC khi merge nên có thể còn lỗi này).
 2. Xác nhận 205 mã lỗi là mã ngừng giao dịch (chỉ đọc):
    `python scripts/gen6_missing_symbols.py --tickers AGE,AMD,ASA,ATB,AUM,AVF,B82,BBC,BCO,BCG`
    ⇒ cả 10 ra "KHÔNG nguồn nào có mã này" thì Claude cho updater xếp "invalid symbol" vào nhóm ngừng giao
@@ -51,7 +52,8 @@ Shell đã kích hoạt `& "$HOME\.venv_6x\Scripts\Activate.ps1"`, đứng ở `
    `python scripts/rebase_ticker_history.py --from-drift-ledger --whole-series`
    ⇒ Claude xem xong, chạy lại kèm `--apply` (tự sao lưu `_meta/backup_rebase/`). Chữa kho = ○ MỘT lần,
    Dropbox đưa sang laptop. Lượt Daily kế tiếp (T2 16/11; T7 chỉ có Weekend) nối bar cho 30 mã.
-5. Kiểm brief 13/11 + lượt tự động đầu tiên bằng thế hệ 6:
+5. Kiểm brief 13/11 + lượt tự động đầu tiên bằng thế hệ 6 (Claude soi thêm: GTGD 12/11 "+34% so phiên trước"
+   trong khi KL VNINDEX −5% (482,6 tr vs 509,3 tr) — nghi KLGD nguồn DNSE gồm cả thoả thuận ⇒ GTGD phình):
    `Select-String -Path C:\vnstock\run_daily.log -Pattern "⏱|❌|Traceback|exit 2" | Select -Last 25`
 
 Ghi nhớ thao tác (12/11):
