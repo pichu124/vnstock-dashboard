@@ -866,6 +866,7 @@ def cmd_test(args) -> int:
             "tests/test_sector_nn_month_frame.py",  # guard số NN ngành nhận khung THÁNG (1M)
             "tests/test_gen6_check.py",  # scripts/gen6_check.py: so giá kho/nguồn (thế hệ 6)
             "tests/test_gen6_missing_symbols.py",  # scripts/gen6_missing_symbols.py: mã bị nguồn đầu bỏ sót
+            "tests/test_news_alert_stats.py",  # scripts/news_alert_stats.py: tin mỗi giờ theo ngày
             "tests/test_foreign_flow.py",  # NN ròng cả thị trường + đệm theo ngày (thế hệ 6)
             "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",
