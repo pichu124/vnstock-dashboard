@@ -867,6 +867,7 @@ def cmd_test(args) -> int:
             "tests/test_gen6_check.py",  # scripts/gen6_check.py: so giá kho/nguồn (thế hệ 6)
             "tests/test_gen6_missing_symbols.py",  # scripts/gen6_missing_symbols.py: mã bị nguồn đầu bỏ sót
             "tests/test_news_alert_stats.py",  # scripts/news_alert_stats.py: tin mỗi giờ theo ngày
+            "tests/test_rebase_rewrite_frame.py",  # rebase: ghi đè file năm kiểu int64 (SCL/VBB 13/11)
             "tests/test_foreign_flow.py",  # NN ròng cả thị trường + đệm theo ngày (thế hệ 6)
             "tests/test_market_floor.py",    # một nguồn floor/phòng thủ + golden prompt (P1b-1, #19)
             "tests/test_unit_badge_verdict.py",

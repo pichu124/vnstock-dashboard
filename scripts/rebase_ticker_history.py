@@ -180,6 +180,53 @@ def _read_all(tdir: Path) -> "dict[Path, pd.DataFrame]":
     return out
 
 
+def rewrite_frame(df: pd.DataFrame, src_idx: pd.DataFrame, *, cut, brk, factor: float,
+                  scale_vol: float, vol_factor: float):
+    """Viết lại MỘT file năm: bar trước `cut` lấy thẳng từ nguồn (có trong `src_idx`) hoặc chia
+    hệ số. Trả (bảng mới | None nếu không bar nào trước `cut`, số bar lấy nguồn, số bar nhân hệ số).
+
+    Cột giá/khối lượng được đưa về float TRƯỚC khi gán (🖥️ 13/11: SCL volume ×1.17 và VBB giá
+    int64 ÷ hệ số ⇒ pandas mới ném `TypeError: Invalid value … for dtype 'int64'`, rebase bỏ mã).
+    Khối lượng gốc là số nguyên ⇒ làm tròn về đúng kiểu cũ; giá giữ float. Hàm thuần."""
+    out = df.copy()
+    t = pd.to_datetime(out["time"]).dt.normalize()
+    mask_old = t.dt.date < cut
+    if not mask_old.any():
+        return None, 0, 0
+    vol_dtype = out["volume"].dtype if "volume" in out.columns else None
+    num = [c for c in (*OHLC, "volume") if c in out.columns]
+    out[num] = out[num].astype("float64")
+    n_src = n_scaled = 0
+    for i in out.index[mask_old]:
+        day = t.loc[i]
+        if day in src_idx.index:
+            row = src_idx.loc[day]
+            if isinstance(row, pd.DataFrame):
+                row = row.iloc[0]
+            for c in OHLC:
+                if c in out.columns and c in row:
+                    out.at[i, c] = float(row[c])
+            if "volume" in out.columns and "volume" in row:
+                # Hệ số khối lượng chỉ đúng cho phần TRƯỚC sự kiện quyền;
+                # bar sau vách đã đếm trên số cổ phiếu mới rồi, nhân nữa
+                # là thổi GTGD lịch sử lên lần thứ hai.
+                _sv = scale_vol if day.date() < brk else 1.0
+                out.at[i, "volume"] = float(row["volume"]) * _sv
+            n_src += 1
+        else:
+            for c in OHLC:
+                if c in out.columns:
+                    out.at[i, c] = float(out.at[i, c]) / factor
+            if "volume" in out.columns:
+                _vf = vol_factor if vol_factor != 1.0 else scale_vol
+                if _vf != 1.0:
+                    out.at[i, "volume"] = float(out.at[i, "volume"]) * _vf
+            n_scaled += 1
+    if vol_dtype is not None and pd.api.types.is_integer_dtype(vol_dtype):
+        out["volume"] = out["volume"].round().astype(vol_dtype)
+    return out, n_src, n_scaled
+
+
 def _measure_volume_factor(wh: pd.DataFrame, src: pd.DataFrame) -> float:
     """Chia tách đổi CẢ số lượng cổ phiếu — khối lượng lịch sử cũng phải quy đổi.
 
@@ -1196,37 +1243,11 @@ def _rebase_one(tk: str, wh_root: Path, apply: bool,
     plan = {}
     src_idx = src_all.set_index(src_all["time"].dt.normalize())
     for path, df in files.items():
-        out = df.copy()
-        t = pd.to_datetime(out["time"]).dt.normalize()
-        mask_old = t.dt.date < cut
-        if not mask_old.any():
+        out, ns, nk = rewrite_frame(df, src_idx, cut=cut, brk=brk, factor=factor,
+                                    scale_vol=scale_vol, vol_factor=vol_factor)
+        if out is None:
             continue
-        for i in out.index[mask_old]:
-            day = t.loc[i]
-            if day in src_idx.index:
-                row = src_idx.loc[day]
-                if isinstance(row, pd.DataFrame):
-                    row = row.iloc[0]
-                for c in OHLC:
-                    if c in out.columns and c in row:
-                        out.at[i, c] = float(row[c])
-                if "volume" in out.columns and "volume" in row:
-                    # Hệ số khối lượng chỉ đúng cho phần TRƯỚC sự kiện quyền;
-                    # bar sau vách đã đếm trên số cổ phiếu mới rồi, nhân nữa
-                    # là thổi GTGD lịch sử lên lần thứ hai.
-                    _sv = scale_vol if day.date() < brk else 1.0
-                    out.at[i, "volume"] = float(row["volume"]) * _sv
-                n_src += 1
-            else:
-                for c in OHLC:
-                    if c in out.columns:
-                        out.at[i, c] = float(out.at[i, c]) / factor
-                if "volume" in out.columns:
-                    _vf = vol_factor if vol_factor != 1.0 else scale_vol
-                    if _vf != 1.0:
-                        out.at[i, "volume"] = float(out.at[i, "volume"]) * _vf
-                n_scaled += 1
-            touched += 1
+        n_src, n_scaled, touched = n_src + ns, n_scaled + nk, touched + ns + nk
         plan[path] = out
 
     print(f"[rebase] {touched:,} bar trước {cut} sẽ đổi: "
