@@ -1958,7 +1958,7 @@ def check_screener_stale() -> dict:
         "screener_stale", name, "warn", msg + " — cao bất thường",
         f"đo 17/10 nền là 15–23%: vượt {SCREENER_STALE_WARN_RATIO:.0%} là có khối mã thôi nhận "
         "bar. Soi badge Lệch cơ "
-        "sở + dòng `⚡ Fallback KBS` / `❌ N lỗi` trong run_daily.log; danh sách mã + độ "
+        "sở + dòng `❌ N lỗi` trong run_daily.log; danh sách mã + độ "
         "trễ ở tab Screener (expander ⏸)")
 
 

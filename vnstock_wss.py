@@ -426,12 +426,6 @@ class BarAggregator:
             return pd.DataFrame(columns=["ticker", "time", "open", "high", "low", "close", "volume"])
         return pd.DataFrame(rows).sort_values(["ticker", "time"]).reset_index(drop=True)
 
-    def clear_closed_bars(self, before: pd.Timestamp):
-        """Xóa bars trước timestamp chỉ định (sau khi đã flush)."""
-        with self._lock:
-            keys_to_remove = [k for k in self._bars if k[1] < before]
-            for k in keys_to_remove:
-                del self._bars[k]
 
 
 # ═════════════════════════════════════════════════════════════════════════════

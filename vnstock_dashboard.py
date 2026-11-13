@@ -606,7 +606,7 @@ from dashboard.table_style import cell_color, cell_weight  # noqa: E402
 # lưới tests/test_theme_tokens.py đếm và chỉ cho GIẢM.
 from dashboard.theme import (  # noqa: E402
     TOKENS as _T, app_css as _app_css, font_face_css as _font_face_css,
-    lwc_palette as _lwc_palette, rgba as _rgba, status_color as _status_color,
+    lwc_palette as _lwc_palette, rgba as _rgba,
 )
 
 
@@ -2897,8 +2897,8 @@ def _render_pipeline_controls() -> None:
             disabled=_pl_blocked,
             help=(
                 "**Tải giá mới nhất từ API + tính lại screener** "
-                "(8 luồng song song + bỏ mã đã hủy niêm yết; VCI ốm → tự "
-                "fallback KBS có đối chiếu giá).\n\n"
+                "(8 luồng song song + bỏ mã đã hủy niêm yết; nguồn chính lỗi → "
+                "vnstock tự sang nguồn kế tiếp khai ở `VNSTOCK_SOURCE`).\n\n"
                 "Mở cửa sổ PowerShell riêng chạy `vnstock_updater.py --force "
                 "--workers 8 --skip-stale-days 90` → ghi đè parquet trong "
                 "`data_warehouse/prices/` → `vnstock_runner.py` tạo lại "

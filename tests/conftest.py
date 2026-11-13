@@ -24,7 +24,6 @@ from importlib.util import find_spec
 import pytest
 
 import vnstock_macro as _mac
-import vnstock_price_fallback as _fb
 
 # CI (.github/workflows/tests.yml) chỉ cài gói tối thiểu. Test kéo thư viện
 # ngoài đó thì SKIP kèm tên thư viện — xét bằng import được thật, không bằng env.
@@ -59,18 +58,6 @@ def _no_macro_network_anywhere(monkeypatch):
     monkeypatch.setattr(_mac, "_fetch_sbv_daily", lambda: None)
     monkeypatch.setattr(_mac, "_fetch_sbv_policy", lambda: None)
     monkeypatch.setattr(_mac, "_FX_ENDPOINTS", ())
-
-
-@pytest.fixture(autouse=True)
-def _reset_price_fallback_breaker():
-    """BREAKER là singleton (dùng chung 8 worker của updater) → RÒ TRẠNG THÁI
-    giữa các test (lộ 20/07 trên desktop: test cố ý MỞ mạch chạy trước →
-    test_ratelimit/test_updater_partial_bar chạy sau bị bỏ qua _fetch_prices
-    fake, đi thẳng fallback KBS thật → 'error'; sandbox không thấy vì các
-    test đó skip thiếu vnstock). Reset trước VÀ sau mỗi test."""
-    _fb.BREAKER.reset()
-    yield
-    _fb.BREAKER.reset()
 
 
 @pytest.fixture(autouse=True)
