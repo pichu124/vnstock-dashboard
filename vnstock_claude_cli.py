@@ -400,14 +400,17 @@ MCP_LEAN_FLAGS = ("--tools", "ToolSearch", "--setting-sources", "",
                   "--disable-slash-commands")
 # 🖥️ 13/11: `probe_mcp` — bộ cờ trên (lean_ts) thấy 0 tool MCP trong khi `full` thấy SSI/Finhay;
 # 08/10 cùng bộ cờ còn thấy ⇒ bản Claude Code mới đổi cách nạp connector claude.ai khi tước
-# settings. `VNSTOCK_CLAUDE_MCP_SETTING_SOURCES` đè giá trị `--setting-sources` của lượt connector:
-# để trống = "" (như cũ) · "user" / "user,project"… = nạp các nguồn đó · "none" = BỎ hẳn cờ.
-# Đo bằng `scripts/probe_mcp.py` (biến thể user_ts / noss_ts) rồi mới đặt.
+# settings. Đo lại cùng tối (probe biến thể user_ts): `--setting-sources user` THẤY + GỌI ĐƯỢC SSI
+# và Finhay (~$0,23/lượt Sonnet, cũ ~$0,06) ⇒ MẶC ĐỊNH "user". `VNSTOCK_CLAUDE_MCP_SETTING_SOURCES`
+# đè: "user,project"… = nạp các nguồn đó · "empty" = "" (bộ cờ cũ) · "none" = BỎ hẳn cờ.
 MCP_SETTING_SOURCES_ENV = "VNSTOCK_CLAUDE_MCP_SETTING_SOURCES"
+MCP_SETTING_SOURCES_DEFAULT = "user"
 
 
 def mcp_lean_flags() -> tuple:
-    raw = (os.environ.get(MCP_SETTING_SOURCES_ENV) or "").strip()
+    raw = (os.environ.get(MCP_SETTING_SOURCES_ENV) or "").strip() or MCP_SETTING_SOURCES_DEFAULT
+    if raw.lower() == "empty":
+        raw = ""
     if raw.lower() == "none":
         return ("--tools", "ToolSearch", "--disable-slash-commands")
     return ("--tools", "ToolSearch", "--setting-sources", raw, "--disable-slash-commands")
