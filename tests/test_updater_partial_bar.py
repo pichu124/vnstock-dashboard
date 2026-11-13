@@ -233,3 +233,50 @@ def test_gen6_source_in_raw_dong_is_quarantined_by_basis_guard(tmp_path, monkeyp
     assert res["ratio"] == pytest.approx(0.001)            # kho / nguồn
     assert (tdir / "year=2026" / "prices.parquet").read_bytes() == before
     assert "VTP" in bg.load_pending(tmp_path)
+
+
+# ── 13/11/2026: mã đã ngừng giao dịch, nguồn mới báo "invalid symbol" ────────
+def _invalid_symbol(*a, **k):
+    from vnstock.errors import InputError
+    raise InputError("dnse từ chối yêu cầu: invalid symbol", code="VNSTOCK_INPUT_SOURCE_PARAM")
+
+
+def test_invalid_symbol_on_long_stale_ticker_is_delisted_not_error(tmp_path, monkeypatch):
+    # Desktop 12–13/11: 205 mã "invalid symbol" (AGE 2023, BBC/AMD 18/08/2026…) — cả dnse lẫn fhsc
+    # đều không có (gen6_missing_symbols). Nguồn cũ trả lịch sử cũ ⇒ "0 ngày mới"; nay mỗi đêm
+    # 205 lỗi giả làm marker partial + badge đỏ. Bar cuối cũ hơn ngưỡng ⇒ "delisted" (đếm bỏ qua).
+    monkeypatch.delenv("VNSTOCK_DELISTED_MIN_DAYS", raising=False)
+    prices = tmp_path / "prices"
+    _seed(prices, "BBC", [_bar("2026-08-18", 60.0, 1_000)])
+    monkeypatch.setattr(vu, "_fetch_prices", _invalid_symbol)
+    res = vu.update_ticker("BBC", prices, date(2026, 11, 13))
+    assert res["status"] == "delisted" and res["last_date"] == "2026-08-18"
+
+
+def test_invalid_symbol_on_recent_ticker_stays_error(tmp_path, monkeypatch):
+    # BMJ: bar cuối 05/11 mà dnse báo invalid ⇒ mã MỚI đây còn giao dịch — phải còn là LỖI để thấy.
+    monkeypatch.delenv("VNSTOCK_DELISTED_MIN_DAYS", raising=False)
+    prices = tmp_path / "prices"
+    _seed(prices, "BMJ", [_bar("2026-11-05", 12.0, 1_000)])
+    monkeypatch.setattr(vu, "_fetch_prices", _invalid_symbol)
+    assert vu.update_ticker("BMJ", prices, date(2026, 11, 13))["status"] == "error"
+
+
+def test_delisted_classification_switch_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("VNSTOCK_DELISTED_MIN_DAYS", "0")                # 0 = như cũ: lỗi
+    prices = tmp_path / "prices"
+    _seed(prices, "AGE", [_bar("2023-09-21", 5.0, 1_000)])
+    monkeypatch.setattr(vu, "_fetch_prices", _invalid_symbol)
+    assert vu.update_ticker("AGE", prices, date(2026, 11, 13))["status"] == "error"
+
+
+def test_other_errors_on_stale_ticker_stay_error(tmp_path, monkeypatch):
+    from vnstock.errors import SourceError
+    monkeypatch.delenv("VNSTOCK_DELISTED_MIN_DAYS", raising=False)
+    prices = tmp_path / "prices"
+    _seed(prices, "BBC", [_bar("2026-08-18", 60.0, 1_000)])
+
+    def _down(*a, **k):
+        raise SourceError("Nguồn lỗi", code="VNSTOCK_SOURCE_UNAVAILABLE")
+    monkeypatch.setattr(vu, "_fetch_prices", _down)
+    assert vu.update_ticker("BBC", prices, date(2026, 11, 13))["status"] == "error"
