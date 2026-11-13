@@ -118,5 +118,5 @@ def test_doctor_gtgd_coverage_states(tmp_path, monkeypatch):
     assert r["status"] == "warn"
     assert "thiếu bar 2 mã lớn ≈ 1,267 tỷ/phiên" in r["message"]
     assert "FPT (≈812 tỷ, bar cuối 2026-09-16)" in r["message"]
-    assert "#15" in r["fix"]
+    assert "rebase_ticker_history.py" in r["fix"] and "--explain" in r["fix"]
     assert doc.check_gtgd_coverage in doc.OFFLINE_CHECKS
