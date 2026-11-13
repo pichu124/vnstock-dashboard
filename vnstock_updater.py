@@ -21,6 +21,7 @@ Tự động hóa (chạy sau 18:00 mỗi ngày làm việc):
 """
 
 import argparse
+import os
 import re as _re
 import time
 import warnings
@@ -334,6 +335,26 @@ def _corp_event_kind(warehouse_root: Path, ticker: str, around: date,
 # Core update logic
 # ═════════════════════════════════════════════════════════════════════════════
 
+DELISTED_ENV = "VNSTOCK_DELISTED_MIN_DAYS"
+DELISTED_MIN_DAYS = 30
+_INVALID_SYMBOL_CODE = "VNSTOCK_INPUT_SOURCE_PARAM"
+
+
+def is_delisted(exc: BaseException, last_date: date, today: date) -> bool:
+    """Mã đã NGỪNG GIAO DỊCH: nguồn từ chối mã (`InputError` mã `VNSTOCK_INPUT_SOURCE_PARAM` —
+    DNSE ghi "invalid symbol") VÀ bar cuối trong kho cũ hơn `VNSTOCK_DELISTED_MIN_DAYS` ngày (30;
+    `0` = tắt, mọi từ chối là lỗi như cũ). Đo 🖥️ 12–13/11: 205 mã như vậy (AGE 2023, BBC/AMD
+    18/08/2026…), cả dnse lẫn fhsc đều không có — nguồn cũ trả lịch sử cũ nên trước đây không lỗi.
+    Mã mới đây còn giao dịch mà bị từ chối (BMJ 05/11) vẫn là LỖI — thứ cần thấy. Hàm thuần."""
+    if getattr(exc, "code", None) != _INVALID_SYMBOL_CODE:
+        return False
+    try:
+        min_days = int((os.environ.get(DELISTED_ENV) or "").strip() or DELISTED_MIN_DAYS)
+    except ValueError:
+        min_days = DELISTED_MIN_DAYS
+    return min_days > 0 and (today - last_date).days > min_days
+
+
 def update_ticker(
     ticker: str,
     prices_dir: Path,
@@ -423,6 +444,10 @@ def update_ticker(
         new_df = call_with_rate_limit_retry(
             _fetch_prices, ticker, on_wait=_on_wait, **_kwargs)
     except Exception as e:          # ranh giới từng mã: 1 mã lỗi, lượt chạy vẫn sống
+        if is_delisted(e, last_date, today):
+            result["status"] = "delisted"
+            result["last_date"] = str(last_date)
+            return result
         result["status"] = "error"
         result["error"] = str(e)[:80]
         return result
@@ -537,7 +562,7 @@ def run_update(
                 + (f" | Delay: {delay}s" if workers == 1 else "")
                 + (f" | Skip stale > {skip_stale_days}d" if skip_stale_days else ""))
 
-    stats = {"updated": 0, "up_to_date": 0, "error": 0, "skip": 0}
+    stats = {"updated": 0, "up_to_date": 0, "error": 0, "skip": 0, "delisted": 0}
     errors = []
     updated_list = []
 
@@ -553,6 +578,8 @@ def run_update(
         elif status == "error":
             stats["error"] += 1
             errors.append(result)
+        elif status == "delisted":
+            stats["delisted"] += 1
         else:
             stats["skip"] += 1
 
@@ -602,6 +629,7 @@ def run_update(
         f"[dim]Up-to-date: {stats['up_to_date']}[/dim] | "
         f"[red]Errors: {stats['error']}[/red] | "
         f"[dim]Skipped: {stats['skip']}[/dim]"
+        + (f" | [dim]Ngừng giao dịch: {stats['delisted']}[/dim]" if stats.get("delisted") else "")
     )
 
     # Hiển thị các mã vừa được update

@@ -284,6 +284,8 @@ from vnstock_brief_guards_numbers import (  # noqa: F401  (re-export)
     _TA_RSI_MOMENTUM,
     _TA_SESSIONS_RE,
     _ADVERB,
+    _GTGD_SUBJ,
+    _IDX_SUBJ,
 )
 
 from vnstock_brief_guards_text import (  # noqa: F401  (re-export)

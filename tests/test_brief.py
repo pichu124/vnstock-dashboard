@@ -3824,3 +3824,22 @@ def test_money_flow_line_inherits_bullet_of_anchor():
     assert out[i + 2] == "* NN mua ròng mạnh nhất (1 tuần): Khai khoáng & Tài nguyên +3,231 tỷ."
     once = enforce_money_flow_two_sides(t, ctx)
     assert enforce_money_flow_two_sides(once, ctx) == once           # idempotent
+
+
+def test_enforce_gtgd_baseline_pct_leaves_index_change_vs_prev_alone():
+    # Close 12/11/2026 (brief #948): model viết đúng "VNINDEX đóng cửa 1,734.75 (-0.70% so
+    # với phiên trước)" và "VNINDEX mất 0.70% so với phiên trước", guard này đè cả hai bằng %
+    # đổi GTGD (+34%) vì Form 1 nhận MỌI "N% so với phiên trước" mà không xét chủ ngữ ⇒ brief
+    # gửi đi ghi "VNINDEX … (+34% so với phiên trước)" / "mất +34%" (thật −0,70%: 1.746,90 →
+    # 1.734,75). Chủ ngữ là CHỈ SỐ ⇒ không đụng; mệnh đề GTGD vẫn pin như cũ.
+    from vnstock_brief import enforce_gtgd_baseline_pct
+    ctx = {"full_day_gtgd": 19061.9,
+           "full_day_gtgd_cmp": {"prev": 14225.3, "avg20": 16575.6}}
+    t = ("🎯 TLDR\n**Kết quả phiên:** VNINDEX đóng cửa 1,734.75 (-0.70% so với phiên trước) / "
+         "GTGD 19,061.9 tỷ.\n📊 Tổng kết phiên\nVNINDEX mất 0.70% so với phiên trước, đóng gần "
+         "đáy range ngày. GTGD cả ngày tăng 10% so với phiên trước và +15% so với TB20.\n📈")
+    f = enforce_gtgd_baseline_pct(t, ctx)
+    assert "VNINDEX đóng cửa 1,734.75 (-0.70% so với phiên trước)" in f
+    assert "VNINDEX mất 0.70% so với phiên trước" in f
+    assert "GTGD cả ngày tăng +34% so với phiên trước" in f      # GTGD vẫn được pin
+    assert enforce_gtgd_baseline_pct(f, ctx) == f
