@@ -35,3 +35,10 @@ def test_verdict_tells_thin_ticker_from_missed_and_dead():
     assert "BỎ SÓT" in verdict(wh, s, {"dnse": None, "fhsc": date(2026, 11, 12)})
     assert "BỎ SÓT" in verdict(wh, s, {"dnse": date(2026, 11, 11)})
     assert "KHÔNG nguồn nào" in verdict(wh, s, {"dnse": None, "fhsc": None})
+
+
+def test_verdict_warehouse_already_current_is_not_missed():
+    # Desktop 13/11: FPT/VCB/HPG kho cuối 13/11 = phiên mới nhất, nguồn cũng 13/11 ⇒ KHÔNG "bỏ sót".
+    s = date(2026, 11, 13)
+    v = verdict(s, s, {"dnse": s, "fhsc": s})
+    assert "khớp nguồn" in v and "BỎ SÓT" not in v

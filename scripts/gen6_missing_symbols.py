@@ -72,6 +72,8 @@ def verdict(wh_last: "date | None", session: "date | None", src_last: dict) -> s
     if not got:
         return "KHÔNG nguồn nào có mã này (ngừng giao dịch / nguồn không hỗ trợ)"
     best = max(got)
+    if wh_last is not None and session is not None and wh_last >= session:
+        return "kho đã có phiên mới nhất — khớp nguồn" if best >= wh_last else "kho mới hơn nguồn (?)"
     if session is not None and best >= session:
         return "nguồn CÓ phiên mới nhất mà kho thiếu ⇒ BỊ BỎ SÓT"
     if wh_last is not None and best <= wh_last:
