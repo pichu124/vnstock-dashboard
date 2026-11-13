@@ -408,12 +408,29 @@ def test_mcp_server_prefix_matches_desktop_naming():
 def test_mcp_command_lean_flags_and_allowed_tools_last():
     cmd = vcc.mcp_command("claude", "m", system="s", allowed_tools=[TCBS_OV, "b"], max_turns=5)
     assert cmd[cmd.index("--tools") + 1] == "ToolSearch"
-    assert cmd[cmd.index("--setting-sources") + 1] == ""
+    assert cmd[cmd.index("--setting-sources") + 1] == "user"         # 🖥️ 13/11: "" không thấy connector
     assert "--strict-mcp-config" not in cmd and "--disable-slash-commands" in cmd
     assert cmd[cmd.index("--output-format") + 1] == "stream-json" and "--verbose" in cmd
     assert cmd[-3:] == ["--allowedTools", TCBS_OV, "b"]
     assert cmd[cmd.index("--max-turns") + 1] == "5"
     assert cmd[cmd.index("--permission-prompts") + 1] == "none"
+
+
+def test_mcp_setting_sources_env_override(monkeypatch):
+    # 🖥️ 13/11: lean_ts thấy 0 tool MCP ⇒ cho đè --setting-sources của lượt connector qua .env.
+    monkeypatch.setenv("VNSTOCK_CLAUDE_MCP_SETTING_SOURCES", "user")
+    cmd = vcc.mcp_command("claude", "m", system="s", allowed_tools=["t"])
+    assert cmd[cmd.index("--setting-sources") + 1] == "user"
+    monkeypatch.setenv("VNSTOCK_CLAUDE_MCP_SETTING_SOURCES", "none")
+    cmd = vcc.mcp_command("claude", "m", system="s", allowed_tools=["t"])
+    assert "--setting-sources" not in cmd and cmd[cmd.index("--tools") + 1] == "ToolSearch"
+    assert cmd[-2:] == ["--allowedTools", "t"]
+    monkeypatch.setenv("VNSTOCK_CLAUDE_MCP_SETTING_SOURCES", "empty")
+    cmd = vcc.mcp_command("claude", "m", system="s", allowed_tools=["t"])
+    assert cmd[cmd.index("--setting-sources") + 1] == ""                 # bộ cờ cũ (08/10)
+    monkeypatch.delenv("VNSTOCK_CLAUDE_MCP_SETTING_SOURCES")
+    cmd = vcc.mcp_command("claude", "m", system="s", allowed_tools=["t"])
+    assert cmd[cmd.index("--setting-sources") + 1] == "user"             # mặc định từ 13/11
 
 
 def test_plain_complete_still_blocks_mcp():

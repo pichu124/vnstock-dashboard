@@ -69,12 +69,16 @@ VARIANTS: dict[str, list[str]] = {
     "lean_ts": ["--tools", "ToolSearch", *_LEAN],
     "lean_tools0": ["--tools", "", *_LEAN],
     "lean": list(_LEAN),
+    # 13/11: lean_ts thấy 0 tool MCP, chỉ full thấy ⇒ đo nấc giữa. Biến thể nào thấy SSI/Finhay thì
+    # đặt VNSTOCK_CLAUDE_MCP_SETTING_SOURCES trong .env: user_ts → "user" · noss_ts → "none".
+    "user_ts": ["--tools", "ToolSearch", "--setting-sources", "user", "--disable-slash-commands"],
+    "noss_ts": ["--tools", "ToolSearch", "--disable-slash-commands"],
     "full": [],
 }
 # Bước 3 thử lần lượt, DỪNG ở biến thể đầu tiên gọi được. `full` nạp cả skill/
 # rules/agent của máy (08/10 🖥️ desktop: $0,25–0,29/lượt Sonnet cho MỘT tool)
 # ⇒ chỉ thử khi --with-full.
-CALL_ORDER = ("lean_ts", "lean_tools0", "lean", "full")
+CALL_ORDER = ("lean_ts", "user_ts", "noss_ts", "lean_tools0", "lean", "full")
 # Connector claude.ai nối CHẬM: lúc `init` thường còn `pending` (08/10: cả 3
 # pending ở lean, chỉ full kịp connected SSI/TCBS) — pending KHÔNG phải không có.
 DEAD_STATUS = ("failed", "needs-auth")

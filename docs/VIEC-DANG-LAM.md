@@ -47,6 +47,17 @@ phiên trước" trong khi KL VNINDEX −5% — nghi KLGD DNSE gồm thoả thu�
 từ ~07/11 ⇒ phái sinh NN đứng phiên 06/11, `mcp-enrich` lỗi — CÓ TỪ TRƯỚC gen6; (d) nhánh `vnstock-gen6` (sau
 `0795431`) mới merge vào `main` CỤC BỘ desktop — cần PR lên `origin/main`.
 
+### ✅ XONG khuya 13/11 — việc còn mở (b)(c)(TV6) đã đóng
+- (b) GTGD KHÔNG phình: KL kho = SSI `total_match_volume` từng mã (FPT 17.335.200 · VCB 2.320.600 · HPG 14.696.900
+  phiên 12/11) ⇒ DNSE chỉ khớp lệnh; +34% là thật (FPT KL 2,65× phiên trước).
+- (c) connector MCP: `probe_mcp` — bộ cờ `--setting-sources ""` thấy 0 tool (CLI mới), `user` gọi được SSI + Finhay
+  ⇒ mặc định `user` (`e7cd039`, env `VNSTOCK_CLAUDE_MCP_SETTING_SOURCES`), ~$0,23/lượt. `futures-foreign --force`
+  lấy bù tới 13/11 (32 dòng). SSI thiếu số NN vài phiên (12/11…) ⇒ sai số ±14.386 HĐ, brief tự ghi chú.
+  ⏳ **TCBS còn `Needs authentication`** ⇒ ○ user: claude.ai → Settings → Connectors → TCBS MCP → Connect.
+- TV6: cổ tức cp 15% GDKHQ 05/11 (SSI); kho lẫn cơ sở từ bar 04/11 ⇒ `--break-date 2026-11-04 --apply` hệ số
+  1,1506× ⇒ **sổ cách ly RỖNG**.
+- ⏳ Commit sau PR #41 (`a280a0a`, `e7cd039`, docs) mới ở nhánh `vnstock-gen6` + main cục bộ desktop ⇒ cần PR.
+
 ### (đã làm) 🖥️ DESKTOP — TỐI 13/11, làm SAU khi `run_daily.log` in `⏱ TỔNG`
 Shell đã kích hoạt `& "$HOME\.venv_6x\Scripts\Activate.ps1"`, đứng ở `C:\vnstock`. Dán kết quả bước 2–4 cho Claude.
 1. Lấy code mới: `git fetch origin vnstock-gen6` → `git merge origin/vnstock-gen6`
