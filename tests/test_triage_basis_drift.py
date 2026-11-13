@@ -316,7 +316,7 @@ if __name__ == "__main__":
 
 
 class TestThresholdComesFromTheGuard:
-    """`CLAUDE.md`: ngưỡng phải KHỚP một nguồn, có test canh. Đặt một con số
+    """`docs/KIEN-TRUC.md`: ngưỡng phải KHỚP một nguồn, có test canh. Đặt một con số
     riêng ở đây là đẻ ra ngưỡng thứ hai phải giữ đồng bộ bằng tay."""
 
     def test_the_near_threshold_band_is_derived_not_hardcoded(self):

@@ -136,7 +136,8 @@ chạy code cũ → `git log --oneline -1` đối chiếu commit cuối Claude b
 
 ## Công tắc env (kill-switch)
 
-Mỗi công tắc MỚI phải được ghi vào danh sách này (có test canh: `tests/test_indicators_shared.py`).
+Mỗi công tắc MỚI phải được ghi vào danh sách này. KHÔNG có lưới chung: `tests/test_indicators_shared.py`
+chỉ ghim tên 2 công tắc (`VNSTOCK_BRIEF_SECTOR_ALPHA`, `VNSTOCK_INDICATOR_LEGACY`); các công tắc khác phải tự nhớ ghi.
 
 - Mọi auto-refresh đều best-effort và có env kill-switch
   (`VNSTOCK_BRIEF_AUTO_*`, `VNSTOCK_MACRO_*`, `VNSTOCK_BASIS_GUARD`,

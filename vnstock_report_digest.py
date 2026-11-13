@@ -355,7 +355,7 @@ def _call_openai(system: str, user: str,
 
 
 def _ensure_env_loaded() -> None:
-    """Load .env TRƯỚC khi check key — bẫy đã ghi trong CLAUDE.md (brief có
+    """Load .env TRƯỚC khi check key — bẫy đã ghi trong docs/KIEN-TRUC.md (brief có
     _ensure_env_loaded, doctor có load_dotenv; module này quên → chạy từ CLI
     fresh báo 'không key nào chạy' dù .env có đủ key — dính thật khi user
     verify 14/07). Best-effort, idempotent (override=False)."""

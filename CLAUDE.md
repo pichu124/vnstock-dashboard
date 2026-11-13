@@ -17,10 +17,10 @@ File này chỉ giữ thứ phải nhớ MỖI PHIÊN. Bản đầy đủ (lý d
 >
 > 1. **Chữa kho làm MỘT LẦN là đủ** — không bao giờ gán ⇄ CẢ HAI cho việc đụng
 >    `data_warehouse`; máy kia tự có sau vài phút.
-> 2. **Marker + badge cũng đồng bộ** và phần lớn không có trường máy
->    (`pipeline_status` / `brief_push` / `test_status`.json; `doctor_status.json` có
->    `machine`) ⇒ badge có thể là kết quả của MÁY KIA; `run.py telegram close` ở
->    laptop là desktop câm brief tối đó.
+> 2. **Marker + badge cũng đồng bộ** (`pipeline_status` / `brief_push` / `test_status` /
+>    `doctor_status`.json đều nằm TRONG kho) ⇒ badge sidebar có thể là kết quả của MÁY
+>    KIA — cần biết máy nào thì đọc trường `last_machine` / `machine` trong marker;
+>    `run.py telegram close` ở laptop là desktop câm brief tối đó.
 > 3. **Đừng đụng kho ở máy kia trong lúc pipeline chạy** — từ lúc task Daily khởi
 >    động tới khi `run_daily.log` in `⏱ TỔNG`. Hai bên ghi cùng file ⇒ Dropbox đẻ
 >    `(conflicted copy).parquet` ngay trong `prices/`. Marker
@@ -43,21 +43,30 @@ File này chỉ giữ thứ phải nhớ MỖI PHIÊN. Bản đầy đủ (lý d
   Mặt tiền `vnstock_auth.get_vnstock(t)`. Không tắt `SchemaChangeWarning`
   (`keep_schema_warnings()` sau mọi `filterwarnings("ignore")`). Updater KHÔNG còn nhánh
   fallback riêng: thứ tự nguồn dự phòng nằm trong `VNSTOCK_SOURCE`; dấu hiệu lỗi là `❌ N lỗi`.
+  Marker `pipeline_status` của updater chỉ ghi khi lỗi = 0 — đừng đọc thành "updater không chạy".
+  ⚠️ Đổi nguồn/thứ tự trong `VNSTOCK_SOURCE` có thể lệch cơ sở với kho cũ ⇒ mã vào sổ cách ly
+  hàng loạt: đối chiếu TRƯỚC bằng `scripts/probe_price_basis.py`.
 - Orchestrator: `python run.py <sub>` — scan / doctor / sync / validate / audit / test /
   dashboard / all. Exit code: 0 ok, 1 cảnh báo, 2 fail cứng. Dashboard: `python run.py dashboard`.
 - Lịch tự động: `scripts/setup_scheduled_tasks.ps1` — 3 task: Daily 18:00 ngày làm việc (trần
   240′), Weekend, News Alert mỗi giờ 24/7. Đăng ký THEO MÁY, Run as Administrator **trong shell
-  ĐÃ kích hoạt venv** (script từ chối Python hệ thống).
-- ⚠️ HAI MÁY: desktop `PICHU` (Daily + Weekend, sinh brief) · laptop `CFA-BINHLD-LT` (CHỈ News
-  Alert từ 11/11; KHÔNG bật VPN công ty — Anthropic chặn 403). **KHÔNG nhận dạng bằng đường dẫn
+  ĐÃ kích hoạt venv** (script từ chối Python hệ thống). ⚠️ **CỜ KHÁC NHAU THEO MÁY — không bao
+  giờ giao "⇄ chạy lại script" trần** (không cờ = đăng ký đủ 3 task): 🖥️ desktop `-NoNewsAlert`
+  (Daily + Weekend) · 💻 laptop `-OnlyNewsAlert`. Laptop có task Daily ⇒ hai máy cùng ghi
+  `prices/`; desktop có News Alert ⇒ tin gửi trùng.
+- ⚠️ HAI MÁY: desktop `PICHU` (Daily + Weekend, sinh brief; task News Alert ĐÃ TẮT 11/11) ·
+  laptop `CFA-BINHLD-LT` (CHỈ task News Alert từ 11/11; KHÔNG bật VPN công ty — Anthropic chặn 403). **KHÔNG nhận dạng bằng đường dẫn
   hay tên venv**; chỉ tin `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName 'VnStock *'`
   (≥2 task = desktop).
 - ⚠️ **MÁY ĐANG NGỒI LÀ TRẠNG THÁI DÍNH**: user báo đổi máy thì mới đổi; đừng hỏi lại mỗi lượt,
   đừng suy từ venv.
 - Cửa `--skip-if-done` và brief chiều so **PHIÊN PHỦ** (`covered_session`), KHÔNG so ngày lịch.
+  Cửa CỐ Ý bỏ qua khi máy kia đã phủ phiên (đúng cho kho dùng chung — không phải bug); kho tách
+  riêng thì bật `VNSTOCK_INDEPENDENT_WAREHOUSE=1`.
 - ⚠️ **MỌI việc/test giao cho user PHẢI ghi rõ máy nào**: 🖥️ DESKTOP · 💻 LAPTOP · ⇄ CẢ HAI
-  (việc KHÔNG nằm trong kho: git, pip, venv, task lịch, `.env`) · ○ máy nào cũng được. Soi
-  `run_daily.log` / task lịch là 🖥️ DESKTOP. CHỮA KHO là **○ một lần**, không phải ⇄.
+  (việc KHÔNG nằm trong kho, phải lặp ở từng máy: git, pip, venv, `.env`) · ○ máy nào cũng
+  được. Lệnh soi trạng thái (`run_daily.log`, `_meta/*.json`, `Get-ScheduledTaskInfo`) là
+  🖥️ DESKTOP. CHỮA KHO là **○ một lần**, không phải ⇄.
 
 ## Test discipline
 - Sửa module lõi nào → `python run.py test --fast`. Danh sách `--fast` là WHITELIST trong
@@ -79,11 +88,14 @@ File này chỉ giữ thứ phải nhớ MỖI PHIÊN. Bản đầy đủ (lý d
 - **Engine Claude**: `vnstock_claude_cli.py` (`complete` = `claude -p` 0 công cụ; `complete_mcp`
   cho connector) + `vnstock_brief_pack.py`. Công tắc `VNSTOCK_LLM_ENGINE` /
   `VNSTOCK_<BƯỚC>_ENGINE`; hỏng khâu nào ⇒ rơi về ladder OpenAI-compat (`_OpenAICompatAgent`).
+  Ladder: KHÔNG hỏi danh mục provider để bỏ slug (15/09 bỏ nhầm model đang sống, brief trắng);
+  trần output là TRẦN, không phải chi phí — đọc `llm_ledger --show` trước khi nới/đổi model.
 - **Brief 3 khung**: `vnstock_horizons.py` + `vnstock_horizons_state.py` (`_meta/horizon_state.json`).
 - **Pipeline data**: `vnstock_updater` → `vnstock_rollup` → `vnstock_warehouse` →
   `vnstock_runner`/`vnstock_screener` → brief. Cửa ở đường ghi: `vnstock_basis_guard` (lệch cơ
   sở >1,2% ⇒ KHÔNG nối, vào sổ cách ly), `vnstock_ohlc_repair`, `vnstock_corp_ratio` (tỉ lệ
-  quyền; nhiều sự kiện cùng ngày GDKHQ **cộng dồn trên số cổ phiếu GỐC**, không nhân dây chuyền).
+  quyền; nhiều sự kiện cùng ngày GDKHQ **cộng dồn trên số cổ phiếu GỐC**, không nhân dây chuyền;
+  cổ tức TIỀN MẶT trừ theo SỐ TUYỆT ĐỐI — "tỷ lệ 10%" là 10% MỆNH GIÁ).
 - **Vĩ mô**: `vnstock_macro` + `vnstock_nso` / `_fred` / `_vbma` / `_sbv_rates`. **Tin**:
   `vnstock_news_feeds` + `vnstock_sentiment`; cảnh báo mỗi giờ `vnstock_news_alert.py` (chạy ở
   ĐÚNG MỘT máy). **Chiến lược**: `vnstock_strategy` (AST sandbox), `vnstock_train`. **Bộ nhớ
@@ -111,7 +123,8 @@ File này chỉ giữ thứ phải nhớ MỖI PHIÊN. Bản đầy đủ (lý d
   `vnstock_brief_guards.py` + NỐI VÀO `apply_brief_guards` + viết test (guard
   quên nối = code chết trông y như code sống; có lưới canh).
 - Mọi auto-refresh đều best-effort và có env kill-switch. Danh sách đầy đủ ở
-  `docs/VAN-HANH.md` mục "Công tắc env" — thêm công tắc mới PHẢI ghi vào đó (test canh).
+  `docs/VAN-HANH.md` mục "Công tắc env" — thêm công tắc mới PHẢI ghi vào đó (KHÔNG có lưới
+  chung: chỉ 2 công tắc được test ghim tên, còn lại phải tự nhớ ghi).
 - Nghi ngờ CHƯA đủ căn cứ để vá → **đừng ghi vào notes, hãy ĐẾM**:
   `vnstock_brief_watch` nhặt bằng chứng mỗi phiên vào `_meta/brief_watch.json`,
   badge doctor `brief_watch` chỉ réo khi ≥ `MIN_SAMPLES` phiên. Dưới sàn mẫu
@@ -176,4 +189,4 @@ sẵn). Bản đầy đủ kèm file:line và lý do nằm ở mục "📌 VIỆ
 khảo sát nguồn data, mục chờ verify cũng nằm ở `docs/CLAUDE-NOTES.md`: khi làm việc trên
 brief / macro / strategy / chart, MỞ FILE ĐÓ tra mục liên quan trước khi sửa.
 Đừng chép ngược nội dung dài vào file này — chi tiết vận hành vào `docs/VAN-HANH.md`, chi tiết
-module vào `docs/KIEN-TRUC.md`; CLAUDE.md giữ dưới ~180 dòng.
+module vào `docs/KIEN-TRUC.md`; CLAUDE.md giữ dưới ~200 dòng.
