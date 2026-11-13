@@ -3,9 +3,8 @@ Phân tích tab — 🔬 per-ticker technical/fundamental deep-dive.
 
 The largest and most stateful tab: ticker selector, chart options,
 timeframe switcher, live-mode toggle, fundamental panel, volume profile,
-order book, and alert wiring. Extracted last per the modularisation
-plan (docs/REFACTOR_PLAN.md) since it has the heaviest dependency
-surface.
+order book, and alert wiring. Extracted last from ``vnstock_dashboard.py``
+since it has the heaviest dependency surface.
 
 Extraction notes
 ----------------

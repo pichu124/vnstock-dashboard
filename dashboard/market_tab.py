@@ -2,8 +2,7 @@
 Thị trường tab — 🌏 market-wide overview.
 
 Shows VNINDEX / HNX / UPCOM / VN30 snapshots, breadth statistics,
-sector flows and a commentary block. Extracted per the modularisation
-plan in ``docs/REFACTOR_PLAN.md``.
+sector flows and a commentary block. Extracted from ``vnstock_dashboard.py``.
 
 Extraction notes
 ----------------

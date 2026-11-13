@@ -2,7 +2,7 @@
 Screener tab — 📊 preset filter browser with live-scan overlay.
 
 Extracted from ``vnstock_dashboard.py`` as part of the tab-modularisation
-effort (docs/REFACTOR_PLAN.md). Streamlit is imported lazily inside the
+effort. Streamlit is imported lazily inside the
 render function so the module is importable by unit tests without the
 Streamlit runtime.
 
