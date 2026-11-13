@@ -427,7 +427,6 @@ class BarAggregator:
         return pd.DataFrame(rows).sort_values(["ticker", "time"]).reset_index(drop=True)
 
 
-
 # ═════════════════════════════════════════════════════════════════════════════
 # VnStockWSS — main WebSocket client
 # ═════════════════════════════════════════════════════════════════════════════

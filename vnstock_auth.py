@@ -222,7 +222,6 @@ class _Listing:
         return Reference().equity.list(**kwargs)
 
 
-
 def get_vnstock(ticker: str = "VCB", source: str | None = None):
     """Đối tượng có `.quote / .company / .listing / .finance` trên API thế hệ 6.
 

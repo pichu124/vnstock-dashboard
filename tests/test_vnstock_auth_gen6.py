@@ -110,8 +110,6 @@ def test_keep_schema_warnings_beats_blanket_ignore():
     assert any(issubclass(w.category, errors.SchemaChangeWarning) for w in rec)
 
 
-
-
 def test_futures_symbols_route_to_market_futures(monkeypatch):
     vnstock = pytest.importorskip("vnstock")
     picked = []
