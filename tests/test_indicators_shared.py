@@ -296,8 +296,9 @@ def test_sector_alpha_switch_parsing(no_alpha_env, val, on):
     assert vb._sector_alpha_enabled() is on
 
 
-def test_sector_alpha_switch_listed_in_claude_md():
-    assert "VNSTOCK_BRIEF_SECTOR_ALPHA" in (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+def test_sector_alpha_switch_listed_in_docs():
+    # danh sách công tắc env chuyển từ CLAUDE.md sang docs/VAN-HANH.md (13/11)
+    assert "VNSTOCK_BRIEF_SECTOR_ALPHA" in (ROOT / "docs" / "VAN-HANH.md").read_text(encoding="utf-8")
 
 
 # ── scripts/compare_indicator_formulas.py ────────────────────────────────────
@@ -572,8 +573,8 @@ def test_trend_ma_sma_and_legacy_ema(legacy_env):
     np.testing.assert_allclose(vi.trend_ma(c, 200).iloc[199:], ref.iloc[199:], rtol=0, atol=1e-9)
 
 
-def test_legacy_switch_listed_in_claude_md():
-    assert "VNSTOCK_INDICATOR_LEGACY" in (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+def test_legacy_switch_listed_in_docs():
+    assert "VNSTOCK_INDICATOR_LEGACY" in (ROOT / "docs" / "VAN-HANH.md").read_text(encoding="utf-8")
 
 
 # screener

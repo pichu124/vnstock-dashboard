@@ -4,8 +4,10 @@ Nền tảng phân tích chứng khoán Việt Nam chạy cục bộ (Streamlit)
 phân tích kỹ thuật/cơ bản, tổng quan thị trường, live mode ~1.100 mã, kho Parquet
 local, AI brief sáng/chiều và cảnh báo tin gửi Telegram.
 
-Hướng dẫn vận hành đầy đủ (hai máy, kho Dropbox, test, quy ước, bất biến) nằm ở
-[`CLAUDE.md`](CLAUDE.md). Việc đang làm: [`docs/VIEC-DANG-LAM.md`](docs/VIEC-DANG-LAM.md).
+Luật phải nhớ (kho Dropbox, hai máy, test, quy ước, bất biến): [`CLAUDE.md`](CLAUDE.md).
+Bản đầy đủ: [`docs/VAN-HANH.md`](docs/VAN-HANH.md) (vận hành, công tắc env) và
+[`docs/KIEN-TRUC.md`](docs/KIEN-TRUC.md) (từng module). Việc đang làm:
+[`docs/VIEC-DANG-LAM.md`](docs/VIEC-DANG-LAM.md).
 
 ## Cài đặt
 
@@ -48,7 +50,7 @@ Ba task, đăng ký theo máy: **Daily** 18:00 ngày làm việc (`run.py all`),
 ```
 run.py                  # orchestrator: mọi lệnh con + pipeline
 vnstock_dashboard.py    # UI chính; các trang ở dashboard/
-vnstock_*.py            # module lõi (bản đồ kiến trúc: CLAUDE.md)
+vnstock_*.py            # module lõi (bản đồ: docs/KIEN-TRUC.md)
 scripts/                # cài task lịch, công cụ đo/chữa kho chạy tay
 tests/                  # pytest
 docs/                   # thiết kế (THIET-KE-*.md), việc đang làm, nhật ký
