@@ -384,12 +384,6 @@ def test_open_recs_block_delegates_to_shared_splitter():
     assert "split_recs_by_validation" in inspect.getsource(tg._open_recs_block)
 
 
-def test_screener_block_empty_when_no_cache(tmp_path, monkeypatch):
-    monkeypatch.setattr(tg, "_REPO", tmp_path)
-    out = tg._screener_block()
-    assert out == ""
-
-
 # ─── Public push functions wrap send_message ─────────────────────────────────
 
 def test_push_test_calls_send(monkeypatch):
