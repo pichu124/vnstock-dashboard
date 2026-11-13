@@ -18,12 +18,12 @@ Claude Code cloud không thấy `data_warehouse`, dừng ngay nếu thiếu thư
 
 Claude Code có thể được mở từ shell chưa kích hoạt venv (30/09 desktop:
 `python` trỏ `C:\Python314` không có pandas ⇒ `--export-pack` chết). Cả hai
-máy giữ venv ở `%USERPROFILE%\.venv` (desktop tài khoản `admin`, laptop
-`Administrator`), nên gọi thẳng interpreter đó:
+máy giữ venv thế hệ 6 ở `%USERPROFILE%\.venv_6x` (từ 11/2026; `.venv` là dòng vnstock 4.x
+cũ, chỉ để đối chiếu — đừng dùng), nên gọi thẳng interpreter đó:
 
 - Bash (tool Bash của Claude Code trên Windows = Git Bash):
-  `PY=~/.venv/Scripts/python.exe`
-- PowerShell: `$PY = "$env:USERPROFILE\.venv\Scripts\python.exe"`
+  `PY=~/.venv_6x/Scripts/python.exe`
+- PowerShell: `$PY = "$env:USERPROFILE\.venv_6x\Scripts\python.exe"`
 
 Kiểm một lần trước khi làm gì: `$PY -c "import pandas, vnstock_brief_pack; print('venv ok')"`.
 Lỗi import ⇒ sai venv, hỏi user đường venv thật, đừng cài gì.
