@@ -26,6 +26,25 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
+## 🔄 Cơ bản T7 xoay vòng — lượt Weekend 14/11 bị cắt ở bước fundamentals (thế hệ 6: ≈ 5 giờ thay vì 30–40 phút)
+
+**Chuyện gì:** T7 14/11 (lượt Weekend đầu tiên trên thế hệ 6) `LastTaskResult 267014`: bước `fundamentals --force`
+chạy từ ~09:23, bị trần 180′ cắt lúc 12:00 ở lô 850/1.754 (0 lỗi). 🖥️ đã chạy bù tay 939 mã còn lại: 2h42, 778 OK,
+0 lỗi, 160 "giữ data cũ" ⇒ ~5,8 mã/phút, đủ kho ≈ 5 giờ. Kho 14/11 ĐÃ đủ. `models exit 2` là tín hiệu model watch
+(tuần trước cũng vậy), không liên quan.
+
+**Đã sửa (PR riêng, chờ merge):** updater chạy "mã lâu chưa được kiểm nhất trước" (sổ `_meta/fundamentals_checked.json`)
+⇒ bị cắt ở đâu tuần sau đi tiếp ở đó, hai thứ Bảy phủ hết kho; lệnh của task không đổi, không phải đăng ký lại task.
+Doctor `fundamentals` thêm độ phủ (réo khi >10% kho bị bỏ quên quá 21 ngày).
+
+| # | Việc | Máy | Khi nào | Lệnh |
+|---|---|---|---|---|
+| F1 | Merge PR + test đầy đủ | 🖥️ DESKTOP | trước T7 21/11, ngoài giờ pipeline | `git fetch origin claude/pensive-noether-9wt4rv` → `git merge origin/claude/pensive-noether-9wt4rv` → `python run.py test` |
+| F2 | Soi lượt T7 21/11 (lượt xoay vòng đầu tiên) | 🖥️ DESKTOP | sau 12:00 T7 21/11 | `Select-String -Path run_daily.log -Pattern 'Thứ tự: mã lâu chưa kiểm' -Encoding UTF8 \| Select-Object -Last 2` — phải có dòng này; `267014` vẫn là bình thường |
+| F3 | Soi lượt T7 28/11: phải bắt đầu từ phần 21/11 bỏ dở | 🖥️ DESKTOP | sau 12:00 T7 28/11 | `python run.py doctor` — dòng Cơ bản phải ✅ kèm "N/N mã được kiểm trong 21 ngày" |
+| F4 | (tuỳ) Muốn đủ kho trong MỘT ngày (mùa BCTC) | 🖥️ DESKTOP | sau khi task T7 dừng | `python vnstock_fundamental_updater.py --force --workers 4 --delay 1 --min-age-days 1` (~2,5 giờ) |
+| F5 | (tuỳ) Đo `--workers 8` trên thế hệ 6 xem có nhanh gấp đôi không | 🖥️ DESKTOP | lúc rảnh | `python vnstock_fundamental_updater.py --force --workers 8 --delay 1 --tickers ACB FPT HPG MWG VCB VNM SSI TCB MBB VIC` rồi đọc cột thời gian; nhiều `✗` = chạm hạn mức, giữ 4 |
+
 ## 🔁 vnstock thế hệ 6 — ĐÃ VÀO MAIN 12/11 (`0795431`, PR #40) · nguồn `dnse,fhsc` · còn việc tối 13/11 ↓
 
 ✅ 12/11 xong: khoá dnse + fhsc (🖥️) · `.venv_6x` · `.env` `VNSTOCK_SOURCE=dnse,fhsc` · `gen6_check` + dò cơ sở

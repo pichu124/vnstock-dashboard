@@ -159,6 +159,8 @@ _MUST_BE_ATOMIC = [
      "fundamentals + snapshot lịch sử point-in-time (mất là không tái tạo được)"),
     ("vnstock_fund_periods.py",
      "sổ kỳ BCTC + sổ đã báo — mất là mất 'kỳ trước' (nguồn chỉ trả kỳ hiện tại)"),
+    ("vnstock_fund_checked.py",
+     "sổ ngày-kiểm của updater cơ bản — cụt là lượt T7 xếp hàng sai, lại bỏ quên nửa kho"),
     ("vnstock_mcp_enrich.py",
      "bản chạy bóng connector MCP (U79) — đọc cụt là mất một phiên đối chiếu"),
     ("vnstock_assets.py",

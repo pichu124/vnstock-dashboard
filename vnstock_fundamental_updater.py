@@ -8,6 +8,8 @@ Run:
   python vnstock_fundamental_updater.py              # Cập nhật tất cả
   python vnstock_fundamental_updater.py --force --workers 8   # Refetch NHANH cả kho
   python vnstock_fundamental_updater.py --tickers VCB FPT HPG  # Cụ thể
+  python vnstock_fundamental_updater.py --force --workers 4 --delay 1 --min-age-days 1
+                                                     # Chạy bù phần lượt trước bỏ dở
   python vnstock_fundamental_updater.py --check      # Xem trạng thái
   python vnstock_fundamental_updater.py --report     # Báo cáo thống kê
 
@@ -16,6 +18,14 @@ pattern ⚡ của vnstock_updater (fetch I/O-bound, ~3 call API/mã ≈ 7s → f
 --force 1.754 mã tuần tự mất ~3.5 GIỜ, 8 luồng còn ~25-30 phút). Ghi file vẫn
 CHỈ ở luồng chính (batch save) nên an toàn. API rate-limit (nhiều ✗ lỗi) →
 giảm --workers 4.
+
+⚠️ Số đo trên là của DÒNG CŨ. vnstock thế hệ 6, đo 🖥️ 14/11 với `--workers 4
+--delay 1`: 939 mã / 2h42 ≈ 5,8 mã/phút, 0 lỗi ⇒ lượt đủ 1.754 mã ≈ 5 GIỜ, quá trần
+180′ của task Weekend (lượt T7 14/11 bị cắt ở lô 850, `LastTaskResult 267014`).
+Vì vậy thứ tự chạy là "mã lâu chưa được kiểm nhất trước" (sổ
+`_meta/fundamentals_checked.json`, `vnstock_fund_checked`): lượt bị cắt thì lượt sau
+đi tiếp phần còn lại, hai thứ Bảy phủ hết kho. Muốn đủ trong MỘT ngày thì chạy bù
+bằng `--min-age-days 1`. Chưa đo `--workers 8` trên thế hệ 6.
 
 Schedule: Chạy 1 lần/tuần (Task Scheduler hoặc cron); mùa BCTC (giữa tháng
 1/4/7/10) chạy thêm `--force --workers 8`.
@@ -38,6 +48,9 @@ from rich.progress import (BarColumn, MofNCompleteColumn, Progress,
 from rich.table import Table
 from rich import box
 
+from vnstock_fund_checked import (LEDGER_NAME as CHECKED_LEDGER_NAME,
+                                 checked_within, fetch_order, last_checked,
+                                 load as load_checked, save as save_checked)
 from vnstock_fund_periods import (LEDGER_NAME as PERIODS_LEDGER_NAME,
                                  record_frame, row_period_label)
 
@@ -136,6 +149,20 @@ def _record_periods(df: pd.DataFrame) -> None:
             console.print(f"  [cyan]📑 Kỳ BCTC mới: {n} chỉ số (sổ kỳ đã ghi)[/cyan]")
     except Exception as e:
         console.print(f"[yellow]⚠ Không ghi được sổ kỳ BCTC: {e}[/yellow]")
+
+
+def _checked_path() -> Path:
+    """Sổ ngày-kiểm đi CẠNH `FUND_PATH` (test chuyển FUND_PATH sang tmp là sổ đi theo)."""
+    return Path(FUND_PATH).parent / CHECKED_LEDGER_NAME
+
+
+def _save_checked(checked: dict) -> None:
+    """Best-effort: hỏng sổ chỉ làm lượt sau xếp hàng kém chính xác, không được
+    làm hỏng lượt cập nhật (ghi nguyên tử qua `write_json_atomic` trong `save_checked`)."""
+    try:
+        save_checked(checked, _checked_path())
+    except Exception as e:
+        console.print(f"[yellow]⚠ Không ghi được sổ ngày kiểm: {e}[/yellow]")
 
 
 # Lịch sử fundamentals THEO THỜI ĐIỂM — user chốt bật 13/08.
@@ -591,9 +618,14 @@ def update(
     delay: float = 0.5,
     batch_save: int = 50,
     workers: int = 1,
+    min_age_days: int = 0,
 ):
     """
     Tải P/E, ROE cho từng ticker, lưu vào warehouse.
+
+    Thứ tự chạy = mã LÂU CHƯA ĐƯỢC KIỂM nhất trước (`vnstock_fund_checked`): lượt
+    bị cắt giữa chừng (trần task 180′, Ctrl+C, máy tắt) thì lượt sau tự đi tiếp
+    phần còn lại thay vì cắt lại đúng chỗ cũ.
 
     Args:
         tickers   : Danh sách cụ thể (None = tất cả từ warehouse)
@@ -601,6 +633,8 @@ def update(
         delay     : Thời gian chờ giữa các API call (giây, áp cho từng luồng)
         batch_save: Lưu file sau mỗi N ticker
         workers   : Số luồng fetch song song (1 = tuần tự như cũ)
+        min_age_days: > 0 = bỏ qua mã đã được kiểm trong N ngày gần đây (1 = hôm
+                    nay) — để chạy bù phần lượt trước bỏ dở mà không hỏi lại cả kho
     """
     all_tickers = tickers or _get_stock_tickers()
     existing    = _load_existing()
@@ -619,7 +653,11 @@ def update(
                 "→ refetch để bổ sung cash flow + D/E.[/yellow]"
             )
 
-    to_fetch = [t for t in all_tickers if t not in done_set]
+    checked    = load_checked(_checked_path())
+    last       = last_checked(existing, checked)
+    candidates = [t for t in all_tickers if t not in done_set]
+    recent     = checked_within(candidates, last, min_age_days, datetime.now().date())
+    to_fetch   = fetch_order([t for t in candidates if t not in recent], last)
 
     console.rule("[bold cyan]📥 Fundamental Updater[/bold cyan]")
     console.print(
@@ -627,10 +665,22 @@ def update(
         f"Already done: [green]{len(done_set):,}[/green]  |  "
         f"To fetch: [yellow]{len(to_fetch):,}[/yellow]\n"
     )
+    if recent:
+        console.print(f"  [dim]--min-age-days {min_age_days}: bỏ qua {len(recent):,} mã "
+                      f"đã kiểm gần đây[/dim]")
 
     if not to_fetch:
-        console.print("[green]✅ Tất cả đã cập nhật. Dùng --force để cập nhật lại.[/green]")
+        if recent:
+            console.print(f"[green]✅ Không còn mã nào cũ hơn --min-age-days "
+                          f"{min_age_days}.[/green]")
+        else:
+            console.print("[green]✅ Tất cả đã cập nhật. Dùng --force để cập nhật lại.[/green]")
         return
+
+    never = sum(1 for t in to_fetch if t not in last)
+    oldest = min((last[t] for t in to_fetch if t in last), default=None)
+    console.print(f"  [dim]Thứ tự: mã lâu chưa kiểm trước — chưa kiểm lần nào: {never:,} · "
+                  f"cũ nhất: {oldest or '—'}[/dim]\n")
 
     rows   = existing.to_dict("records") if not existing.empty else []
     errors = 0
@@ -671,29 +721,36 @@ def update(
         for done, (ticker, data, err) in enumerate(_results(), 1):
             prog.update(task, description=f"[cyan]{ticker:6s}[/cyan]", advance=1)
 
+            today = datetime.now().strftime("%Y-%m-%d")
             if err is not None:
+                # KHÔNG đóng dấu ngày kiểm: mã lỗi được thử lại sớm ở lượt sau.
                 errors += 1
                 prog.console.print(f"  [dim red]✗ {ticker}: {err}[/dim red]")
             elif data is not None:
                 data["ticker"]     = ticker
-                data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+                data["updated_at"] = today
                 rows.append(data)
                 ok_cnt += 1
+                checked[ticker] = today
             elif ticker in have_data:
                 # Refetch came back empty but we already have good data —
-                # keep the existing row instead of wiping it with NaN.
+                # keep the existing row instead of wiping it with NaN. Dòng
+                # parquet không đổi ⇒ chỉ sổ ngày-kiểm biết mã này vừa được hỏi.
                 kept += 1
+                checked[ticker] = today
             else:
                 # Never had data → write NaN placeholder so --check counts it
                 rows.append({
                     "ticker":     ticker,
-                    "updated_at": datetime.now().strftime("%Y-%m-%d"),
+                    "updated_at": today,
                 })
+                checked[ticker] = today
 
             # Batch save (luồng chính — worker không bao giờ đụng file)
             if done % batch_save == 0:
                 df = pd.DataFrame(rows).drop_duplicates("ticker", keep="last")
                 _save(df)
+                _save_checked(checked)
                 prog.console.print(
                     f"  [dim]💾 Saved batch {done}/{len(to_fetch)} "
                     f"({ok_cnt} OK, {errors} errors)[/dim]"
@@ -702,6 +759,7 @@ def update(
     # Final save
     df = pd.DataFrame(rows).drop_duplicates("ticker", keep="last")
     _save(df)
+    _save_checked(checked)
     _record_periods(df)
 
     console.print(f"\n[green]✅ Done![/green]")
@@ -930,6 +988,9 @@ if __name__ == "__main__":
     parser.add_argument("--workers", type=int, default=1,
                         help="Số luồng fetch song song (mặc định 1 = tuần tự; "
                              "--force cả kho nên dùng 8, rate-limit thì hạ 4)")
+    parser.add_argument("--min-age-days", type=int, default=0, metavar="N",
+                        help="Bỏ qua mã đã được kiểm trong N ngày gần đây (1 = hôm nay). "
+                             "Chạy bù phần lượt trước bỏ dở: --force --min-age-days 1")
     parser.add_argument("--check",   action="store_true", help="Xem trạng thái warehouse")
     parser.add_argument("--report",  action="store_true", help="Báo cáo median theo ngành")
     parser.add_argument("--diag",    metavar="TICKER", help="In raw output API tài chính cho 1 mã")
@@ -947,4 +1008,5 @@ if __name__ == "__main__":
             force=args.force,
             delay=args.delay,
             workers=args.workers,
+            min_age_days=args.min_age_days,
         )

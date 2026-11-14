@@ -105,6 +105,53 @@ def test_fundamentals_uses_mtime_age(meta):
     assert r["status"] == "warn" and "fundamental_updater" in r["fix"]
 
 
+def _fund_store(meta, days_ago: dict, ledger: "dict | None" = None, prices=()):
+    """fundamentals.parquet thật + (tuỳ) sổ ngày-kiểm + (tuỳ) thư mục giá."""
+    import vnstock_fund_checked as fc
+    day = lambda n: (date.today() - timedelta(days=n)).isoformat()
+    pd.DataFrame({"ticker": list(days_ago),
+                  "updated_at": [day(n) for n in days_ago.values()]}
+                 ).to_parquet(meta / "fundamentals.parquet")
+    if ledger is not None:
+        fc.save({t: day(n) for t, n in ledger.items()}, meta / fc.LEDGER_NAME)
+    for t in prices:
+        (meta.parent / "prices" / f"ticker={t}").mkdir(parents=True, exist_ok=True)
+
+
+def test_fundamentals_warns_when_part_of_the_store_is_left_behind(meta):
+    """Vết 14/11: lượt T7 bị cắt ở mã ~850 mỗi tuần, file vẫn được ghi theo lô nên
+    mtime luôn 'tươi' — doctor xanh trong khi nửa kho không ai cập nhật."""
+    stale = {f"S{i}": 40 for i in range(3)}
+    fresh = {f"F{i}": 2 for i in range(7)}
+    _fund_store(meta, {**stale, **fresh}, ledger={"F0": 2})
+    r = doc.check_fundamentals()
+    assert r["status"] == "warn"
+    assert "7/10 mã" in r["message"] and "--min-age-days" in r["fix"]
+
+
+def test_fundamentals_ok_reports_coverage(meta):
+    # KEPT: dòng parquet cũ 40 ngày nhưng sổ ghi vừa được hỏi ⇒ KHÔNG tính là bỏ quên.
+    _fund_store(meta, {"AAA": 1, "BBB": 8, "KEPT": 40}, ledger={"KEPT": 1})
+    r = doc.check_fundamentals()
+    assert r["status"] == "ok" and "3/3 mã" in r["message"] and r["fix"] == ""
+
+
+def test_fundamentals_coverage_waits_for_the_ledger(meta):
+    """Chưa có sổ = updater bản mới chưa chạy lượt nào ⇒ chưa đủ căn cứ để réo
+    (các mã 'giữ data cũ' mang `updated_at` cũ sẽ bị đếm oan)."""
+    _fund_store(meta, {"AAA": 40, "BBB": 40}, ledger=None)
+    r = doc.check_fundamentals()
+    assert r["status"] == "ok" and "mã" not in r["message"]
+
+
+def test_fundamentals_coverage_ignores_tickers_the_updater_no_longer_visits(meta):
+    # Updater chỉ đi các mã có thư mục giá; dòng mồ côi trong parquet không được réo.
+    _fund_store(meta, {"AAA": 1, "BBB": 1, "GONE": 400}, ledger={"AAA": 1},
+                prices=("AAA", "BBB"))
+    r = doc.check_fundamentals()
+    assert r["status"] == "ok" and "2/2 mã" in r["message"]
+
+
 def test_market_news_counts_recent_and_analyzed(meta):
     assert doc.check_market_news()["status"] == "off"
     today = date.today().isoformat()
