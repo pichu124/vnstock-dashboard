@@ -24,8 +24,9 @@ giảm --workers 4.
 180′ của task Weekend (lượt T7 14/11 bị cắt ở lô 850, `LastTaskResult 267014`).
 Vì vậy thứ tự chạy là "mã lâu chưa được kiểm nhất trước" (sổ
 `_meta/fundamentals_checked.json`, `vnstock_fund_checked`): lượt bị cắt thì lượt sau
-đi tiếp phần còn lại, hai thứ Bảy phủ hết kho. Muốn đủ trong MỘT ngày thì chạy bù
-bằng `--min-age-days 1`. Chưa đo `--workers 8` trên thế hệ 6.
+đi tiếp phần còn lại; ~850 mã/lượt ⇒ mỗi mã được hỏi lại trong ≤ 21 ngày (hai thứ Bảy
+phủ 1.700/1.754, ~54 mã đợi lượt thứ ba). Muốn đủ trong MỘT ngày thì chạy bù bằng
+`--force --min-age-days 1`. Chưa đo `--workers 8` trên thế hệ 6.
 
 Schedule: Chạy 1 lần/tuần (Task Scheduler hoặc cron); mùa BCTC (giữa tháng
 1/4/7/10) chạy thêm `--force --workers 8`.
@@ -751,6 +752,10 @@ def update(
                 df = pd.DataFrame(rows).drop_duplicates("ticker", keep="last")
                 _save(df)
                 _save_checked(checked)
+                # Sổ kỳ BCTC gấp ở MỖI lô, không đợi lần lưu cuối: lượt T7 bị trần
+                # 180′ cắt mỗi tuần nên lần lưu cuối không bao giờ tới (`fold` cùng
+                # kỳ cùng số là no-op ⇒ gấp lặp vô hại).
+                _record_periods(df)
                 prog.console.print(
                     f"  [dim]💾 Saved batch {done}/{len(to_fetch)} "
                     f"({ok_cnt} OK, {errors} errors)[/dim]"

@@ -184,6 +184,27 @@ def test_a_run_cut_short_is_finished_by_the_next_one(fu, monkeypatch):
     assert set(_ledger(fu)) == set(tickers)
 
 
+def test_a_run_cut_short_still_records_reporting_periods(fu, monkeypatch):
+    """Sổ kỳ BCTC (`fundamentals_periods.json`) từng chỉ được gấp ở lần lưu CUỐI.
+    Lượt T7 nay bị cắt MỖI tuần ⇒ lần lưu cuối không bao giờ tới ⇒ dòng "Kỳ BCTC mới"
+    của brief lặng lẽ biến mất. Phải gấp ở MỖI lô đã lưu."""
+    from vnstock_fund_periods import LEDGER_NAME, read_ledger
+
+    def _ratios(t):
+        fu.seen.append(t)
+        if len(fu.seen) > 7:
+            raise _Killed()
+        return {"pe": 10.0, "debt_to_equity": 1.2, "de_period": "2026-Q3"}
+
+    monkeypatch.setattr(fu, "_fetch_ratios", _ratios)
+    with pytest.raises(_Killed):
+        fu.update(tickers=[f"T{i:02d}" for i in range(10)], force=True, delay=0.0,
+                  workers=1, batch_save=3)
+    periods = read_ledger(fu.FUND_PATH.parent / LEDGER_NAME).get("tickers") or {}
+    assert set(periods) == {"T00", "T01", "T02", "T03", "T04", "T05"}   # 2 lô đã lưu
+    assert periods["T00"]["de"]["period"] == "2026-Q3"
+
+
 def test_min_age_days_fetches_only_what_today_missed(fu):
     fu.update(tickers=["AAA", "BBB"], force=True, delay=0.0, workers=1)
     fu.seen.clear()

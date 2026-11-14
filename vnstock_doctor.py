@@ -725,9 +725,10 @@ def check_market_overview() -> dict:
                    "python run.py screener" if status != "ok" else "")
 
 
-# Lượt cơ bản T7 trên thế hệ 6 chỉ đi được ~nửa kho trong trần 180′ rồi xoay vòng
-# (`vnstock_fund_checked`): bình thường mỗi mã được hỏi lại trong ≤ 14 ngày. 21 = thêm
-# một tuần trượt (máy tắt một thứ Bảy). 10% = dung sai cho vài mã lỗi nguồn kéo dài.
+# Lượt cơ bản T7 trên thế hệ 6 chỉ đi được ~850/1.754 mã trong trần 180′ rồi xoay vòng
+# (`vnstock_fund_checked`): bình thường mỗi mã được hỏi lại trong ≤ 21 ngày (hai thứ Bảy
+# phủ 1.700 mã, ~54 mã đợi lượt thứ ba). Lỡ một thứ Bảy thì ~3% kho vượt 21 ngày — dưới
+# ngưỡng 10%, không réo. 10% còn là dung sai cho vài mã lỗi nguồn kéo dài.
 # Hai ngưỡng này SUY từ nhịp xoay vòng, chưa đo trên kho thật — réo oan thì nới ở đây.
 FUND_STALE_DAYS = 21
 FUND_STALE_WARN_RATIO = 0.10

@@ -6,7 +6,8 @@ là 180′ ⇒ tuần nào cũng bị cắt ở mã thứ ~850. Danh sách mã x
 chỗ cắt luôn là MỘT chỗ: nửa sau bảng chữ cái không bao giờ được cập nhật.
 
 Cách chữa là đổi THỨ TỰ chạy, không nâng trần: chưa kiểm bao giờ → cũ nhất → mới
-nhất. Bị cắt ở đâu thì lượt sau đi tiếp phần còn lại; hai thứ Bảy phủ hết kho.
+nhất. Bị cắt ở đâu thì lượt sau đi tiếp phần còn lại; với ~850 mã/lượt, mỗi mã được hỏi
+lại trong ≤ 21 ngày (hai thứ Bảy phủ 1.700/1.754, ~54 mã còn lại đợi lượt thứ ba).
 
 Vì sao cần sổ riêng mà không dùng cột `updated_at` của `fundamentals.parquet`: mã mà
 nguồn trả RỖNG nhưng kho đã có số ("giữ data cũ" — 160 mã lượt 14/11) thì dòng
