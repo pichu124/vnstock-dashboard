@@ -172,6 +172,16 @@
   S/R + trigger + Stance T+1/T+5 chấm lại từ `brief_memory.db`, trạng thái horizons → lợi suất, `grade_setup` (luật
   §13.1: mua mở cửa/chạm trigger, T+2,5, phí+thuế); `run.py ta-score [--backfill|--show]`, badge doctor `ta_score`;
   cột `briefs.sent` = bản đã gửi Telegram. Chỉ báo dùng chung: `vnstock_indicators` (`rsi_wilder`/`sma`/`ema`/`atr`).
+- `vnstock_fund_checked.py` + `vnstock_fundamental_updater.py` — **cơ bản T7 XOAY VÒNG** (14/11). Thế hệ 6:
+  `--force --workers 4 --delay 1` chạy ~5,8 mã/phút (đo 🖥️: 939 mã / 2h42, 0 lỗi) ⇒ đủ 1.754 mã ≈ 5 giờ, quá trần
+  180′ của task Weekend; danh sách mã xếp ABC nên tuần nào cũng cắt ở mã ~850, nửa sau bảng chữ cái không bao giờ
+  được cập nhật mà doctor vẫn xanh (chỉ nhìn mtime). Chữa bằng THỨ TỰ, không nâng trần: sổ
+  `_meta/fundamentals_checked.json` `{mã: ngày}` ghi lần cuối nguồn TRẢ LỜI (có số hoặc rỗng — mã "giữ data cũ"
+  không đổi `updated_at` nên phải có sổ riêng; mã LỖI không ghi ⇒ thử lại sớm); `fetch_order` = chưa kiểm → cũ
+  nhất → mới nhất. ~850 mã/lượt ⇒ mỗi mã được hỏi lại trong ≤ 21 ngày (hai thứ Bảy phủ 1.700/1.754). Sổ kỳ BCTC
+  gấp ở MỖI lô đã lưu (lượt bị cắt thì lần lưu cuối không tới). Chạy bù trong ngày: `--force --min-age-days 1`. Doctor `fundamentals`
+  thêm lớp độ phủ: >10% mã (có thư mục giá) bị bỏ quên quá 21 ngày ⇒ warn; chưa có sổ ⇒ chỉ xét mtime như cũ.
+  Task Weekend ra `267014` giữa bước này là bình thường. Lệnh của task KHÔNG đổi.
 - `vnstock_sectors.py` — nhóm ngành custom ("Họ VIN", "Họ M") dùng chung
   dashboard + brief; thêm họ mới = thêm 1 dòng registry.
 - `vnstock_vn30.py` — **rổ VN30 hiện hành, một nguồn sự thật duy nhất**. HOSE

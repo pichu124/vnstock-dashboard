@@ -902,6 +902,7 @@ def cmd_test(args) -> int:
             "tests/test_brief_quality_fixes.py",
             "tests/test_exit_reachability.py",
             "tests/test_fundamentals_history.py",
+            "tests/test_fundamental_rotation.py",   # T7 bị cắt 180′ ⇒ mã lâu chưa kiểm đi trước
             "tests/test_reachability.py",
             "tests/test_strategy_tiers.py",
             "tests/test_div_check.py",
@@ -1456,8 +1457,13 @@ def cmd_models(args) -> int:
 def cmd_weekend(args) -> int:
     """models (model watch + eval, đứng đầu — xem _weekend_steps) →
     rates-weekly (render cache → Telegram) → vietstock corp actions →
-    fundamentals (~25-30 phút, để cuối). Chạy 09:00 T7; máy tắt thì
-    StartWhenAvailable chạy lúc mở máy sớm nhất cuối tuần."""
+    fundamentals (để cuối). Chạy 09:00 T7; máy tắt thì
+    StartWhenAvailable chạy lúc mở máy sớm nhất cuối tuần.
+
+    Thế hệ 6 (đo 14/11): fundamentals đủ kho ≈ 5 giờ > trần 180′ ⇒ task bị cắt giữa
+    bước này (`LastTaskResult 267014`, không có dòng `weekend → exit`) là BÌNH THƯỜNG:
+    updater chạy mã lâu chưa kiểm trước nên tuần sau đi tiếp phần còn lại. Badge
+    doctor `fundamentals` réo khi >10% kho bị bỏ quên quá 21 ngày."""
     worst = 0
     for name, cmd in _weekend_steps(args):
         print(f"\n=== run.py weekend :: {name} ===")

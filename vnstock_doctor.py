@@ -725,8 +725,48 @@ def check_market_overview() -> dict:
                    "python run.py screener" if status != "ok" else "")
 
 
+# Lượt cơ bản T7 trên thế hệ 6 chỉ đi được ~850/1.754 mã trong trần 180′ rồi xoay vòng
+# (`vnstock_fund_checked`): bình thường mỗi mã được hỏi lại trong ≤ 21 ngày (hai thứ Bảy
+# phủ 1.700 mã, ~54 mã đợi lượt thứ ba). Lỡ một thứ Bảy thì ~3% kho vượt 21 ngày — dưới
+# ngưỡng 10%, không réo. 10% còn là dung sai cho vài mã lỗi nguồn kéo dài.
+# Hai ngưỡng này SUY từ nhịp xoay vòng, chưa đo trên kho thật — réo oan thì nới ở đây.
+FUND_STALE_DAYS = 21
+FUND_STALE_WARN_RATIO = 0.10
+
+
+def _fundamentals_coverage(p: Path) -> "tuple[int, int] | None":
+    """(số mã bị bỏ quên quá `FUND_STALE_DAYS` ngày, tổng số mã updater còn đi).
+
+    None = chưa đủ căn cứ để nói gì: chưa có sổ ngày-kiểm (updater bản xoay vòng
+    chưa chạy lượt nào — lúc đó các mã "giữ data cũ" mang `updated_at` cũ sẽ bị đếm
+    oan), hoặc không đọc được file. Không bao giờ ném."""
+    try:
+        import pandas as pd
+
+        import vnstock_fund_checked as fc
+        ledger = p.parent / fc.LEDGER_NAME
+        if not ledger.exists():
+            return None
+        df = pd.read_parquet(p, columns=["ticker", "updated_at"])
+        tickers = [t for t in df["ticker"] if isinstance(t, str) and t]
+        prices = p.parent.parent / "prices"
+        if prices.is_dir():                      # updater chỉ đi mã có thư mục giá
+            have = {d.name.removeprefix("ticker=") for d in prices.iterdir() if d.is_dir()}
+            tickers = [t for t in tickers if t in have]
+        if not tickers:
+            return None
+        last = fc.last_checked(df, fc.load(ledger))
+        return fc.stale_count(tickers, last, FUND_STALE_DAYS, date.today()), len(tickers)
+    except Exception:
+        return None
+
+
 def check_fundamentals() -> dict:
-    """fundamentals.parquet — cadence 1×/tuần (thêm trong mùa BCTC)."""
+    """fundamentals.parquet — cadence 1×/tuần (thêm trong mùa BCTC).
+
+    Hai lớp: (1) tuổi FILE theo mtime — updater có chạy không; (2) ĐỘ PHỦ theo sổ
+    ngày-kiểm — có phần kho nào bị bỏ quên không. Lớp 2 thêm 14/11: lượt T7 bị cắt
+    giữa chừng vẫn ghi file theo lô nên mtime luôn tươi dù nửa kho không ai đụng."""
     name = "Cơ bản VN30 (fundamentals)"
     p = _META / "fundamentals.parquet"
     age = _mtime_age_days(p)
@@ -735,8 +775,18 @@ def check_fundamentals() -> dict:
                        "chưa có fundamentals.parquet",
                        "python vnstock_fundamental_updater.py")
     status = "ok" if age <= 10 else "warn"
-    return _result("fundamentals", name, status, f"cập nhật {_fmt_age(age)}",
-                   "python vnstock_fundamental_updater.py" if status != "ok" else "")
+    msg = f"cập nhật {_fmt_age(age)}"
+    fix = "python vnstock_fundamental_updater.py" if status != "ok" else ""
+    cov = _fundamentals_coverage(p)
+    if cov is not None:
+        stale, total = cov
+        msg += f" · {total - stale:,}/{total:,} mã được kiểm trong {FUND_STALE_DAYS} ngày"
+        if status == "ok" and stale > FUND_STALE_WARN_RATIO * total:
+            status = "warn"
+            msg += f" — {stale:,} mã bị bỏ quên (lượt T7 bị cắt giữa chừng?)"
+            fix = ("chạy bù phần bỏ dở, ngoài giờ pipeline: python vnstock_fundamental_updater.py "
+                   "--force --workers 4 --delay 1 --min-age-days 7")
+    return _result("fundamentals", name, status, msg, fix)
 
 
 def check_macro() -> dict:

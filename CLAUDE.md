@@ -53,7 +53,9 @@ File này chỉ giữ thứ phải nhớ MỖI PHIÊN. Bản đầy đủ (lý d
   ĐÃ kích hoạt venv** (script từ chối Python hệ thống). ⚠️ **CỜ KHÁC NHAU THEO MÁY — không bao
   giờ giao "⇄ chạy lại script" trần** (không cờ = đăng ký đủ 3 task): 🖥️ desktop `-NoNewsAlert`
   (Daily + Weekend) · 💻 laptop `-OnlyNewsAlert`. Laptop có task Daily ⇒ hai máy cùng ghi
-  `prices/`; desktop có News Alert ⇒ tin gửi trùng.
+  `prices/`; desktop có News Alert ⇒ tin gửi trùng. Task Weekend bị cắt ở bước `fundamentals`
+  (`LastTaskResult 267014`) là BÌNH THƯỜNG từ thế hệ 6: đủ kho ≈ 5 giờ > trần 180′, updater xoay
+  vòng "mã lâu chưa kiểm trước" (`docs/KIEN-TRUC.md`) — đừng chạy lại cả task (gửi trùng `rates-weekly`).
 - ⚠️ HAI MÁY: desktop `PICHU` (Daily + Weekend, sinh brief; task News Alert ĐÃ TẮT 11/11) ·
   laptop `CFA-BINHLD-LT` (CHỈ task News Alert từ 11/11; KHÔNG bật VPN công ty — Anthropic chặn 403). **KHÔNG nhận dạng bằng đường dẫn
   hay tên venv**; chỉ tin `$env:COMPUTERNAME` + `Get-ScheduledTask -TaskName 'VnStock *'`
