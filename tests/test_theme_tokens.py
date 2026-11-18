@@ -18,6 +18,7 @@ import pytest
 
 from dashboard import theme
 from dashboard.theme import DARK, LIGHT, PALETTES, TOKENS
+from tests.conftest import needs
 
 ROOT = Path(__file__).resolve().parent.parent
 tomllib = pytest.importorskip("tomllib")
@@ -68,10 +69,59 @@ def test_config_color_matches_token(mode, key, token):
         f"config.toml [theme.{mode}] {key} lệch dashboard/theme.{mode.upper()}[{token!r}] — sửa CẢ HAI")
 
 
-@pytest.mark.parametrize("mode", ["dark", "light"])
-def test_chart_colors_match_series(mode):
-    got = [c.lower() for c in _CONFIG["theme"][mode]["chartCategoricalColors"]]
-    assert got == list(theme.series(PALETTES[mode]))
+def test_chart_colors_match_series():
+    """Streamlit 1.56 chỉ nhận màu biểu đồ ở `[theme]` CHUNG, không nhận trong
+    `[theme.dark]`/`[theme.light]` (đo 18/11: đặt ở đó thì Streamlit báo "not a valid
+    config option" và bỏ qua — mọi biểu đồ không tự truyền màu rơi về bảng mặc định).
+    Một bảng cho cả hai chế độ = bảng của chế độ TỐI (`base`)."""
+    got = [c.lower() for c in _CONFIG["theme"]["chartCategoricalColors"]]
+    assert got == list(theme.series(DARK))
+    for mode in ("dark", "light"):
+        assert "chartCategoricalColors" not in _CONFIG["theme"][mode], (
+            f"[theme.{mode}] chartCategoricalColors bị Streamlit 1.56 bỏ qua — để ở [theme]")
+
+
+def _config_keys(table: dict, prefix: str = "") -> list:
+    """Tên option Streamlit của mọi khoá trong config.toml: bảng con lồng thành
+    `a.b.c`; mảng bảng (`[[theme.fontFaces]]`) là MỘT option."""
+    out = []
+    for k, v in table.items():
+        name = f"{prefix}{k}"
+        if isinstance(v, dict):
+            out += _config_keys(v, name + ".")
+        else:
+            out.append(name)
+    return out
+
+
+def test_config_keys_helper_flattens_like_streamlit():
+    assert sorted(_config_keys({"theme": {"base": "dark", "dark": {"textColor": "#fff"},
+                                          "fontFaces": [{"family": "X"}]},
+                                "server": {"port": 1}})) == [
+        "server.port", "theme.base", "theme.dark.textColor", "theme.fontFaces"]
+
+
+@needs("streamlit")
+def test_every_config_key_is_a_real_streamlit_option():
+    """Khoá Streamlit không biết KHÔNG làm app lỗi — nó chỉ bị bỏ qua, kèm một dòng cảnh
+    báo lẫn trong log (vết 18/11: bảng màu biểu đồ hai chế độ chết từ đợt P4 tới khi đọc
+    log dashboard mới thấy). Hỏi chính bản Streamlit đang cài, trong tiến trình CON: lúc
+    thu thập test, `tests/test_dashboard.py` gắn MagicMock vào `sys.modules["streamlit"]`."""
+    import json
+    import subprocess
+    import sys
+    probe = ("import json, sys\n"
+             "from streamlit import config\n"
+             "print(json.dumps(sorted(config._config_options_template)))\n")
+    r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
+                       cwd=str(ROOT / "tests"), timeout=120)
+    if r.returncode != 0:
+        pytest.skip(f"không đọc được danh sách option của Streamlit: {r.stderr[-300:]}")
+    known = set(json.loads(r.stdout.strip().splitlines()[-1]))
+    unknown = [k for k in _config_keys(_CONFIG) if k not in known]
+    assert not unknown, (
+        "Streamlit đang cài không nhận các khoá này trong .streamlit/config.toml "
+        f"(bị bỏ qua IM LẶNG): {unknown}")
 
 
 def test_tokens_follow_the_mode_of_this_run():
