@@ -138,7 +138,11 @@ TOKENS = _Tokens()
 
 
 def series(palette: Mapping | None = None) -> tuple[str, ...]:
-    """Thứ tự màu chuỗi phân loại (Plotly / Altair qua `chartCategoricalColors`)."""
+    """Thứ tự màu chuỗi phân loại (Plotly / Altair qua `chartCategoricalColors`).
+
+    `.streamlit/config.toml` chỉ đặt được MỘT bảng (`[theme]`, = `series(DARK)`) — Streamlit
+    1.56 không nhận màu biểu đồ theo chế độ. Biểu đồ cần bảng đúng chế độ sáng thì tự truyền
+    `series()` (đọc `TOKENS` lúc vẽ), như tab Đa tài sản / Phái sinh NN."""
     t = palette or TOKENS
     return (t["link"], t["warn"], t["category"], t["floor"],
             t["up_soft"], t["down_soft"], t["ceil"], t["text_muted"])

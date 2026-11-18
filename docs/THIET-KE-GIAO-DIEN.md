@@ -115,6 +115,10 @@ trên trắng chỉ 2,5:1; vàng `#fbbf24` gần như không đọc được): `
 Trạng thái (ok/warn/error/off) dùng lại `up`/`warn`/`down`/`text_faint` — **một** sắc xanh trong cả app.
 Biểu đồ: `chartCategoricalColors` 8 màu cho ngành, `chartDivergingColors` đỏ→xám→xanh cho heatmap — kiểm
 phân biệt được với mù màu đỏ-lục trước khi chốt (P0).
+⚠️ Streamlit 1.56 chỉ nhận `chart*Colors` ở `[theme]` CHUNG, không nhận trong `[theme.dark]`/`[theme.light]`
+(đo 18/11: bảng hai chế độ từ P4 bị bỏ qua, biểu đồ dùng màu mặc định Streamlit). Nay `config.toml` giữ MỘT bảng
+= `series(DARK)`; biểu đồ cần bảng đúng chế độ sáng thì tự truyền `theme.series()`. `tests/test_theme_tokens.py`
+hỏi bản Streamlit đang cài xem mọi khoá trong `config.toml` có hợp lệ không (khoá lạ bị bỏ qua im lặng).
 
 ### 4b. Chữ
 

@@ -15,11 +15,16 @@ toolbarMode = "viewer"
 # ĐIỀU HÀNH; script chính đọc `st.context.theme.type` mỗi lượt để CSS/chart/bảng HTML
 # dùng đúng bảng màu. `base` chỉ là bản dự phòng (trước P4, thiếu nó thì máy để chế độ
 # sáng dựng theme sáng dưới CSS tối — đo 30/10). Phần chung (font, bo góc) ở [theme].
+# Màu BIỂU ĐỒ cũng phải ở [theme]: Streamlit 1.56 KHÔNG nhận `chart*Colors` trong
+# [theme.dark]/[theme.light] (bỏ qua kèm cảnh báo "not a valid config option" — đo 18/11)
+# ⇒ một bảng cho cả hai chế độ = bảng của chế độ tối (`base`). Khoá Streamlit không biết
+# đều bị bỏ qua IM LẶNG — tests/test_theme_tokens.py hỏi bản Streamlit đang cài.
 [theme]
 base = "dark"
 font = "IBM Plex Sans, sans-serif"
 codeFont = "IBM Plex Mono, monospace"
 baseRadius = "8px"
+chartCategoricalColors = ["#60a5fa", "#f59e0b", "#a78bfa", "#22d3ee", "#34d399", "#f87171", "#d946ef", "#9ca3af"]
 
 [theme.dark]
 primaryColor = "#3b82f6"
@@ -37,7 +42,6 @@ blueColor = "#3b82f6"
 grayColor = "#9ca3af"
 dataframeBorderColor = "#1f2937"
 dataframeHeaderBackgroundColor = "#111827"
-chartCategoricalColors = ["#60a5fa", "#f59e0b", "#a78bfa", "#22d3ee", "#34d399", "#f87171", "#d946ef", "#9ca3af"]
 
 [theme.light]
 primaryColor = "#2563eb"
@@ -55,7 +59,6 @@ blueColor = "#2563eb"
 grayColor = "#4b5563"
 dataframeBorderColor = "#dfe5ee"
 dataframeHeaderBackgroundColor = "#ffffff"
-chartCategoricalColors = ["#1d4ed8", "#b45309", "#7c3aed", "#0e7490", "#0f766e", "#b42318", "#a21caf", "#4b5563"]
 
 [[theme.fontFaces]]
 family = "IBM Plex Sans"
