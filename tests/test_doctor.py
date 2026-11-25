@@ -144,6 +144,46 @@ def test_fundamentals_coverage_waits_for_the_ledger(meta):
     assert r["status"] == "ok" and "mã" not in r["message"]
 
 
+def test_fundamentals_warns_when_the_last_run_was_stopped_by_a_silent_source(meta):
+    """Vết 21/11: nguồn câm từ nửa đêm, updater (bản mới) dừng lượt và ghi trạng thái —
+    doctor phải réo dù file vẫn 'tươi' và độ phủ chưa kịp tụt."""
+    _fund_store(meta, {"AAA": 1, "BBB": 1}, ledger={"AAA": 1, "BBB": 1})
+    (meta / "fundamentals_run.json").write_text(json.dumps({
+        "date": date.today().isoformat(), "asked": 560, "total": 1754, "ok": 299,
+        "aborted": "40 mã liên tiếp rỗng và mã đối chứng cũng rỗng — nghi nguồn ngừng trả số",
+        "source_errors": {"SourceError/X": {"count": 900, "sample": "quota"}}}), encoding="utf-8")
+    r = doc.check_fundamentals()
+    assert r["status"] == "warn"
+    assert "DỪNG" in r["message"] and "560/1,754" in r["message"]
+    assert "--diag" in r["fix"] and "--min-age-days 7" in r["fix"]
+
+
+def test_fundamentals_warns_when_many_tickers_came_back_empty_from_source_errors(meta):
+    """Nguồn chập chờn không đủ để dừng lượt (có mã có số xen giữa) nhưng phần lớn mã rỗng
+    vì lỗi nguồn — các mã đó không được đóng dấu, doctor phải nói ra."""
+    _fund_store(meta, {"AAA": 1}, ledger={"AAA": 1})
+    (meta / "fundamentals_run.json").write_text(json.dumps({
+        "date": date.today().isoformat(), "running": False, "asked": 800, "total": 1754,
+        "ok": 160, "aborted": None, "src_err_tickers": 640,
+        "source_errors": {"NetworkError": {"count": 640, "sample": "timeout"}}}), encoding="utf-8")
+    r = doc.check_fundamentals()
+    assert r["status"] == "warn" and "640/800" in r["message"] and "NetworkError" in r["message"]
+
+
+def test_fundamentals_ok_when_the_last_run_finished(meta):
+    _fund_store(meta, {"AAA": 1}, ledger={"AAA": 1})
+    (meta / "fundamentals_run.json").write_text(json.dumps({
+        "date": date.today().isoformat(), "asked": 1, "total": 1, "ok": 1, "aborted": None}),
+        encoding="utf-8")
+    assert doc.check_fundamentals()["status"] == "ok"
+
+
+def test_fundamentals_survives_a_corrupt_run_status(meta):
+    _fund_store(meta, {"AAA": 1}, ledger={"AAA": 1})
+    (meta / "fundamentals_run.json").write_text("{ cụt", encoding="utf-8")
+    assert doc.check_fundamentals()["status"] == "ok"
+
+
 def test_fundamentals_coverage_ignores_tickers_the_updater_no_longer_visits(meta):
     # Updater chỉ đi các mã có thư mục giá; dòng mồ côi trong parquet không được réo.
     _fund_store(meta, {"AAA": 1, "BBB": 1, "GONE": 400}, ledger={"AAA": 1},

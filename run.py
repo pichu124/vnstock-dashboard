@@ -1463,7 +1463,10 @@ def cmd_weekend(args) -> int:
     Thế hệ 6 (đo 14/11): fundamentals đủ kho ≈ 5 giờ > trần 180′ ⇒ task bị cắt giữa
     bước này (`LastTaskResult 267014`, không có dòng `weekend → exit`) là BÌNH THƯỜNG:
     updater chạy mã lâu chưa kiểm trước nên tuần sau đi tiếp phần còn lại. Badge
-    doctor `fundamentals` réo khi >10% kho bị bỏ quên quá 21 ngày."""
+    doctor `fundamentals` réo khi >10% kho bị bỏ quên quá 21 ngày.
+    `fundamentals exit 3` = updater DỪNG lượt vì nguồn câm (chuỗi mã rỗng + mã đối chứng VCB/FPT
+    rỗng hai lần liền, đuôi lượt một vòng — vết 21/11); doctor réo kèm loại lỗi nguồn, xem
+    `_meta/fundamentals_run.json`."""
     worst = 0
     for name, cmd in _weekend_steps(args):
         print(f"\n=== run.py weekend :: {name} ===")
