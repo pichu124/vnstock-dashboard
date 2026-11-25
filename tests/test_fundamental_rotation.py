@@ -272,10 +272,12 @@ def test_source_outage_stops_the_run_and_stamps_only_real_answers(fu, monkeypatc
 
     assert set(_ledger(fu)) == set(tickers[:20])          # chuỗi rỗng KHÔNG được đóng dấu
     asked = {t for t in fu.seen if t in tickers}           # (mã đối chứng = mã vừa có số, hỏi lại)
-    assert len(asked) == 20 + fu.OUTAGE_STREAK             # dừng ngay khi đối chứng cũng rỗng
+    # Dừng sau HAI lần đối chứng thất bại liên tiếp (một lần VCB tạm rỗng không được làm mất cả tuần).
+    assert len(asked) == 20 + 2 * fu.OUTAGE_STREAK
     assert fu.LAST_RUN["aborted"]
     st = _status(fu)
-    assert st["aborted"] and st["ok"] == 20 and st["asked"] == 20 + fu.OUTAGE_STREAK
+    assert st["aborted"] and st["ok"] == 20 and st["asked"] == 20 + 2 * fu.OUTAGE_STREAK
+    assert st["running"] is False
     assert st["source_errors"]                            # lỗi nguồn không còn bị nuốt im lặng
 
 
@@ -303,6 +305,7 @@ def test_legit_empty_streak_is_confirmed_and_stamped(fu):
     fu.update(tickers=empties + ["ZZZ1", "ZZZ2"], force=True, delay=0.0, workers=1)
     assert set(_ledger(fu)) == set(empties) | {"ZZZ1", "ZZZ2"}
     assert not fu.LAST_RUN["aborted"]
+    assert fu.seen.index("VCB") == fu.OUTAGE_STREAK        # đối chứng hỏi ĐÚNG ở mã rỗng thứ 40
     assert fu.seen.count("ZZZ1") == 1
 
 
@@ -328,15 +331,16 @@ def test_outage_with_workers_cancels_the_rest_of_the_queue(fu, monkeypatch):
     # 60 kết quả — không phân biệt được hàng đợi có bị huỷ hay không.
     fu.update(tickers=tickers, force=True, delay=0.01, workers=4, batch_save=10)
     asked = {t for t in fu.seen if t in tickers}
-    assert len(asked) < 150, f"hàng đợi không bị huỷ: đã hỏi {len(asked)}/400"
+    assert len(asked) < 200, f"hàng đợi không bị huỷ: đã hỏi {len(asked)}/400"
     assert set(_ledger(fu)) <= set(tickers[:24])
     assert fu.LAST_RUN["aborted"]
 
 
 def test_cli_exits_1_when_the_run_was_stopped(fu, monkeypatch):
     monkeypatch.setattr(fu, "_fetch_ratios", _silent_after(fu, 0))
+    # 3 (không phải 1): mã 1 cũng là mã của traceback chưa bắt — phải phân biệt được.
     assert fu.main(["--tickers", *[f"T{i:03d}" for i in range(60)], "--force",
-                    "--delay", "0"]) == 1
+                    "--delay", "0"]) == 3
     monkeypatch.setattr(fu, "_fetch_ratios", lambda t: {"pe": 1.0})
     assert fu.main(["--tickers", "AAA", "--force", "--delay", "0"]) == 0
 
@@ -374,3 +378,84 @@ def test_swallowed_source_errors_are_counted(monkeypatch):
     assert mod._try_statement(_boom, {}) is None
     got = mod._source_error_summary()
     assert got == {"SourceError/VNSTOCK_SOURCE_QUOTA": {"count": 2, "sample": "quota exceeded"}}
+
+
+def test_flaky_source_never_stamps_tickers_whose_emptiness_was_a_source_error(fu, monkeypatch):
+    """Nguồn chập chờn: cứ 5 lượt gọi 1 lượt có số, 4 lượt kia là lỗi nguồn bị nuốt thành
+    'rỗng'. Mã có số xen giữa không được chứng thực cho các mã rỗng-vì-lỗi trước nó."""
+    answered = set()
+
+    def _flaky(t):
+        fu.seen.append(t)
+        if len(fu.seen) % 5 == 0:
+            answered.add(t)
+            return {"pe": 1.0}
+        fu._note_source_error(Exception("timeout (giả)"))
+        return {}
+    monkeypatch.setattr(fu, "_fetch_ratios", _flaky)
+    tickers = [f"T{i:03d}" for i in range(300)]
+    fu.update(tickers=tickers, force=True, delay=0.0, workers=1, batch_save=25)
+    assert set(_ledger(fu)) == answered
+    st = _status(fu)
+    assert st["src_err_tickers"] == 300 - len(answered)
+
+
+class _KilledLater(BaseException):
+    pass
+
+
+def test_status_is_written_as_the_run_goes_so_a_killed_run_clears_an_old_abort(fu, monkeypatch):
+    """Lượt T7 luôn bị trần 180′ cắt TRƯỚC khi tới cuối `update()` ⇒ trạng thái phải được ghi
+    từ đầu lượt và mỗi lô; không thì một lần bị dừng làm doctor réo mãi với ngày cũ."""
+    monkeypatch.setattr(fu, "_fetch_ratios", _silent_after(fu, 0))
+    fu.update(tickers=[f"T{i:03d}" for i in range(60)], force=True, delay=0.0, workers=1)
+    assert _status(fu)["aborted"]
+
+    fu.seen.clear()
+
+    def _dies(t):
+        fu.seen.append(t)
+        if len(fu.seen) > 12:
+            raise _KilledLater()
+        return {"pe": 1.0}
+    monkeypatch.setattr(fu, "_fetch_ratios", _dies)
+    with pytest.raises(_KilledLater):
+        fu.update(tickers=[f"U{i:03d}" for i in range(60)], force=True, delay=0.0,
+                  workers=1, batch_save=5)
+    st = _status(fu)
+    assert st["running"] is True and not st["aborted"] and st["asked"] == 10
+
+
+def test_a_run_with_nothing_left_to_ask_clears_an_old_abort(fu, monkeypatch):
+    fu.update(tickers=["AAA"], force=True, delay=0.0, workers=1)
+    monkeypatch.setattr(fu, "_fetch_ratios", _silent_after(fu, 0))
+    fu.update(tickers=["EMPTYX"], force=True, delay=0.0, workers=1)
+    assert _status(fu)["aborted"]
+    assert fu.update(tickers=["AAA"], force=True, delay=0.0, workers=1, min_age_days=1) is None
+    assert not _status(fu)["aborted"]
+
+
+def test_a_route_going_silent_keeps_the_old_cash_flow_and_de(fu):
+    """Có từ trước (tìm ra 25/11): ratio có số mà route dòng tiền câm ⇒ dòng mới thiếu
+    `operating_cf` ⇒ `drop_duplicates(keep="last")` xoá số cũ (123 → NaN) dù mã mang ngày
+    hôm nay. Giữ CẶP (số, kỳ) cũ khi lượt này không lấy được — kỳ cũ cho biết số đã cũ."""
+    fu._save(pd.DataFrame({"ticker": ["AAA"], "pe": [9.0], "operating_cf": [123.0],
+                           "ocf_period": ["2025"], "debt_to_equity": [1.5],
+                           "de_period": ["2025"], "updated_at": ["2026-11-14"]}))
+    df = fu.update(tickers=["AAA"], force=True, delay=0.0, workers=1)
+    row = df.loc[df["ticker"] == "AAA"].iloc[0]
+    assert row["pe"] == 10.0                                  # số mới vẫn vào
+    assert row["operating_cf"] == 123.0 and row["ocf_period"] == "2025"
+    assert row["debt_to_equity"] == 1.5 and row["de_period"] == "2025"
+
+
+def test_check_survives_placeholders_without_a_date(fu, tmp_path, monkeypatch):
+    """Dòng giữ chỗ nay không mang `updated_at`; pandas 2.x ném TypeError khi `.max()`
+    trộn chuỗi với None — `--check` không được nổ."""
+    prices = tmp_path / "prices"
+    for t in ("AAA", "BBB"):
+        (prices / f"ticker={t}").mkdir(parents=True)
+    monkeypatch.setattr(fu, "PRICES_DIR", prices)
+    fu._save(pd.DataFrame({"ticker": ["AAA", "BBB"], "pe": [1.0, None],
+                           "updated_at": ["2026-11-21", None]}).astype({"updated_at": object}))
+    fu.check()

@@ -155,7 +155,19 @@ def test_fundamentals_warns_when_the_last_run_was_stopped_by_a_silent_source(met
     r = doc.check_fundamentals()
     assert r["status"] == "warn"
     assert "DỪNG" in r["message"] and "560/1,754" in r["message"]
-    assert "--diag" in r["fix"]
+    assert "--diag" in r["fix"] and "--min-age-days 7" in r["fix"]
+
+
+def test_fundamentals_warns_when_many_tickers_came_back_empty_from_source_errors(meta):
+    """Nguồn chập chờn không đủ để dừng lượt (có mã có số xen giữa) nhưng phần lớn mã rỗng
+    vì lỗi nguồn — các mã đó không được đóng dấu, doctor phải nói ra."""
+    _fund_store(meta, {"AAA": 1}, ledger={"AAA": 1})
+    (meta / "fundamentals_run.json").write_text(json.dumps({
+        "date": date.today().isoformat(), "running": False, "asked": 800, "total": 1754,
+        "ok": 160, "aborted": None, "src_err_tickers": 640,
+        "source_errors": {"NetworkError": {"count": 640, "sample": "timeout"}}}), encoding="utf-8")
+    r = doc.check_fundamentals()
+    assert r["status"] == "warn" and "640/800" in r["message"] and "NetworkError" in r["message"]
 
 
 def test_fundamentals_ok_when_the_last_run_finished(meta):

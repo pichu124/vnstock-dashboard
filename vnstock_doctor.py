@@ -732,6 +732,10 @@ def check_market_overview() -> dict:
 # Hai ngưỡng này SUY từ nhịp xoay vòng, chưa đo trên kho thật — réo oan thì nới ở đây.
 FUND_STALE_DAYS = 21
 FUND_STALE_WARN_RATIO = 0.10
+# Lượt gần nhất có ≥ max(40, 20% số mã đã hỏi) mã rỗng vì lỗi nguồn ⇒ warn (40 = ngưỡng chuỗi
+# rỗng của updater). Suy luận, chưa đo trên kho thật.
+FUND_SRC_ERR_MIN = 40
+FUND_SRC_ERR_RATIO = 0.20
 
 
 def _fundamentals_coverage(p: Path) -> "tuple[int, int] | None":
@@ -787,6 +791,17 @@ def check_fundamentals() -> dict:
             fix = ("chạy bù phần bỏ dở, ngoài giờ pipeline: python vnstock_fundamental_updater.py "
                    "--force --workers 4 --delay 1 --min-age-days 7")
     run = _fundamentals_last_run(p)
+    asked = int((run or {}).get("asked") or 0)
+    src_err_n = int((run or {}).get("src_err_tickers") or 0)
+    if run and not run.get("aborted") and src_err_n >= max(FUND_SRC_ERR_MIN, FUND_SRC_ERR_RATIO * asked):
+        # Nguồn chập chờn chưa đủ để dừng lượt (có mã có số xen giữa) nhưng nhiều mã rỗng vì
+        # lỗi nguồn — các mã đó không được đóng dấu, sẽ bị hỏi lại; doctor phải nói ra.
+        status = "warn"
+        errs = run.get("source_errors") or {}
+        kind = next(iter(errs), "lỗi nguồn")
+        msg += (f" — lượt {run.get('date', '?')}: {src_err_n:,}/{asked:,} mã rỗng vì {kind} "
+                "(không đánh dấu đã kiểm)")
+        fix = "kiểm nguồn: python vnstock_fundamental_updater.py --diag VCB"
     if run and run.get("aborted"):
         # Lớp 3 (25/11): lượt gần nhất DỪNG vì nguồn câm (vết T7 21/11 — từ nửa đêm 1.200+
         # mã rỗng). File vẫn tươi, độ phủ chưa kịp tụt ⇒ hai lớp trên không thấy.
@@ -799,7 +814,7 @@ def check_fundamentals() -> dict:
             msg += f" (nguồn báo {k} ×{v.get('count', '?')})"
         fix = ("kiểm nguồn: python vnstock_fundamental_updater.py --diag VCB — có số thì chạy bù "
                "ngoài giờ pipeline: python vnstock_fundamental_updater.py --force --workers 4 "
-               "--delay 1 --min-age-days 1; lượt T7 sau tự đi tiếp phần còn lại")
+               "--delay 1 --min-age-days 7; lượt T7 sau tự đi tiếp phần còn lại")
     return _result("fundamentals", name, status, msg, fix)
 
 

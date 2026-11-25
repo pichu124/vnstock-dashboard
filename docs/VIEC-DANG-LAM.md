@@ -35,15 +35,17 @@ mất (số cũ giữ nguyên) nhưng 1.200+ mã không được làm mới. L�
 "đã kiểm" ⇒ sổ `fundamentals_checked.json` coi gần cả kho vừa kiểm 21/11 ⇒ T7 28/11 sẽ quay về bảng chữ cái và
 doctor xanh 21 ngày. Nguyên nhân nguồn câm CHƯA biết (lỗi bị nuốt, không ghi lại).
 
-**Đã sửa:** mã rỗng chỉ được đóng dấu khi xác nhận nguồn còn sống; 40 mã rỗng liên tiếp mà mã đối chứng (VCB/FPT)
-cũng rỗng ⇒ updater DỪNG lượt, thoát 1, ghi `_meta/fundamentals_run.json` kèm loại lỗi nguồn; doctor réo.
+**Đã sửa (qua review độc lập):** mã rỗng vì lỗi nguồn không bao giờ được đóng dấu; mã rỗng sạch chỉ được đóng
+dấu khi xác nhận nguồn còn sống; chuỗi 40 mã rỗng mà mã đối chứng (VCB/FPT) rỗng hai lần liền ⇒ updater DỪNG lượt,
+log ghi `fundamentals exit 3`; `_meta/fundamentals_run.json` ghi từ đầu lượt kèm loại lỗi nguồn; doctor réo.
+Sửa kèm: route dòng tiền câm không còn xoá số dòng tiền cũ; `--check` không nổ với dòng giữ chỗ; `--diag` in lỗi nguồn.
 
 | # | Việc | Máy | Khi nào | Lệnh |
 |---|---|---|---|---|
 | N1 | Kiểm nguồn hiện có trả số không | 🖥️ DESKTOP | lúc nào cũng được | `python vnstock_fundamental_updater.py --diag VCB 2>&1 \| Select-Object -First 40` |
 | N2 | Merge PR + test đầy đủ | 🖥️ DESKTOP | trước T7 28/11, ngoài giờ pipeline | `git fetch origin claude/pensive-noether-9wt4rv` → `git merge origin/claude/pensive-noether-9wt4rv` → `python run.py test` |
-| N3 | Xoá sổ ngày-kiểm ghi sai (lượt sau rơi về `updated_at` thật của kho — không mất dữ liệu) | ○ một lần (kho) | SAU N2, trước T7 28/11 | `Remove-Item C:\vnstock\data_warehouse\_meta\fundamentals_checked.json` |
-| N4 | Soi lượt T7 28/11 | 🖥️ DESKTOP | sau 12:00 T7 28/11 | `Select-String -Path run_daily.log -Pattern 'Thứ tự: mã lâu|DỪNG SỚM|Nguồn báo lỗi|OK: .*Errors' -Encoding UTF8 \| Select-Object -Last 5` |
+| N3 | Chữa sổ ngày-kiểm: bỏ đúng các mục đóng dấu oan 21/11 (dấu 21/11 mà số vẫn 14/11), giữ dấu nhóm rỗng thật — lượt sau đi thẳng vào ~1.200 mã bị câm. Thử trên kho giả: bỏ 1.200 · còn 459 | ○ một lần (kho) | SAU N2, trước T7 28/11, ngoài giờ pipeline | trong `C:\vnstock`, venv bật: `python -c "import pandas as pd, vnstock_fund_checked as fc; p='data_warehouse/_meta/'; d=fc.load(p+fc.LEDGER_NAME); u=dict(pd.read_parquet(p+'fundamentals.parquet',columns=['ticker','updated_at']).values); bad=[t for t,v in d.items() if v=='2026-11-21' and u.get(t)=='2026-11-14']; [d.pop(t) for t in bad]; fc.save(d, p+fc.LEDGER_NAME); print('bỏ', len(bad), 'mục · còn', len(d))"` |
+| N4 | Soi lượt T7 28/11 | 🖥️ DESKTOP | sau 12:00 T7 28/11 | `Select-String -Path run_daily.log -Pattern 'Thứ tự: mã lâu|DỪNG SỚM|Nguồn báo lỗi|rỗng vì lỗi nguồn|OK: .*Errors|fundamentals exit' -Encoding UTF8 \| Select-Object -Last 6` |
 
 ## 🔄 Cơ bản T7 xoay vòng — lượt Weekend 14/11 bị cắt ở bước fundamentals (thế hệ 6: ≈ 5 giờ thay vì 30–40 phút)
 
