@@ -33,8 +33,10 @@ Schedule: Chạy 1 lần/tuần (Task Scheduler hoặc cron); mùa BCTC (giữa 
 """
 
 import argparse
+import threading
 import time
 import warnings
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -239,6 +241,34 @@ def _statement_by_period(df):
     return wide.rename_axis(columns=None).reset_index().rename(columns={"period": "report_period"})
 
 
+# Lỗi nguồn mà `_try_statement` coi là "statement rỗng" — một mã nguồn không có BCTC là
+# chuyện thường nên KHÔNG đổi thành lỗi, nhưng phải ĐẾM: lượt T7 21/11 nguồn câm 1.200+
+# mã sau nửa đêm mà log chỉ ghi `0 errors`, không biết vì sao. Khoá = tên lớp[/code].
+_SOURCE_ERRORS: Counter = Counter()
+_SOURCE_ERROR_SAMPLES: dict = {}
+_SOURCE_ERROR_LOCK = threading.Lock()
+
+
+def _note_source_error(e: BaseException) -> None:
+    code = getattr(e, "code", None)
+    key = type(e).__name__ + (f"/{code}" if code else "")
+    with _SOURCE_ERROR_LOCK:
+        _SOURCE_ERRORS[key] += 1
+        _SOURCE_ERROR_SAMPLES.setdefault(key, str(e)[:200])
+
+
+def _reset_source_errors() -> None:
+    with _SOURCE_ERROR_LOCK:
+        _SOURCE_ERRORS.clear()
+        _SOURCE_ERROR_SAMPLES.clear()
+
+
+def _source_error_summary() -> dict:
+    with _SOURCE_ERROR_LOCK:
+        return {k: {"count": n, "sample": _SOURCE_ERROR_SAMPLES.get(k, "")}
+                for k, n in _SOURCE_ERRORS.most_common()}
+
+
 def _try_statement(method, params):
     """Gọi MỘT hàm BCTC/ratio với ``params``; trả DataFrame (BCTC đã về dạng mỗi kỳ một
     hàng) hoặc None khi rỗng / nguồn không đọc được (`VnstockError`).
@@ -251,7 +281,8 @@ def _try_statement(method, params):
         df = method(**params)
     except RateLimitError:
         raise
-    except VnstockError:
+    except VnstockError as e:
+        _note_source_error(e)
         return None
     if df is None or not hasattr(df, "empty") or df.empty:
         return None
@@ -613,6 +644,45 @@ def _fetch_one(ticker: str, delay: float) -> "tuple[str, dict | None, str | None
         time.sleep(delay)                 # throttle từng luồng (rate limit)
 
 
+# Nguồn CÂM giữa lượt (vết T7 21/11): từ khoảng nửa đêm mọi mã đều rỗng. Một chuỗi rỗng
+# dài tự nó không chứng minh gì — nhóm "giữ data cũ" (~160 mã nguồn không có số) đứng đầu
+# hàng cũng là chuỗi rỗng. Nên cứ OUTAGE_STREAK mã rỗng liên tiếp thì hỏi một mã CHẮC có
+# số: có ⇒ chuỗi kia rỗng thật, đóng dấu như thường; không ⇒ nguồn câm, DỪNG lượt, không
+# đóng dấu chuỗi (lượt sau hỏi lại đúng từ đó). Chi phí: ≤ 2 lượt hỏi / 40 mã rỗng.
+OUTAGE_STREAK  = 40
+CANARY_TICKERS = ("VCB", "FPT")
+RUN_STATUS_NAME = "fundamentals_run.json"
+LAST_RUN: dict = {}          # kết quả lượt gần nhất trong tiến trình này (CLI đọc để ra mã thoát)
+
+
+def _source_alive(last_ok: "str | None") -> bool:
+    """Nguồn còn trả số không: hỏi mã vừa có số trong lượt này, rồi mã lớn (tối đa 2 lượt)."""
+    from vnstock_ratelimit import call_with_rate_limit_retry as _rl
+    tried = []
+    for t in ([last_ok] if last_ok else []) + list(CANARY_TICKERS):
+        if t in tried:
+            continue
+        tried.append(t)
+        try:
+            data = _rl(_fetch_ratios, t)
+        except Exception:
+            data = None
+        if data and any(v is not None for v in data.values()):
+            return True
+        if len(tried) >= 2:
+            break
+    return False
+
+
+def _write_run_status(status: dict) -> None:
+    """`fundamentals_run.json` CẠNH `FUND_PATH` — doctor đọc để réo lượt bị dừng. Best-effort."""
+    try:
+        from vnstock_parquet_io import write_json_atomic
+        write_json_atomic(status, Path(FUND_PATH).parent / RUN_STATUS_NAME)
+    except Exception as e:
+        console.print(f"[yellow]⚠ Không ghi được trạng thái lượt cơ bản: {e}[/yellow]")
+
+
 def update(
     tickers: list[str] | None = None,
     force: bool = False,
@@ -639,6 +709,8 @@ def update(
     """
     all_tickers = tickers or _get_stock_tickers()
     existing    = _load_existing()
+    _reset_source_errors()
+    LAST_RUN.clear()
 
     # Index các ticker đã có. After a schema upgrade (new debt_to_equity /
     # operating_cf columns) the old rows lack those fields, so refetch once to
@@ -705,10 +777,14 @@ def update(
                 yield _fetch_one(t, delay)
         else:
             from concurrent.futures import ThreadPoolExecutor, as_completed
-            with ThreadPoolExecutor(max_workers=workers) as pool:
+            pool = ThreadPoolExecutor(max_workers=workers)
+            try:
                 futures = [pool.submit(_fetch_one, t, delay) for t in to_fetch]
                 for fut in as_completed(futures):
                     yield fut.result()
+            finally:
+                # Dừng sớm (nguồn câm) ⇒ BỎ các mã còn xếp hàng; `with` mặc định chờ chạy hết.
+                pool.shutdown(wait=True, cancel_futures=True)
 
     with Progress(
         SpinnerColumn(),
@@ -718,8 +794,13 @@ def update(
         console=console,
     ) as prog:
         task = prog.add_task("Fetching...", total=len(to_fetch))
+        pending: list = []        # mã rỗng chờ xác nhận "nguồn còn sống" mới được đóng dấu
+        last_ok = None
+        aborted = None
+        done = 0
+        results = _results()
 
-        for done, (ticker, data, err) in enumerate(_results(), 1):
+        for done, (ticker, data, err) in enumerate(results, 1):
             prog.update(task, description=f"[cyan]{ticker:6s}[/cyan]", advance=1)
 
             today = datetime.now().strftime("%Y-%m-%d")
@@ -733,19 +814,35 @@ def update(
                 rows.append(data)
                 ok_cnt += 1
                 checked[ticker] = today
+                last_ok = ticker
+                for p in pending:             # có số SAU chuỗi rỗng ⇒ nguồn vẫn sống
+                    checked[p] = today
+                pending.clear()
             elif ticker in have_data:
                 # Refetch came back empty but we already have good data —
                 # keep the existing row instead of wiping it with NaN. Dòng
                 # parquet không đổi ⇒ chỉ sổ ngày-kiểm biết mã này vừa được hỏi.
                 kept += 1
-                checked[ticker] = today
+                pending.append(ticker)
             else:
-                # Never had data → write NaN placeholder so --check counts it
+                # Never had data → write NaN placeholder so --check counts it.
+                # KHÔNG mang ngày: `updated_at` là ngày SỐ được cập nhật, còn "đã hỏi
+                # nguồn" chỉ do sổ ngày-kiểm ghi — dòng giữ chỗ lúc nguồn câm mà mang
+                # ngày hôm nay thì lượt sau tưởng mã đã được kiểm (vết 21/11).
                 rows.append({
                     "ticker":     ticker,
-                    "updated_at": today,
+                    "updated_at": None,
                 })
-                checked[ticker] = today
+                pending.append(ticker)
+
+            if len(pending) >= OUTAGE_STREAK:
+                if _source_alive(last_ok):
+                    for p in pending:
+                        checked[p] = today
+                    pending.clear()
+                else:
+                    aborted = (f"{len(pending)} mã liên tiếp rỗng và mã đối chứng cũng rỗng — "
+                               "nghi nguồn ngừng trả số (hết hạn mức / bảo trì / mất kết nối)")
 
             # Batch save (luồng chính — worker không bao giờ đụng file)
             if done % batch_save == 0:
@@ -760,6 +857,18 @@ def update(
                     f"  [dim]💾 Saved batch {done}/{len(to_fetch)} "
                     f"({ok_cnt} OK, {errors} errors)[/dim]"
                 )
+            if aborted:
+                break
+        results.close()               # dừng sớm ⇒ huỷ hàng đợi luồng ngay, không đợi GC
+
+    # Đuôi rỗng chưa được xác nhận: một lượt hỏi đối chứng quyết định đóng dấu hay không.
+    if pending and not aborted:
+        if _source_alive(last_ok):
+            for p in pending:
+                checked[p] = today
+        else:
+            aborted = (f"{len(pending)} mã cuối rỗng và mã đối chứng cũng rỗng — "
+                       "nghi nguồn ngừng trả số")
 
     # Final save
     df = pd.DataFrame(rows).drop_duplicates("ticker", keep="last")
@@ -767,11 +876,33 @@ def update(
     _save_checked(checked)
     _record_periods(df)
 
-    console.print(f"\n[green]✅ Done![/green]")
+    src_err = _source_error_summary()
+    unstamped = len(pending) if aborted else 0
+    if aborted:
+        console.print(f"\n[red]⛔ DỪNG SỚM sau {done:,}/{len(to_fetch):,} mã: {aborted}.[/red]")
+        console.print(f"  [red]{unstamped:,} mã của chuỗi rỗng + {len(to_fetch) - done:,} mã chưa "
+                      f"hỏi KHÔNG được đánh dấu đã kiểm ⇒ lượt sau hỏi lại từ đó. "
+                      f"Kiểm nguồn: python vnstock_fundamental_updater.py --diag VCB[/red]")
+    else:
+        console.print(f"\n[green]✅ Done![/green]")
     console.print(
         f"  OK: [green]{ok_cnt}[/green]  |  Errors: [red]{errors}[/red]"
         f"  |  Giữ data cũ: [yellow]{kept}[/yellow]"
     )
+    if src_err:
+        console.print("  Nguồn báo lỗi (tính là rỗng): " + " · ".join(
+            f"{k} ×{v['count']}" for k, v in src_err.items()))
+        first = next(iter(src_err.values()))
+        console.print(f"  [dim]  vd: {first['sample']}[/dim]")
+    status = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "finished_at": datetime.now().isoformat(timespec="seconds"),
+        "total": len(to_fetch), "asked": done, "ok": ok_cnt, "kept": kept,
+        "errors": errors, "aborted": aborted, "unstamped": unstamped,
+        "source_errors": src_err,
+    }
+    LAST_RUN.update(status)
+    _write_run_status(status)
     if ok_cnt == 0 and errors == 0:
         console.print(
             "[yellow]⚠ Không lấy được ratio nào (statement rỗng). "
@@ -983,7 +1114,7 @@ def report():
 # CLI
 # ═════════════════════════════════════════════════════════════════════════════
 
-if __name__ == "__main__":
+def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser(
         description="Tải P/E, ROE toàn thị trường vào warehouse"
     )
@@ -999,7 +1130,7 @@ if __name__ == "__main__":
     parser.add_argument("--check",   action="store_true", help="Xem trạng thái warehouse")
     parser.add_argument("--report",  action="store_true", help="Báo cáo median theo ngành")
     parser.add_argument("--diag",    metavar="TICKER", help="In raw output API tài chính cho 1 mã")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.diag:
         diag(args.diag.upper())
@@ -1015,3 +1146,10 @@ if __name__ == "__main__":
             workers=args.workers,
             min_age_days=args.min_age_days,
         )
+        if LAST_RUN.get("aborted"):
+            return 1        # task Weekend ghi `fundamentals exit 1` — lượt dừng vì nguồn câm
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -13,7 +13,9 @@ Vì sao cần sổ riêng mà không dùng cột `updated_at` của `fundamental
 nguồn trả RỖNG nhưng kho đã có số ("giữ data cũ" — 160 mã lượt 14/11) thì dòng
 parquet KHÔNG đổi, `updated_at` đứng im ở ngày cũ ⇒ chỉ dựa cột đó là chúng chen lên
 đầu hàng mỗi tuần. "Được kiểm" ở đây = nguồn đã trả lời (có số HOẶC rỗng). Mã LỖI
-không được ghi: lượt sau thử lại sớm.
+không được ghi: lượt sau thử lại sớm. Mã RỖNG chỉ được ghi khi đã xác nhận nguồn còn
+sống (có mã có số sau nó, hoặc mã đối chứng có số) — vết 21/11: nguồn câm từ nửa đêm,
+1.200+ mã rỗng bị ghi "đã kiểm" ⇒ cả kho tưởng vừa làm mới (`OUTAGE_STREAK` ở updater).
 
 File `fundamentals_checked.json` nằm CẠNH `fundamentals.parquet` (trong kho ⇒ đi
 Dropbox; chỉ updater cơ bản ghi). Dạng phẳng `{mã: "YYYY-MM-DD"}`. Mất sổ không mất

@@ -26,6 +26,25 @@ desktop). **Phiên hiện tại: 🖥️ DESKTOP** (user báo 14/10 chiều, đ�
 
 # 🔴 CÒN PHẢI LÀM
 
+## 🚨 Lượt T7 21/11: nguồn câm từ nửa đêm + sổ ngày-kiểm ghi sai (sửa 25/11, PR riêng)
+
+**Chuyện gì:** máy tắt lúc 09:00 ⇒ task Weekend chạy bù 22:33 (`LastTaskResult 2` = bước `models` như mọi tuần).
+Bước cơ bản: 21 mã chưa kiểm + nhóm "giữ data cũ" đi đầu (rỗng — đúng), lô 200–525 gần như mã nào cũng có số, rồi
+từ ~mã 525 (khoảng nửa đêm) **mọi mã đều rỗng**: kết thúc `OK 299 · Errors 0 · Giữ data cũ 1.400`. Dữ liệu KHÔNG
+mất (số cũ giữ nguyên) nhưng 1.200+ mã không được làm mới. Lỗi của bản xoay vòng (PR #44): mã rỗng bị đóng dấu
+"đã kiểm" ⇒ sổ `fundamentals_checked.json` coi gần cả kho vừa kiểm 21/11 ⇒ T7 28/11 sẽ quay về bảng chữ cái và
+doctor xanh 21 ngày. Nguyên nhân nguồn câm CHƯA biết (lỗi bị nuốt, không ghi lại).
+
+**Đã sửa:** mã rỗng chỉ được đóng dấu khi xác nhận nguồn còn sống; 40 mã rỗng liên tiếp mà mã đối chứng (VCB/FPT)
+cũng rỗng ⇒ updater DỪNG lượt, thoát 1, ghi `_meta/fundamentals_run.json` kèm loại lỗi nguồn; doctor réo.
+
+| # | Việc | Máy | Khi nào | Lệnh |
+|---|---|---|---|---|
+| N1 | Kiểm nguồn hiện có trả số không | 🖥️ DESKTOP | lúc nào cũng được | `python vnstock_fundamental_updater.py --diag VCB 2>&1 \| Select-Object -First 40` |
+| N2 | Merge PR + test đầy đủ | 🖥️ DESKTOP | trước T7 28/11, ngoài giờ pipeline | `git fetch origin claude/pensive-noether-9wt4rv` → `git merge origin/claude/pensive-noether-9wt4rv` → `python run.py test` |
+| N3 | Xoá sổ ngày-kiểm ghi sai (lượt sau rơi về `updated_at` thật của kho — không mất dữ liệu) | ○ một lần (kho) | SAU N2, trước T7 28/11 | `Remove-Item C:\vnstock\data_warehouse\_meta\fundamentals_checked.json` |
+| N4 | Soi lượt T7 28/11 | 🖥️ DESKTOP | sau 12:00 T7 28/11 | `Select-String -Path run_daily.log -Pattern 'Thứ tự: mã lâu|DỪNG SỚM|Nguồn báo lỗi|OK: .*Errors' -Encoding UTF8 \| Select-Object -Last 5` |
+
 ## 🔄 Cơ bản T7 xoay vòng — lượt Weekend 14/11 bị cắt ở bước fundamentals (thế hệ 6: ≈ 5 giờ thay vì 30–40 phút)
 
 **Chuyện gì:** T7 14/11 (lượt Weekend đầu tiên trên thế hệ 6) `LastTaskResult 267014`: bước `fundamentals --force`

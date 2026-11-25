@@ -786,7 +786,31 @@ def check_fundamentals() -> dict:
             msg += f" — {stale:,} mã bị bỏ quên (lượt T7 bị cắt giữa chừng?)"
             fix = ("chạy bù phần bỏ dở, ngoài giờ pipeline: python vnstock_fundamental_updater.py "
                    "--force --workers 4 --delay 1 --min-age-days 7")
+    run = _fundamentals_last_run(p)
+    if run and run.get("aborted"):
+        # Lớp 3 (25/11): lượt gần nhất DỪNG vì nguồn câm (vết T7 21/11 — từ nửa đêm 1.200+
+        # mã rỗng). File vẫn tươi, độ phủ chưa kịp tụt ⇒ hai lớp trên không thấy.
+        status = "warn"
+        msg += (f" — lượt {run.get('date', '?')} DỪNG sau {int(run.get('asked') or 0):,}/"
+                f"{int(run.get('total') or 0):,} mã: {run['aborted']}")
+        errs = run.get("source_errors") or {}
+        if errs:
+            k, v = next(iter(errs.items()))
+            msg += f" (nguồn báo {k} ×{v.get('count', '?')})"
+        fix = ("kiểm nguồn: python vnstock_fundamental_updater.py --diag VCB — có số thì chạy bù "
+               "ngoài giờ pipeline: python vnstock_fundamental_updater.py --force --workers 4 "
+               "--delay 1 --min-age-days 1; lượt T7 sau tự đi tiếp phần còn lại")
     return _result("fundamentals", name, status, msg, fix)
+
+
+def _fundamentals_last_run(p: Path) -> "dict | None":
+    """`fundamentals_run.json` cạnh `fundamentals.parquet` (updater ghi cuối mỗi lượt).
+    Chưa có / hỏng ⇒ None. Không bao giờ ném."""
+    try:
+        data = json.loads((p.parent / "fundamentals_run.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def check_macro() -> dict:

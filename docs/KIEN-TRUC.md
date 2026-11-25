@@ -182,6 +182,14 @@
   gấp ở MỖI lô đã lưu (lượt bị cắt thì lần lưu cuối không tới). Chạy bù trong ngày: `--force --min-age-days 1`. Doctor `fundamentals`
   thêm lớp độ phủ: >10% mã (có thư mục giá) bị bỏ quên quá 21 ngày ⇒ warn; chưa có sổ ⇒ chỉ xét mtime như cũ.
   Task Weekend ra `267014` giữa bước này là bình thường. Lệnh của task KHÔNG đổi.
+  **Nguồn câm giữa lượt (vết T7 21/11, sửa 25/11):** lượt chạy bù 22:33 có số cho ~525 mã đầu rồi từ khoảng nửa
+  đêm mọi mã đều RỖNG (`0 errors` — `_try_statement` coi `VnstockError` là statement rỗng), và bản xoay vòng đầu
+  tiên đóng dấu "đã kiểm" cho cả 1.200+ mã rỗng. Nay: mã rỗng chỉ được đóng dấu khi xác nhận nguồn còn sống —
+  có mã có số sau nó, hoặc cứ `OUTAGE_STREAK` (40) mã rỗng liên tiếp thì hỏi mã đối chứng (mã vừa có số / VCB /
+  FPT, ≤ 2 lượt); đối chứng cũng rỗng ⇒ DỪNG lượt (huỷ hàng đợi luồng), không đóng dấu chuỗi, CLI thoát 1. Dòng
+  giữ chỗ (mã chưa từng có số) không còn mang `updated_at`. Lỗi nguồn bị nuốt nay được ĐẾM theo lớp/code, in cuối
+  lượt và ghi `_meta/fundamentals_run.json` {date, asked, total, ok, kept, errors, aborted, source_errors}; doctor
+  `fundamentals` lớp 3 réo khi lượt gần nhất `aborted`.
 - `vnstock_sectors.py` — nhóm ngành custom ("Họ VIN", "Họ M") dùng chung
   dashboard + brief; thêm họ mới = thêm 1 dòng registry.
 - `vnstock_vn30.py` — **rổ VN30 hiện hành, một nguồn sự thật duy nhất**. HOSE
