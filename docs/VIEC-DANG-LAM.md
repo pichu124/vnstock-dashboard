@@ -36,7 +36,7 @@ mất (số cũ giữ nguyên) nhưng 1.200+ mã không được làm mới. L�
 doctor xanh 21 ngày. Nguyên nhân nguồn câm CHƯA biết (lỗi bị nuốt, không ghi lại).
 
 **Đã sửa (qua review độc lập):** mã rỗng vì lỗi nguồn không bao giờ được đóng dấu; mã rỗng sạch chỉ được đóng
-dấu khi xác nhận nguồn còn sống; chuỗi 40 mã rỗng mà mã đối chứng (VCB/FPT) rỗng hai lần liền ⇒ updater DỪNG lượt,
+dấu khi xác nhận nguồn còn sống; chuỗi mã rỗng mà mã đối chứng (VCB/FPT) rỗng hai lần liền (đuôi lượt: một vòng) ⇒ updater DỪNG lượt,
 log ghi `fundamentals exit 3`; `_meta/fundamentals_run.json` ghi từ đầu lượt kèm loại lỗi nguồn; doctor réo.
 Sửa kèm: route dòng tiền câm không còn xoá số dòng tiền cũ; `--check` không nổ với dòng giữ chỗ; `--diag` in lỗi nguồn.
 
@@ -44,7 +44,7 @@ Sửa kèm: route dòng tiền câm không còn xoá số dòng tiền cũ; `--c
 |---|---|---|---|---|
 | N1 | Kiểm nguồn hiện có trả số không | 🖥️ DESKTOP | lúc nào cũng được | `python vnstock_fundamental_updater.py --diag VCB 2>&1 \| Select-Object -First 40` |
 | N2 | Merge PR + test đầy đủ | 🖥️ DESKTOP | trước T7 28/11, ngoài giờ pipeline | `git fetch origin claude/pensive-noether-9wt4rv` → `git merge origin/claude/pensive-noether-9wt4rv` → `python run.py test` |
-| N3 | Chữa sổ ngày-kiểm: bỏ đúng các mục đóng dấu oan 21/11 (dấu 21/11 mà số vẫn 14/11), giữ dấu nhóm rỗng thật — lượt sau đi thẳng vào ~1.200 mã bị câm. Thử trên kho giả: bỏ 1.200 · còn 459 | ○ một lần (kho) | SAU N2, trước T7 28/11, ngoài giờ pipeline | trong `C:\vnstock`, venv bật: `python -c "import pandas as pd, vnstock_fund_checked as fc; p='data_warehouse/_meta/'; d=fc.load(p+fc.LEDGER_NAME); u=dict(pd.read_parquet(p+'fundamentals.parquet',columns=['ticker','updated_at']).values); bad=[t for t,v in d.items() if v=='2026-11-21' and u.get(t)=='2026-11-14']; [d.pop(t) for t in bad]; fc.save(d, p+fc.LEDGER_NAME); print('bỏ', len(bad), 'mục · còn', len(d))"` |
+| N3 | Chữa sổ ngày-kiểm: bỏ đúng các mục đóng dấu oan (dấu 21 HOẶC 22/11 — lượt chạy qua nửa đêm — mà số vẫn 14/11), giữ dấu nhóm rỗng thật và nhóm có số ⇒ lượt sau đi thẳng vào các mã bị câm. Lệnh in số mục theo ngày TRƯỚC khi bỏ (thử trên kho giả cùng dạng: sổ trước {21/11: 506, 22/11: 1.200} → bỏ 1.247 · còn 459). Dòng giữ chỗ ghi sau nửa đêm mang `updated_at` 22/11 ngay trong kho nên vẫn xếp cuối — nhóm nhỏ, mã chưa từng có số | ○ một lần (kho) | SAU N2, trước T7 28/11, ngoài giờ pipeline | trong `C:\vnstock`, venv bật: `python -c "import collections, pandas as pd, vnstock_fund_checked as fc; p='data_warehouse/_meta/'; d=fc.load(p+fc.LEDGER_NAME); u=dict(pd.read_parquet(p+'fundamentals.parquet',columns=['ticker','updated_at']).values); print('sổ trước:', dict(collections.Counter(d.values()))); bad=[t for t,v in d.items() if v in ('2026-11-21','2026-11-22') and u.get(t)=='2026-11-14']; [d.pop(t) for t in bad]; fc.save(d, p+fc.LEDGER_NAME); print('bỏ', len(bad), 'mục · còn', len(d))"` |
 | N4 | Soi lượt T7 28/11 | 🖥️ DESKTOP | sau 12:00 T7 28/11 | `Select-String -Path run_daily.log -Pattern 'Thứ tự: mã lâu|DỪNG SỚM|Nguồn báo lỗi|rỗng vì lỗi nguồn|OK: .*Errors|fundamentals exit' -Encoding UTF8 \| Select-Object -Last 6` |
 
 ## 🔄 Cơ bản T7 xoay vòng — lượt Weekend 14/11 bị cắt ở bước fundamentals (thế hệ 6: ≈ 5 giờ thay vì 30–40 phút)

@@ -1465,7 +1465,8 @@ def cmd_weekend(args) -> int:
     updater chạy mã lâu chưa kiểm trước nên tuần sau đi tiếp phần còn lại. Badge
     doctor `fundamentals` réo khi >10% kho bị bỏ quên quá 21 ngày.
     `fundamentals exit 3` = updater DỪNG lượt vì nguồn câm (chuỗi mã rỗng + mã đối chứng VCB/FPT
-    rỗng hai lần liền — vết 21/11); doctor réo kèm loại lỗi nguồn, xem `_meta/fundamentals_run.json`."""
+    rỗng hai lần liền, đuôi lượt một vòng — vết 21/11); doctor réo kèm loại lỗi nguồn, xem
+    `_meta/fundamentals_run.json`."""
     worst = 0
     for name, cmd in _weekend_steps(args):
         print(f"\n=== run.py weekend :: {name} ===")

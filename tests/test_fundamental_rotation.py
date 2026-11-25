@@ -112,6 +112,10 @@ def fu(tmp_path, monkeypatch):
         return {"pe": 10.0, "roe": 15.0}
 
     monkeypatch.setattr(mod, "_fetch_ratios", _ratios)
+    # Lượt `--tickers` (một nhóm mã) mặc định KHÔNG ghi `fundamentals_run.json` — không được
+    # xoá cờ DỪNG của lượt toàn kho. Test dùng `tickers=` nên bật ghi như lượt toàn kho.
+    import functools
+    monkeypatch.setattr(mod, "update", functools.partial(mod.update, write_status=True))
     yield mod
     del mod.seen
 
@@ -459,3 +463,66 @@ def test_check_survives_placeholders_without_a_date(fu, tmp_path, monkeypatch):
     fu._save(pd.DataFrame({"ticker": ["AAA", "BBB"], "pe": [1.0, None],
                            "updated_at": ["2026-11-21", None]}).astype({"updated_at": object}))
     fu.check()
+
+
+def test_clean_empty_outage_without_any_error_is_also_stopped(fu, monkeypatch):
+    """Nguồn câm kiểu trả bảng RỖNG mà không báo lỗi: chỉ bước đối chứng phân biệt được.
+    Mọi mã trong chuỗi đều 'sạch' ⇒ nếu đối chứng không chặn thì cả chuỗi bị đóng dấu."""
+    def _quiet(t):
+        fu.seen.append(t)
+        return {"pe": 1.0} if len(fu.seen) <= 20 else {}
+    monkeypatch.setattr(fu, "_fetch_ratios", _quiet)
+    tickers = [f"T{i:03d}" for i in range(150)]
+    fu.update(tickers=tickers, force=True, delay=0.0, workers=1, batch_save=10)
+    assert set(_ledger(fu)) == set(tickers[:20])
+    assert fu.LAST_RUN["aborted"] and _status(fu)["src_err_tickers"] == 0
+
+
+class UnsupportedError(Exception):
+    """Như `vnstock.errors.UnsupportedError`: route không đọc được CHO MÃ NÀY."""
+    code = "VNSTOCK_ROUTE_UNSUPPORTED"
+
+
+def test_ticker_scoped_errors_count_as_a_real_empty_answer(fu, monkeypatch):
+    """Nguồn có thể báo 'mã này không có dữ liệu' bằng lỗi (route không hỗ trợ cho mã đó)
+    thay vì trả bảng rỗng. Coi là lỗi nguồn thì nhóm ~160 mã 'giữ data cũ' không bao giờ
+    được đóng dấu, đứng đầu hàng mãi và doctor réo vĩnh viễn (review 25/11)."""
+    def _scoped(t):
+        fu.seen.append(t)
+        if t.startswith("NODATA"):
+            fu._note_source_error(UnsupportedError("route không hỗ trợ cho mã này"))
+            return {}
+        return {"pe": 1.0}
+    monkeypatch.setattr(fu, "_fetch_ratios", _scoped)
+    nodata = [f"NODATA{i:03d}" for i in range(60)]
+    fu.update(tickers=nodata + ["ZZZ"], force=True, delay=0.0, workers=1)
+    assert set(_ledger(fu)) == set(nodata) | {"ZZZ"}
+    st = _status(fu)
+    assert st["src_err_tickers"] == 0 and not st["aborted"]
+    assert "UnsupportedError/VNSTOCK_ROUTE_UNSUPPORTED" in st["source_errors"]
+
+
+def test_source_scoped_errors_are_never_stamped_even_when_the_source_is_alive(fu, monkeypatch):
+    class NetworkError(Exception):
+        code = "VNSTOCK_SOURCE_NETWORK"
+
+    def _net(t):
+        fu.seen.append(t)
+        if t.startswith("NET"):
+            fu._note_source_error(NetworkError("timeout"))
+            return {}
+        return {"pe": 1.0}
+    monkeypatch.setattr(fu, "_fetch_ratios", _net)
+    fu.update(tickers=["AAA", "NET1", "NET2", "ZZZ"], force=True, delay=0.0, workers=1)
+    assert set(_ledger(fu)) == {"AAA", "ZZZ"}
+    assert _status(fu)["src_err_tickers"] == 2
+
+
+def test_a_subset_run_does_not_clear_the_store_wide_abort(fu, monkeypatch, tmp_path):
+    import vnstock_fundamental_updater as real_mod
+    monkeypatch.setattr(fu, "_fetch_ratios", _silent_after(fu, 0))
+    fu.update(tickers=[f"T{i:03d}" for i in range(60)], force=True, delay=0.0, workers=1)
+    assert _status(fu)["aborted"]
+    monkeypatch.setattr(fu, "_fetch_ratios", lambda t: {"pe": 1.0})
+    real_mod.update.func(tickers=["VCB"], force=True, delay=0.0, workers=1)   # mặc định: không ghi
+    assert _status(fu)["aborted"], "lượt --tickers một nhóm mã không được xoá cờ DỪNG của lượt T7"

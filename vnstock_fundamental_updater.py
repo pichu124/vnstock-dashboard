@@ -252,12 +252,25 @@ _SOURCE_ERROR_LOCK = threading.Lock()
 # (review 25/11: nguồn chập chờn 1/5 lượt có số từng làm 300/300 mã bị đóng dấu).
 _TLS = threading.local()
 _TICKER_SOURCE_ERRORS: dict = {}
+# Lỗi GẮN VỚI MÃ (route không đọc được cho mã này, nguồn báo mã/tham số mã sai) là một câu
+# trả lời "mã này không có số" — tính như bảng rỗng, được đóng dấu. Mọi lỗi khác (mạng, nguồn
+# ngừng, khoá, lớp lạ) là lỗi PHÍA NGUỒN ⇒ không đóng dấu. Mặc định = phía nguồn: lớp mới chưa
+# biết thì thà hỏi lại còn hơn đóng dấu oan; doctor in tên lớp để bổ sung vào đây. Nguồn hỏng
+# TOÀN BỘ theo kiểu "lỗi gắn với mã" vẫn bị bước đối chứng VCB/FPT bắt.
+_TICKER_SCOPED_ERROR_CLASSES = frozenset({"UnsupportedError"})
+_TICKER_SCOPED_ERROR_CODES = frozenset({"VNSTOCK_ROUTE_UNSUPPORTED", "VNSTOCK_INPUT_SOURCE_PARAM"})
+
+
+def _is_ticker_scoped(e: BaseException) -> bool:
+    return (type(e).__name__ in _TICKER_SCOPED_ERROR_CLASSES
+            or getattr(e, "code", None) in _TICKER_SCOPED_ERROR_CODES)
 
 
 def _note_source_error(e: BaseException) -> None:
     code = getattr(e, "code", None)
     key = type(e).__name__ + (f"/{code}" if code else "")
-    _TLS.n = getattr(_TLS, "n", 0) + 1
+    if not _is_ticker_scoped(e):
+        _TLS.n = getattr(_TLS, "n", 0) + 1
     with _SOURCE_ERROR_LOCK:
         _SOURCE_ERRORS[key] += 1
         _SOURCE_ERROR_SAMPLES.setdefault(key, str(e)[:200])
@@ -663,8 +676,9 @@ def _fetch_one(ticker: str, delay: float) -> "tuple[str, dict | None, str | None
 # Nguồn CÂM giữa lượt (vết T7 21/11): từ khoảng nửa đêm mọi mã đều rỗng. Một chuỗi rỗng
 # dài tự nó không chứng minh gì — nhóm "giữ data cũ" (~160 mã nguồn không có số) đứng đầu
 # hàng cũng là chuỗi rỗng. Nên cứ OUTAGE_STREAK mã rỗng liên tiếp thì hỏi một mã CHẮC có
-# số: có ⇒ chuỗi kia rỗng thật, đóng dấu như thường; không ⇒ nguồn câm, DỪNG lượt, không
-# đóng dấu chuỗi (lượt sau hỏi lại đúng từ đó). Chi phí: ≤ 2 lượt hỏi / 40 mã rỗng.
+# số: có ⇒ chuỗi kia rỗng thật, đóng dấu như thường; không (2 lần liền) ⇒ nguồn câm, DỪNG
+# lượt, không đóng dấu chuỗi (lượt sau hỏi lại đúng từ đó). Chi phí: ≤ 3 lượt hỏi / 40 mã rỗng.
+# Đuôi lượt (< 40 mã rỗng, không còn mã nào sau) chỉ có MỘT vòng đối chứng (VCB, FPT, mã vừa có số).
 OUTAGE_STREAK  = 40
 CANARY_TICKERS = ("VCB", "FPT")
 CANARY_FAILS_TO_ABORT = 2    # một lần VCB tạm rỗng không được làm mất cả tuần
@@ -726,6 +740,7 @@ def update(
     batch_save: int = 50,
     workers: int = 1,
     min_age_days: int = 0,
+    write_status: "bool | None" = None,
 ):
     """
     Tải P/E, ROE cho từng ticker, lưu vào warehouse.
@@ -742,12 +757,20 @@ def update(
         workers   : Số luồng fetch song song (1 = tuần tự như cũ)
         min_age_days: > 0 = bỏ qua mã đã được kiểm trong N ngày gần đây (1 = hôm
                     nay) — để chạy bù phần lượt trước bỏ dở mà không hỏi lại cả kho
+        write_status: ghi `fundamentals_run.json`? Mặc định CHỈ lượt toàn kho (không
+                    `tickers`) — lượt tay một nhóm mã không được xoá cờ DỪNG của lượt T7.
     """
     all_tickers = tickers or _get_stock_tickers()
     existing    = _load_existing()
     _reset_source_errors()
     LAST_RUN.clear()
     started_at = datetime.now().isoformat(timespec="seconds")
+    if write_status is None:
+        write_status = tickers is None
+
+    def _ws(status: dict) -> None:
+        if write_status:
+            _write_run_status(status)
 
     # Index các ticker đã có. After a schema upgrade (new debt_to_equity /
     # operating_cf columns) the old rows lack those fields, so refetch once to
@@ -781,7 +804,7 @@ def update(
 
     if not to_fetch:
         # Vẫn ghi trạng thái: lượt này kết thúc bình thường ⇒ xoá cờ `aborted` của lượt trước.
-        _write_run_status({"date": datetime.now().strftime("%Y-%m-%d"), "started_at": started_at,
+        _ws({"date": datetime.now().strftime("%Y-%m-%d"), "started_at": started_at,
                            "running": False, "total": 0, "asked": 0, "ok": 0, "kept": 0,
                            "errors": 0, "src_err_tickers": 0, "aborted": None,
                            "unstamped": 0, "source_errors": {}})
@@ -815,7 +838,7 @@ def update(
 
     # Ghi NGAY đầu lượt: lượt T7 luôn bị trần 180′ cắt trước cuối `update()` — không ghi ở
     # đây thì cờ `aborted` của một lượt cũ đứng im mãi và doctor réo với ngày cũ.
-    _write_run_status(_status(True, 0, None, 0))
+    _ws(_status(True, 0, None, 0))
 
     # Tickers that already hold a usable ratio (pe or roe) — used to avoid
     # overwriting good data with a NaN placeholder when a refetch comes back
@@ -923,7 +946,7 @@ def update(
                 # 180′ cắt mỗi tuần nên lần lưu cuối không bao giờ tới (`fold` cùng
                 # kỳ cùng số là no-op ⇒ gấp lặp vô hại).
                 _record_periods(df)
-                _write_run_status(_status(True, done, None, 0))
+                _ws(_status(True, done, None, 0))
                 prog.console.print(
                     f"  [dim]💾 Saved batch {done}/{len(to_fetch)} "
                     f"({ok_cnt} OK, {errors} errors)[/dim]"
@@ -971,7 +994,7 @@ def update(
         console.print(f"  [dim]  vd: {first['sample']}[/dim]")
     status = _status(False, done, aborted, unstamped)
     LAST_RUN.update(status)
-    _write_run_status(status)
+    _ws(status)
     if ok_cnt == 0 and errors == 0:
         console.print(
             "[yellow]⚠ Không lấy được ratio nào (statement rỗng). "
